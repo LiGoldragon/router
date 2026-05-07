@@ -10,6 +10,6 @@ This repository owns:
 - event-driven delivery gates;
 - delivery decisions that call into `persona-system`.
 
-It does not own the shared frame contract or the main database. `persona-signal`
+It does not own the shared frame contract or the main database. `signal-persona`
 owns inter-component record types. `persona-store` owns durable state and commit
 ordering.

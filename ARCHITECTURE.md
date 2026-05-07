@@ -50,7 +50,7 @@ This repo owns:
 
 This repo does not own:
 
-- `Frame` record definitions (`persona-signal`);
+- `Frame` record definitions (`signal-persona`);
 - focus/window/input backend implementation (`persona-system`);
 - terminal byte movement (`persona-wezterm`);
 - harness lifecycle internals (`persona-harness`);
@@ -76,7 +76,7 @@ tests/           router smoke tests
 
 ## See Also
 
-- `../persona-signal/ARCHITECTURE.md`
+- `../signal-persona/ARCHITECTURE.md`
 - `../persona-system/ARCHITECTURE.md`
 - `../persona-harness/ARCHITECTURE.md`
 - `../persona-store/ARCHITECTURE.md`

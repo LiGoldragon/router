@@ -5,7 +5,7 @@ decisions, or the router daemon/CLI surface.
 
 Rules for work here:
 
-- Depend on `persona-signal` for shared frame records.
+- Depend on `signal-persona` for shared frame records.
 - Depend on `persona-system` for OS/window/input observations.
 - Depend on `persona-harness` for harness capabilities.
 - Commit durable transitions through `persona-store`; do not open Persona's
