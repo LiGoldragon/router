@@ -1,0 +1,22 @@
+[package]
+name         = "persona-router"
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.85"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/LiGoldragon/persona-router"
+description  = "Persona message router and delivery state machine."
+publish      = false
+
+[lib]
+name = "persona_router"
+path = "src/lib.rs"
+
+[[bin]]
+name = "persona-router-daemon"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused = "warn"
+dead_code = "warn"
