@@ -2,9 +2,9 @@
 
 Persona message router and delivery state machine.
 
-This repository will own:
+This repository owns:
 
-- the router daemon;
+- the router daemon/CLI surface;
 - typed pending delivery state;
 - harness actor registration;
 - event-driven delivery gates;
