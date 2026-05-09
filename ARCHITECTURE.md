@@ -5,7 +5,7 @@
 `persona-router` decides when and where messages are delivered. It consumes
 typed frames from the message boundary, observes system and harness state, keeps
 pending deliveries, and persists router-owned state through `persona-sema` when
-the durable actor lands.
+durable storage lands.
 
 ---
 
@@ -32,13 +32,13 @@ flowchart LR
 - a router daemon/CLI surface for isolated development;
 - pending-delivery state;
 - subscriptions to pushed system and harness events;
-- typed delivery results for the store and callers.
+- typed delivery results for callers and observers.
 
 ## 2 · State and Ownership
 
 The router owns live routing state: pending deliveries, blocked reasons, and
 the next event each delivery waits on. The durable version owns its own
-router-scoped `persona-sema` database; no shared store actor owns router
+router-scoped `persona-sema` database; no shared database actor owns router
 transitions.
 
 ## 3 · Boundaries
