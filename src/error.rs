@@ -1,20 +1,35 @@
-use std::fmt::{Display, Formatter};
+use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use thiserror::Error;
+
+#[derive(Debug, Error)]
 pub enum PersonaRouterError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("nota: {0}")]
+    Nota(#[from] nota_codec::Error),
+
+    #[error("message: {0}")]
+    Message(#[from] persona_message::Error),
+
+    #[error("unknown message recipient: {recipient}")]
     UnknownRecipient { recipient: String },
+
+    #[error("delivery blocked: {reason}")]
     DeliveryBlocked { reason: String },
+
+    #[error("missing router input; pass a NOTA record")]
+    MissingInput,
+
+    #[error("unexpected router argument: {got:?}")]
+    UnexpectedArgument { got: String },
+
+    #[error("router socket path is missing")]
+    MissingSocket,
+
+    #[error("router socket {path:?} did not become ready")]
+    SocketNotReady { path: PathBuf },
 }
 
-impl Display for PersonaRouterError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownRecipient { recipient } => {
-                write!(formatter, "unknown message recipient: {recipient}")
-            }
-            Self::DeliveryBlocked { reason } => write!(formatter, "delivery blocked: {reason}"),
-        }
-    }
-}
-
-impl std::error::Error for PersonaRouterError {}
+pub type Result<T> = std::result::Result<T, PersonaRouterError>;

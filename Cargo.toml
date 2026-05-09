@@ -16,6 +16,17 @@ path = "src/lib.rs"
 name = "persona-router-daemon"
 path = "src/main.rs"
 
+[[bin]]
+name = "router"
+path = "src/bin/router.rs"
+
+[dependencies]
+nota-codec      = { path = "../nota-codec" }
+persona-message = { path = "../persona-message" }
+persona-system  = { path = "../persona-system" }
+persona-wezterm = { path = "../persona-wezterm" }
+thiserror       = "2"
+
 [lints.rust]
 unsafe_code = "forbid"
 unused = "warn"

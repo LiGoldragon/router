@@ -68,10 +68,12 @@ This repo does not own:
 ## Code Map
 
 ```text
-src/delivery.rs  delivery decisions and gate state
-src/message.rs   router message records
-src/main.rs      scaffold daemon entry
-tests/           router smoke tests
+src/router.rs     router actor, daemon/client protocol, pending retry
+src/delivery.rs   delivery decisions and gate state
+src/message.rs    legacy router message records
+src/main.rs       daemon entry
+src/bin/router.rs client entry
+tests/            router smoke tests
 ```
 
 ## See Also
