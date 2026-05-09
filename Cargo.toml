@@ -21,11 +21,12 @@ name = "router"
 path = "src/bin/router.rs"
 
 [dependencies]
-nota-codec      = { path = "../nota-codec" }
-persona-message = { path = "../persona-message" }
-persona-system  = { path = "../persona-system" }
-persona-wezterm = { path = "../persona-wezterm" }
-thiserror       = "2"
+nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
+persona-message       = { git = "https://github.com/LiGoldragon/persona-message.git", branch = "main" }
+persona-system        = { git = "https://github.com/LiGoldragon/persona-system.git", branch = "main" }
+persona-wezterm       = { git = "https://github.com/LiGoldragon/persona-wezterm.git", branch = "main" }
+signal-persona-system = { git = "https://github.com/LiGoldragon/signal-persona-system.git", branch = "main" }
+thiserror             = "2"
 
 [lints.rust]
 unsafe_code = "forbid"

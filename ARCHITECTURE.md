@@ -4,23 +4,24 @@
 
 `persona-router` decides when and where messages are delivered. It consumes
 typed frames from the message boundary, observes system and harness state, keeps
-pending deliveries, and commits delivery transitions through the `persona-sema`
-store actor.
+pending deliveries, and persists router-owned state through `persona-sema` when
+the durable actor lands.
 
 ---
 
 ## 0 · TL;DR
 
-The router owns routing policy. It does not own OS backends, terminal byte
-transport, or durable database writes.
+The router owns routing policy and delivery state. It does not own OS backends,
+terminal byte transport, or contract definitions.
 
 ```mermaid
 flowchart LR
-    "persona-message" -->|"SendMessage Frame"| "RouterActor"
-    "RouterActor" -->|"commit transition"| "store actor"
-    "RouterActor" -->|"subscribe"| "persona-system"
-    "RouterActor" -->|"delivery request"| "persona-harness"
+    "signal-persona-message" -->|"message request frame"| "RouterActor"
+    "signal-persona-system" -->|"focus + input-buffer events"| "RouterActor"
     "RouterActor" -->|"pending state"| "DeliveryQueue"
+    "RouterActor" -->|"delivery request"| "persona-harness"
+    "RouterActor" -->|"router-owned records"| "persona-sema"
+    "persona-system" -->|"system observations"| "signal-persona-system"
 ```
 
 ## 1 · Component Surface
@@ -36,9 +37,9 @@ flowchart LR
 ## 2 · State and Ownership
 
 The router owns live routing state: pending deliveries, blocked reasons, and
-the next event each delivery waits on. In isolated development, it may keep a
-local store for tests. In the assembled runtime, durable transition history is
-committed through the store actor using `persona-sema`.
+the next event each delivery waits on. The durable version owns its own
+router-scoped `persona-sema` database; no shared store actor owns router
+transitions.
 
 ## 3 · Boundaries
 
@@ -51,36 +52,40 @@ This repo owns:
 
 This repo does not own:
 
-- `Frame` record definitions (`signal-persona`);
+- message or system `Frame` record definitions (`signal-persona-message`,
+  `signal-persona-system`);
 - focus/window/input backend implementation (`persona-system`);
 - terminal byte movement (`persona-wezterm`);
 - harness lifecycle internals (`persona-harness`);
 - redb table layout (`persona-sema`);
-- runtime write ordering (store actor).
+- state owned by other actors.
 
 ## 4 · Invariants
 
 - Routing reacts to pushed events. It does not poll.
 - A blocked delivery records the event it needs before it can proceed.
-- Human focus and non-empty prompt buffers are delivery hazards.
+- Human focus, unknown focus, non-empty prompt buffers, and unknown prompt
+  buffers are delivery hazards.
 - Every delivery attempt produces typed observable state: delivered, deferred,
   or rejected.
-- The router asks the store to commit; it does not open the main database.
+- The router consumes `signal-persona-system` observations at the gate
+  boundary; booleans are not a valid inter-component contract.
 
 ## Code Map
 
 ```text
-src/router.rs     router actor, daemon/client protocol, pending retry
-src/delivery.rs   delivery decisions and gate state
-src/message.rs    legacy router message records
-src/main.rs       daemon entry
-src/bin/router.rs client entry
-tests/            router smoke tests
+src/router.rs      router actor, daemon/client protocol, pending retry
+src/delivery.rs    delivery decisions and typed gate state
+src/message.rs     legacy router message records
+src/main.rs        daemon entry
+src/bin/router.rs  client entry
+tests/             router smoke tests
 ```
 
 ## See Also
 
-- `../signal-persona/ARCHITECTURE.md`
+- `../signal-persona-message/ARCHITECTURE.md`
+- `../signal-persona-system/ARCHITECTURE.md`
 - `../persona-system/ARCHITECTURE.md`
 - `../persona-harness/ARCHITECTURE.md`
 - `../persona-sema/ARCHITECTURE.md`

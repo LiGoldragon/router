@@ -3,52 +3,87 @@
 
   inputs = {
     nixpkgs.url = "github:LiGoldragon/nixpkgs?ref=main";
-    nota-codec.url = "github:LiGoldragon/nota-codec";
-    persona-message.url = "github:LiGoldragon/persona-message";
-    persona-system.url = "github:LiGoldragon/persona-system";
-    persona-wezterm.url = "github:LiGoldragon/persona-wezterm";
+
+    fenix.url = "github:nix-community/fenix";
+    fenix.inputs.nixpkgs.follows = "nixpkgs";
+
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
-    { self, nixpkgs, nota-codec, persona-message, persona-system, persona-wezterm }:
+    {
+      self,
+      nixpkgs,
+      fenix,
+      crane,
+    }:
     let
-      systems = [ "x86_64-linux" "aarch64-linux" ];
-      forSystems = function: nixpkgs.lib.genAttrs systems (system: function system nixpkgs.legacyPackages.${system});
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forSystems = function: nixpkgs.lib.genAttrs systems (system: function system);
+      mkContext =
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          toolchain = fenix.packages.${system}.fromToolchainFile {
+            file = ./rust-toolchain.toml;
+            sha256 = "sha256-gh/xTkxKHL4eiRXzWv8KP7vfjSk61Iq48x47BEDFgfk=";
+          };
+          craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
+          src = craneLib.cleanCargoSource ./.;
+          commonArgs = {
+            inherit src;
+            strictDeps = true;
+          };
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        in
+        {
+          inherit
+            pkgs
+            toolchain
+            craneLib
+            commonArgs
+            cargoArtifacts
+            ;
+        };
     in
     {
       packages = forSystems (
-        system: pkgs:
+        system:
+        let
+          context = mkContext system;
+        in
         {
-          default = pkgs.rustPlatform.buildRustPackage {
-            pname = "persona-router";
-            version = "0.1.0";
-            src = ./.;
-            cargoLock = {
-              lockFile = ./Cargo.lock;
-              outputHashes = {
-                "nota-derive-0.1.0" = "sha256-se8zZsYzYlIJr75Q+i88k0EfUkRA/cEFafozBKfmlHY=";
-              };
-            };
-            postPatch = ''
-              cp -R ${nota-codec.outPath} ../nota-codec
-              cp -R ${persona-message.outPath} ../persona-message
-              cp -R ${persona-system.outPath} ../persona-system
-              cp -R ${persona-wezterm.outPath} ../persona-wezterm
-            '';
-            meta.mainProgram = "persona-router-daemon";
-          };
+          default = context.craneLib.buildPackage (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              pname = "persona-router";
+              meta.mainProgram = "persona-router-daemon";
+            }
+          );
         }
       );
 
       checks = forSystems (
-        system: pkgs:
+        system:
+        let
+          context = mkContext system;
+        in
         {
-          default = self.packages.${system}.default;
+          default = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+            }
+          );
         }
       );
 
       apps = forSystems (
-        system: pkgs:
+        system:
         {
           default = {
             type = "app";
@@ -58,20 +93,27 @@
       );
 
       devShells = forSystems (
-        system: pkgs:
+        system:
+        let
+          context = mkContext system;
+        in
         {
-          default = pkgs.mkShell {
+          default = context.pkgs.mkShell {
             packages = [
-              pkgs.cargo
-              pkgs.clippy
-              pkgs.rust-analyzer
-              pkgs.rustc
-              pkgs.rustfmt
+              context.pkgs.jujutsu
+              context.pkgs.pkg-config
+              context.toolchain
             ];
           };
         }
       );
 
-      formatter = forSystems (system: pkgs: pkgs.nixfmt);
+      formatter = forSystems (
+        system:
+        let
+          context = mkContext system;
+        in
+        context.pkgs.nixfmt
+      );
     };
 }

@@ -8,8 +8,9 @@ This repository owns:
 - typed pending delivery state;
 - harness actor registration;
 - event-driven delivery gates;
-- delivery decisions that call into `persona-system`.
+- delivery decisions that consume `signal-persona-system` observations.
 
-It does not own the shared frame contract or the main database. `signal-persona`
-owns inter-component record types. `persona-sema` owns table layout; the store
-actor owns durable state and commit ordering.
+It does not own the shared frame contracts or OS backend implementation.
+`signal-persona-message` owns message request records, `signal-persona-system`
+owns focus and prompt-buffer observation records, and `persona-system` produces
+those observations at runtime.
