@@ -33,14 +33,14 @@ impl MessageBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersonaMessage {
+pub struct Message {
     id: MessageId,
     sender: String,
     recipient: String,
     body: MessageBody,
 }
 
-impl PersonaMessage {
+impl Message {
     pub fn new(
         id: MessageId,
         sender: impl Into<String>,

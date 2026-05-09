@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum PersonaRouterError {
+pub enum Error {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 
@@ -35,4 +35,4 @@ pub enum PersonaRouterError {
     SocketNotReady { path: PathBuf },
 }
 
-pub type Result<T> = std::result::Result<T, PersonaRouterError>;
+pub type Result<T> = std::result::Result<T, Error>;

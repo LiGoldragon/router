@@ -1,4 +1,4 @@
-use crate::PersonaMessage;
+use crate::Message;
 use signal_persona_system::{FocusObservation, InputBufferObservation, InputBufferState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,11 +15,11 @@ impl DeliveryDecision {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingDelivery {
-    message: PersonaMessage,
+    message: Message,
 }
 
 impl PendingDelivery {
-    pub fn new(message: PersonaMessage) -> Self {
+    pub fn new(message: Message) -> Self {
         Self { message }
     }
 

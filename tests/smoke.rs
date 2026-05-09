@@ -1,5 +1,5 @@
 use persona_router::{
-    DeliveryGate, MessageBody, MessageId, PendingDelivery, PersonaMessage, PromptFact, RouterInput,
+    DeliveryGate, Message, MessageBody, MessageId, PendingDelivery, PromptFact, RouterInput,
     RouterOutput,
 };
 use signal_persona_system::{
@@ -94,7 +94,7 @@ fn delivery_gate_allows_delivery_when_system_facts_are_clear() {
 
 #[test]
 fn pending_delivery_keeps_recipient() {
-    let message = PersonaMessage::new(
+    let message = Message::new(
         MessageId::new("m-abc"),
         "operator",
         "responder",

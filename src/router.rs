@@ -7,12 +7,12 @@ use std::thread;
 use std::time::Duration;
 
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
-use persona_message::schema::{Actor, ActorId, Message, expect_end};
+use persona_message::schema::{Actor, ActorId, EndpointKind, Message, expect_end};
 use persona_system::{FocusObservation, SystemTarget};
 use persona_wezterm::pty::PtySocket;
 use persona_wezterm::terminal::{TerminalPrompt, WezTermMux};
 
-use crate::{PersonaRouterError, Result};
+use crate::{Error, Result};
 
 #[derive(Debug)]
 pub struct RouterDaemon {
@@ -25,7 +25,7 @@ impl RouterDaemon {
         let socket = std::env::args_os()
             .nth(1)
             .map(PathBuf::from)
-            .ok_or(PersonaRouterError::MissingSocket)?;
+            .ok_or(Error::MissingSocket)?;
         Ok(Self {
             socket,
             actor: RouterActor::new(),
@@ -68,7 +68,7 @@ impl RouterClient {
         let socket = arguments
             .next()
             .map(PathBuf::from)
-            .ok_or(PersonaRouterError::MissingSocket)?;
+            .ok_or(Error::MissingSocket)?;
         let input = RouterClientArguments::new(arguments.collect()).input()?;
         Ok(Self { socket, input })
     }
@@ -94,10 +94,10 @@ impl RouterClientArguments {
 
     fn input(&self) -> Result<String> {
         let Some(first) = self.arguments.first() else {
-            return Err(PersonaRouterError::MissingInput);
+            return Err(Error::MissingInput);
         };
         if let Some(argument) = self.arguments.get(1) {
-            return Err(PersonaRouterError::UnexpectedArgument {
+            return Err(Error::UnexpectedArgument {
                 got: argument.to_string_lossy().to_string(),
             });
         }
@@ -228,7 +228,7 @@ impl HarnessActor {
         self.actor
             .endpoint
             .as_ref()
-            .is_some_and(|endpoint| endpoint.kind.as_str() == "human")
+            .is_some_and(|endpoint| endpoint.kind == EndpointKind::Human)
     }
 
     fn owns_target(&self, target: SystemTarget) -> bool {
@@ -247,35 +247,33 @@ impl HarnessActor {
         let Some(endpoint) = &self.actor.endpoint else {
             return Ok(false);
         };
-        if endpoint.kind.as_str() == "human" {
-            return Ok(true);
-        }
         let text = message.to_nota()?;
         let prompt = TerminalPrompt::from_text(text.clone());
-        if endpoint.kind.as_str() == "pty-socket" {
-            let socket = PtySocket::from_path(&endpoint.target);
-            socket.send_prompt(prompt.as_str())?;
-            thread::sleep(Duration::from_millis(1000));
-            let evidence = text.chars().take(24).collect::<String>();
-            let capture = socket.capture()?.to_string_lossy();
-            return Ok(capture.contains(&evidence));
-        }
-        if endpoint.kind.as_str() == "wezterm-pane" {
-            let pane_id =
-                endpoint
+        match endpoint.kind {
+            EndpointKind::Human => Ok(true),
+            EndpointKind::PtySocket => {
+                let socket = PtySocket::from_path(&endpoint.target);
+                socket.send_prompt(prompt.as_str())?;
+                thread::sleep(Duration::from_millis(1000));
+                let evidence = text.chars().take(24).collect::<String>();
+                let capture = socket.capture()?.to_string_lossy();
+                Ok(capture.contains(&evidence))
+            }
+            EndpointKind::WezTermPane => {
+                let pane_id = endpoint
                     .target
                     .parse()
-                    .map_err(|_| PersonaRouterError::DeliveryBlocked {
+                    .map_err(|_| Error::DeliveryBlocked {
                         reason: format!("invalid wezterm pane id {:?}", endpoint.target),
                     })?;
-            let mux = match &endpoint.aux {
-                Some(socket) => WezTermMux::from_environment().with_socket(socket),
-                None => WezTermMux::from_environment(),
-            };
-            mux.pane(pane_id).deliver(&prompt)?;
-            return Ok(true);
+                let mux = match &endpoint.aux {
+                    Some(socket) => WezTermMux::from_environment().with_socket(socket),
+                    None => WezTermMux::from_environment(),
+                };
+                mux.pane(pane_id).deliver(&prompt)?;
+                Ok(true)
+            }
         }
-        Ok(false)
     }
 }
 

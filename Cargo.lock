@@ -520,7 +520,7 @@ dependencies = [
 [[package]]
 name = "persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#b405804d5a4a35fa84380bacf61b394d6f867a57"
+source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#0fb51a95201173ef99135a0f05a469ee2d894245"
 dependencies = [
  "nota-codec",
  "persona-system",
@@ -544,7 +544,7 @@ dependencies = [
 [[package]]
 name = "persona-system"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#ebfc1e84d724f7036a33aae780a49787b9f4355e"
+source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#eafb99601b2bb459e3347407787bb861f40b0389"
 dependencies = [
  "nota-codec",
  "serde",
