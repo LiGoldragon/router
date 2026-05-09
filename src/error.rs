@@ -13,6 +13,9 @@ pub enum PersonaRouterError {
     #[error("message: {0}")]
     Message(#[from] persona_message::Error),
 
+    #[error("terminal: {0}")]
+    Terminal(#[from] persona_wezterm::Error),
+
     #[error("unknown message recipient: {recipient}")]
     UnknownRecipient { recipient: String },
 

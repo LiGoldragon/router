@@ -668,11 +668,11 @@
         "nixpkgs": "nixpkgs_10"
       },
       "locked": {
-        "lastModified": 1778289316,
-        "narHash": "sha256-pV1d5lrcYYCJ5l86jyxaLc9YBNItlXEI+l0I57lvDic=",
+        "lastModified": 1778318309,
+        "narHash": "sha256-MKsIGdbRVYAd+lDnmj3Pi5WcgbekWSxWW87IpY9XrDI=",
         "owner": "LiGoldragon",
         "repo": "persona-wezterm",
-        "rev": "28e317f2d65fbd18e52381121ddc2486d5cdc674",
+        "rev": "e35baeb71422ba8f71b94da14d45a9fc0cc14435",
         "type": "github"
       },
       "original": {

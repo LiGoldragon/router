@@ -3,11 +3,14 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
-use persona_message::delivery::{DeliveryGate, DeliveryOutcome, PromptState};
 use persona_message::schema::{Actor, ActorId, Message, expect_end};
 use persona_system::{FocusObservation, SystemTarget};
+use persona_wezterm::pty::PtySocket;
+use persona_wezterm::terminal::{TerminalPrompt, WezTermMux};
 
 use crate::{PersonaRouterError, Result};
 
@@ -25,7 +28,7 @@ impl RouterDaemon {
             .ok_or(PersonaRouterError::MissingSocket)?;
         Ok(Self {
             socket,
-            actor: RouterActor::new(DeliveryGate::from_environment()),
+            actor: RouterActor::new(),
         })
     }
 
@@ -106,15 +109,13 @@ impl RouterClientArguments {
 pub struct RouterActor {
     actors: HashMap<ActorId, HarnessActor>,
     pending: Vec<Message>,
-    gate: DeliveryGate,
 }
 
 impl RouterActor {
-    pub fn new(gate: DeliveryGate) -> Self {
+    pub fn new() -> Self {
         Self {
             actors: HashMap::new(),
             pending: Vec::new(),
-            gate,
         }
     }
 
@@ -172,7 +173,7 @@ impl RouterActor {
         let mut delivered = 0;
         let mut next = Vec::new();
         for message in self.pending.drain(..) {
-            let Some(actor) = self.actors.get(&message.to) else {
+            let Some(actor) = self.actors.get_mut(&message.to) else {
                 next.push(message);
                 continue;
             };
@@ -180,8 +181,8 @@ impl RouterActor {
                 next.push(message);
                 continue;
             }
-            let outcome = actor.deliver(&self.gate, &message)?;
-            if outcome.delivered_to_terminal() {
+            if actor.deliver(&message)? {
+                actor.accept_prompt(PromptFact::Unknown);
                 delivered += 1;
             } else {
                 next.push(message);
@@ -217,7 +218,17 @@ impl HarnessActor {
     }
 
     fn blocks_delivery(&self) -> bool {
-        matches!(self.focus, Some(true)) || matches!(self.prompt, PromptFact::Occupied)
+        if self.is_human() {
+            return false;
+        }
+        matches!(self.focus, Some(true)) || !matches!(self.prompt, PromptFact::Empty)
+    }
+
+    fn is_human(&self) -> bool {
+        self.actor
+            .endpoint
+            .as_ref()
+            .is_some_and(|endpoint| endpoint.kind.as_str() == "human")
     }
 
     fn owns_target(&self, target: SystemTarget) -> bool {
@@ -232,9 +243,39 @@ impl HarnessActor {
             .is_some_and(|id| id.value() == window.value())
     }
 
-    fn deliver(&self, gate: &DeliveryGate, message: &Message) -> Result<DeliveryOutcome> {
-        let prompt = persona_wezterm::terminal::TerminalPrompt::from_text(message.to_nota()?);
-        Ok(gate.deliver(&self.actor, &prompt)?)
+    fn deliver(&self, message: &Message) -> Result<bool> {
+        let Some(endpoint) = &self.actor.endpoint else {
+            return Ok(false);
+        };
+        if endpoint.kind.as_str() == "human" {
+            return Ok(true);
+        }
+        let text = message.to_nota()?;
+        let prompt = TerminalPrompt::from_text(text.clone());
+        if endpoint.kind.as_str() == "pty-socket" {
+            let socket = PtySocket::from_path(&endpoint.target);
+            socket.send_prompt(prompt.as_str())?;
+            thread::sleep(Duration::from_millis(1000));
+            let evidence = text.chars().take(24).collect::<String>();
+            let capture = socket.capture()?.to_string_lossy();
+            return Ok(capture.contains(&evidence));
+        }
+        if endpoint.kind.as_str() == "wezterm-pane" {
+            let pane_id =
+                endpoint
+                    .target
+                    .parse()
+                    .map_err(|_| PersonaRouterError::DeliveryBlocked {
+                        reason: format!("invalid wezterm pane id {:?}", endpoint.target),
+                    })?;
+            let mux = match &endpoint.aux {
+                Some(socket) => WezTermMux::from_environment().with_socket(socket),
+                None => WezTermMux::from_environment(),
+            };
+            mux.pane(pane_id).deliver(&prompt)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -319,18 +360,6 @@ impl NotaEncode for PromptFact {
             Self::Empty => "Empty".to_string().encode(encoder),
             Self::Occupied => "Occupied".to_string().encode(encoder),
             Self::Unknown => "Unknown".to_string().encode(encoder),
-        }
-    }
-}
-
-impl From<&PromptFact> for PromptState {
-    fn from(value: &PromptFact) -> Self {
-        match value {
-            PromptFact::Empty => Self::Empty,
-            PromptFact::Occupied => Self::Occupied {
-                preview: String::new(),
-            },
-            PromptFact::Unknown => Self::Unknown,
         }
     }
 }
