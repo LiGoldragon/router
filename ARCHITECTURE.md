@@ -4,7 +4,8 @@
 
 `persona-router` decides when and where messages are delivered. It consumes
 typed frames from the message boundary, observes system and harness state, keeps
-pending deliveries, and commits delivery transitions through `persona-store`.
+pending deliveries, and commits delivery transitions through the `persona-sema`
+store actor.
 
 ---
 
@@ -16,7 +17,7 @@ transport, or durable database writes.
 ```mermaid
 flowchart LR
     "persona-message" -->|"SendMessage Frame"| "RouterActor"
-    "RouterActor" -->|"commit transition"| "persona-store"
+    "RouterActor" -->|"commit transition"| "store actor"
     "RouterActor" -->|"subscribe"| "persona-system"
     "RouterActor" -->|"delivery request"| "persona-harness"
     "RouterActor" -->|"pending state"| "DeliveryQueue"
@@ -37,7 +38,7 @@ flowchart LR
 The router owns live routing state: pending deliveries, blocked reasons, and
 the next event each delivery waits on. In isolated development, it may keep a
 local store for tests. In the assembled runtime, durable transition history is
-committed through `persona-store`.
+committed through the store actor using `persona-sema`.
 
 ## 3 · Boundaries
 
@@ -54,7 +55,8 @@ This repo does not own:
 - focus/window/input backend implementation (`persona-system`);
 - terminal byte movement (`persona-wezterm`);
 - harness lifecycle internals (`persona-harness`);
-- redb write ownership (`persona-store`).
+- redb table layout (`persona-sema`);
+- runtime write ordering (store actor).
 
 ## 4 · Invariants
 
@@ -81,4 +83,4 @@ tests/            router smoke tests
 - `../signal-persona/ARCHITECTURE.md`
 - `../persona-system/ARCHITECTURE.md`
 - `../persona-harness/ARCHITECTURE.md`
-- `../persona-store/ARCHITECTURE.md`
+- `../persona-sema/ARCHITECTURE.md`

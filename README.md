@@ -11,5 +11,5 @@ This repository owns:
 - delivery decisions that call into `persona-system`.
 
 It does not own the shared frame contract or the main database. `signal-persona`
-owns inter-component record types. `persona-store` owns durable state and commit
-ordering.
+owns inter-component record types. `persona-sema` owns table layout; the store
+actor owns durable state and commit ordering.

@@ -8,9 +8,8 @@ Rules for work here:
 - Depend on `signal-persona` for shared frame records.
 - Depend on `persona-system` for OS/window/input observations.
 - Depend on `persona-harness` for harness capabilities.
-- Commit durable transitions through `persona-store`; do not open Persona's
-  main database here.
+- Commit durable transitions through the store actor using `persona-sema`; do
+  not open Persona's main database here.
 - Use pushed event subscriptions. Do not add polling loops.
 - Keep terminal byte transport out of this repo; that belongs in
   `persona-wezterm`.
-
