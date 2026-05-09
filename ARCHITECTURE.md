@@ -4,8 +4,8 @@
 
 `persona-router` decides when and where messages are delivered. It consumes
 typed frames from the message boundary, observes system and harness state, keeps
-pending deliveries, and persists router-owned state through `persona-sema` when
-durable storage lands.
+pending deliveries, and owns its router-scoped Sema database for durable
+routing state.
 
 ---
 
@@ -37,9 +37,14 @@ flowchart LR
 ## 2 · State and Ownership
 
 The router owns live routing state: pending deliveries, blocked reasons, and
-the next event each delivery waits on. The durable version owns its own
-router-scoped `persona-sema` database; no shared database actor owns router
-transitions.
+the next event each delivery waits on. Durable router state lives in the
+router actor's own Sema database through `persona-sema`; no shared database
+actor owns router transitions.
+
+Stored router records are typed contract records from the `signal-persona-*`
+family. The router actor decodes Signal frames, commits through typed
+`persona-sema` tables, and emits follow-up frames only after the database
+commit succeeds.
 
 ## 3 · Boundaries
 
@@ -58,6 +63,7 @@ This repo does not own:
 - terminal byte movement (`persona-wezterm`);
 - harness lifecycle internals (`persona-harness`);
 - redb table layout (`persona-sema`);
+- the Sema database of any other Persona component;
 - state owned by other actors.
 
 ## 4 · Invariants
@@ -70,6 +76,8 @@ This repo does not own:
   or rejected.
 - The router consumes `signal-persona-system` observations at the gate
   boundary; booleans are not a valid inter-component contract.
+- Durable effects commit before externally visible delivery or subscription
+  events.
 
 ## Code Map
 
