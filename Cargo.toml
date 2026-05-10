@@ -23,9 +23,9 @@ path = "src/bin/router.rs"
 [dependencies]
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
+persona-harness       = { git = "https://github.com/LiGoldragon/persona-harness.git", branch = "main" }
 persona-message       = { git = "https://github.com/LiGoldragon/persona-message.git", branch = "main" }
 persona-system        = { git = "https://github.com/LiGoldragon/persona-system.git", branch = "main" }
-persona-wezterm       = { git = "https://github.com/LiGoldragon/persona-wezterm.git", branch = "main" }
 signal-persona-system = { git = "https://github.com/LiGoldragon/signal-persona-system.git", branch = "main" }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }

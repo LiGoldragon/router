@@ -22,7 +22,7 @@ flowchart LR
     "RouterRoot" -->|"register + observation state"| "HarnessRegistry"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
-    "HarnessDelivery" -->|"delivery request"| "persona-harness"
+    "HarnessDelivery" -->|"typed terminal delivery request"| "persona-harness"
     "RouterRoot" -->|"router-owned records"| "persona-sema"
     "persona-system" -->|"system observations"| "signal-persona-system"
 ```
@@ -53,7 +53,9 @@ deliveries and coordinates smaller actor planes. `HarnessRegistry` owns
 registered harness endpoint, focus, and prompt facts. `HarnessDelivery` owns
 terminal delivery attempts and the blocking terminal/probe calls they require.
 Durable router state lives in the router actor's own Sema database through
-`persona-sema`; no shared database actor owns router transitions.
+`persona-sema`; no shared database actor owns router transitions. Terminal
+byte movement and verification are delegated through `persona-harness`, which
+then owns the `persona-wezterm` transport adapter.
 
 Stored router records are typed contract records from the `signal-persona-*`
 family. The router actor decodes Signal frames, commits through typed
@@ -75,6 +77,7 @@ This repo does not own:
   `signal-persona-system`);
 - focus/window/input backend implementation (`persona-system`);
 - terminal byte movement (`persona-wezterm`);
+- terminal adapter execution (`persona-harness`);
 - harness lifecycle internals (`persona-harness`);
 - redb table layout (`persona-sema`);
 - the Sema database of any other Persona component;
@@ -87,8 +90,8 @@ This repo does not own:
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration and observation state enter through
   `HarnessRegistry`.
-- Terminal delivery and verification calls stay in `HarnessDelivery`, not
-  in the router state actor.
+- Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
+  execution stays behind `persona-harness`.
 - A blocked delivery records the event it needs before it can proceed.
 - Human focus, unknown focus, non-empty prompt buffers, and unknown prompt
   buffers are delivery hazards.

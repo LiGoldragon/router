@@ -450,9 +450,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "persona-harness"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/persona-harness.git?branch=main#1cc42aa6c16c38c1ea693cc519b3379b35a8c560"
+dependencies = [
+ "kameo",
+ "persona-wezterm",
+ "signal-persona-terminal",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#5580a03706346bc7230437de41efce474c621b90"
+source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#ab3b901b263290d652f053dde53b012186846d43"
 dependencies = [
  "kameo",
  "nota-codec",
@@ -469,9 +481,9 @@ version = "0.1.0"
 dependencies = [
  "kameo",
  "nota-codec",
+ "persona-harness",
  "persona-message",
  "persona-system",
- "persona-wezterm",
  "signal-persona-system",
  "thiserror 2.0.18",
  "tokio",
@@ -480,7 +492,7 @@ dependencies = [
 [[package]]
 name = "persona-system"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#48bacce9173f9570c6a6e6f0829200f28d2a46f7"
+source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#180a17fd8d9d54a663f91efad2975fb23538871b"
 dependencies = [
  "kameo",
  "nota-codec",
@@ -493,11 +505,12 @@ dependencies = [
 [[package]]
 name = "persona-wezterm"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-wezterm.git?branch=main#b40469ba0a50e738b7c51bd08bd4d73f0fb19ecf"
+source = "git+https://github.com/LiGoldragon/persona-wezterm.git?branch=main#e739e7c4c6185139b8fa7cf074758cd6ae72fd0a"
 dependencies = [
  "crossterm",
  "kameo",
  "portable-pty",
+ "signal-persona-terminal",
  "thiserror 2.0.18",
  "vt100",
 ]
@@ -801,6 +814,16 @@ dependencies = [
 name = "signal-persona-system"
 version = "0.1.0"
 source = "git+https://github.com/LiGoldragon/signal-persona-system.git?branch=main#809e032eb0ad31c8fad3ab3cdf23046dc9513881"
+dependencies = [
+ "rkyv",
+ "signal-core",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "signal-persona-terminal"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#1cc221e0b600e9c17615750fadb50ad2bc97f5a8"
 dependencies = [
  "rkyv",
  "signal-core",

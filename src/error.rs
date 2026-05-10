@@ -13,8 +13,8 @@ pub enum Error {
     #[error("message: {0}")]
     Message(#[from] persona_message::Error),
 
-    #[error("terminal: {0}")]
-    Terminal(#[from] persona_wezterm::Error),
+    #[error("harness terminal: {0}")]
+    Terminal(#[from] persona_harness::Error),
 
     #[error("actor call: {0}")]
     ActorCall(String),

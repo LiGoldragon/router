@@ -324,12 +324,26 @@ fn router_root_cannot_hold_terminal_blocking_work() {
         );
     }
 
+    for fragment in [
+        "thread::sleep",
+        "PtySocket::",
+        "WezTermMux::",
+        ".capture()?",
+        "persona_wezterm",
+    ] {
+        assert!(
+            !delivery_source.contains(fragment),
+            "HarnessDelivery source still owns terminal transport fragment {fragment}"
+        );
+    }
+
     assert!(delivery_source.contains("pub struct HarnessDelivery {"));
     assert!(delivery_source.contains("attempted_delivery_count: u64,"));
     assert!(delivery_source.contains("delegated_delivery_count: u64,"));
     assert!(delivery_source.contains("DelegatedReply<HarnessDeliveryOutcome>"));
     assert!(delivery_source.contains("tokio::task::spawn_blocking"));
-    assert!(delivery_source.contains("thread::sleep"));
+    assert!(delivery_source.contains("HarnessTerminalDelivery"));
+    assert!(delivery_source.contains("HarnessTerminalEndpoint"));
 }
 
 #[test]

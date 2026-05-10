@@ -17,9 +17,9 @@ Rules for work here:
   Public callers talk to `ActorRef<RouterRuntime>`.
 - Keep harness endpoint/focus/prompt facts in `HarnessRegistry`, not in
   the router root actor.
-- Keep terminal delivery and verification calls in `HarnessDelivery`.
-  The router root actor coordinates delivery; it does not own terminal blocking
-  work.
+- Keep terminal delivery attempts in `HarnessDelivery`, but delegate terminal
+  adapter execution through `persona-harness`. The router root actor
+  coordinates delivery; it does not own terminal blocking work.
 - Use pushed event subscriptions. Do not add polling loops.
 - Treat unknown focus and unknown prompt-buffer state as blocked delivery.
 - Keep terminal byte transport out of this repo; that belongs in

@@ -1,13 +1,14 @@
-use std::thread;
-use std::time::Duration;
+use std::path::PathBuf;
 
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 use kameo::reply::DelegatedReply;
-use persona_message::schema::{Actor, EndpointKind, Message};
-use persona_wezterm::pty::PtySocket;
-use persona_wezterm::terminal::{TerminalPrompt, WezTermMux};
+use persona_harness::{
+    HarnessId, HarnessTerminalBinding, HarnessTerminalDelivery as TerminalDelivery,
+    HarnessTerminalEndpoint,
+};
+use persona_message::schema::{Actor, EndpointKind, EndpointTransport, Message};
 
 use crate::{Error, Result};
 
@@ -30,17 +31,17 @@ impl HarnessDelivery {
             return Ok(false);
         };
         let text = message.to_nota()?;
-        let prompt = TerminalPrompt::from_text(text.clone());
-        let delivered = match endpoint.kind {
-            EndpointKind::Human => true,
-            EndpointKind::PtySocket => {
-                let socket = PtySocket::from_path(&endpoint.target);
-                socket.send_prompt(prompt.as_str())?;
-                thread::sleep(Duration::from_millis(1000));
-                let evidence = text.chars().take(24).collect::<String>();
-                let capture = socket.capture()?.to_string_lossy();
-                capture.contains(&evidence)
-            }
+        let terminal = HarnessTerminalBinding::for_harness(HarnessId::new(actor.name.as_str()));
+        let mut delivery = TerminalDelivery::new(Self::terminal_endpoint(endpoint)?);
+        Ok(delivery.deliver_text(&terminal, &text)?.delivered())
+    }
+
+    fn terminal_endpoint(endpoint: &EndpointTransport) -> Result<HarnessTerminalEndpoint> {
+        match endpoint.kind {
+            EndpointKind::Human => Ok(HarnessTerminalEndpoint::Human),
+            EndpointKind::PtySocket => Ok(HarnessTerminalEndpoint::PtySocket {
+                path: PathBuf::from(&endpoint.target),
+            }),
             EndpointKind::WezTermPane => {
                 let pane_id = endpoint
                     .target
@@ -48,15 +49,12 @@ impl HarnessDelivery {
                     .map_err(|_| Error::DeliveryBlocked {
                         reason: format!("invalid wezterm pane id {:?}", endpoint.target),
                     })?;
-                let mux = match &endpoint.aux {
-                    Some(socket) => WezTermMux::from_environment().with_socket(socket),
-                    None => WezTermMux::from_environment(),
-                };
-                mux.pane(pane_id).deliver(&prompt)?;
-                true
+                Ok(HarnessTerminalEndpoint::WezTermPane {
+                    pane_id,
+                    mux_socket: endpoint.aux.as_ref().map(PathBuf::from),
+                })
             }
-        };
-        Ok(delivered)
+        }
     }
 }
 
