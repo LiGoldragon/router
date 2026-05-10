@@ -7,7 +7,7 @@ use kameo::actor::{ActorRef, Spawn};
 use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
-use persona_message::schema::{Actor, ActorId, Message, expect_end};
+use persona_message::schema::{Actor, ActorId, Message, MessageId, expect_end};
 use persona_system::FocusObservation;
 
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
@@ -243,6 +243,7 @@ pub struct RouterRoot {
     pending: Vec<Message>,
     registry: ActorRef<HarnessRegistry>,
     delivery: ActorRef<HarnessDelivery>,
+    trace: RouterTrace,
 }
 
 impl RouterRoot {
@@ -251,6 +252,7 @@ impl RouterRoot {
             pending: Vec::new(),
             registry,
             delivery,
+            trace: RouterTrace::new(),
         }
     }
 
@@ -265,7 +267,10 @@ impl RouterRoot {
                 Ok(RouterOutput::Registered(Registered { actors }))
             }
             RouterInput::RouteMessage(input) => {
+                let message_id = input.message.id.clone();
                 self.pending.push(input.message);
+                self.trace
+                    .record(message_id, RouterTraceStep::MessageCommitted);
                 let delivered = self.retry_pending().await?;
                 Ok(RouterOutput::DeliveryChanged(DeliveryChanged {
                     delivered,
@@ -336,6 +341,8 @@ impl RouterRoot {
                 next.push(message);
                 continue;
             }
+            self.trace
+                .record(message.id.clone(), RouterTraceStep::DeliveryAttempted);
             let delivery_reply = match self
                 .delivery
                 .ask(DeliverHarness {
@@ -369,6 +376,8 @@ impl RouterRoot {
                     return Err(Error::ActorCall(error.to_string()));
                 }
                 delivered += 1;
+                self.trace
+                    .record(message.id.clone(), RouterTraceStep::DeliveryMarked);
             } else {
                 next.push(message);
             }
@@ -413,6 +422,111 @@ impl kameo::message::Message<ApplyRouterInput> for RouterRoot {
     ) -> Self::Reply {
         RouterApplyOutcome::new(self.apply(message.input).await)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadRouterTrace {
+    pub since: usize,
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct RouterTraceSnapshot {
+    result: Result<RouterTrace>,
+}
+
+impl RouterTraceSnapshot {
+    fn new(result: Result<RouterTrace>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<RouterTrace> {
+        self.result
+    }
+}
+
+impl kameo::message::Message<ReadRouterTrace> for RouterRuntime {
+    type Reply = RouterTraceSnapshot;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterTrace,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string())),
+            Err(error) => Err(error),
+        };
+        RouterTraceSnapshot::new(result)
+    }
+}
+
+impl kameo::message::Message<ReadRouterTrace> for RouterRoot {
+    type Reply = RouterTrace;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterTrace,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.trace.from(message.since)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
+pub struct RouterTrace {
+    events: Vec<RouterTraceEvent>,
+}
+
+impl RouterTrace {
+    pub fn new() -> Self {
+        Self { events: Vec::new() }
+    }
+
+    fn record(&mut self, message: MessageId, step: RouterTraceStep) {
+        self.events.push(RouterTraceEvent { message, step });
+    }
+
+    fn from(&self, since: usize) -> Self {
+        Self {
+            events: self.events.iter().skip(since).cloned().collect(),
+        }
+    }
+
+    pub fn events(&self) -> &[RouterTraceEvent] {
+        &self.events
+    }
+}
+
+impl Default for RouterTrace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterTraceEvent {
+    message: MessageId,
+    step: RouterTraceStep,
+}
+
+impl RouterTraceEvent {
+    pub fn message(&self) -> &MessageId {
+        &self.message
+    }
+
+    pub fn step(&self) -> RouterTraceStep {
+        self.step
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouterTraceStep {
+    MessageCommitted,
+    DeliveryAttempted,
+    DeliveryMarked,
 }
 
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]

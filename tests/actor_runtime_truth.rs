@@ -6,8 +6,8 @@ use persona_message::schema::{
 };
 use persona_router::{
     ActorRef, ApplyRouterInput, HarnessDelivery, HarnessRegistry, PromptFact, PromptObservation,
-    ReadHarnessRegistryStatus, RegisterActor, RouteMessage, RouterInput, RouterOutput, RouterRoot,
-    RouterRuntime, Status,
+    ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor, RouteMessage, RouterInput,
+    RouterOutput, RouterRoot, RouterRuntime, RouterTrace, RouterTraceStep, Status,
 };
 
 struct SourceFile {
@@ -29,6 +29,14 @@ impl RouterFixture {
     async fn apply(&self, input: RouterInput) -> persona_router::Result<RouterOutput> {
         self.runtime
             .ask(ApplyRouterInput { input })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn trace(&self) -> persona_router::Result<RouterTrace> {
+        self.runtime
+            .ask(ReadRouterTrace { since: 0 })
             .await
             .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
             .into_result()
@@ -126,6 +134,72 @@ fn router_actor_cannot_use_non_kameo_runtime() {
         "non-kameo router actor runtime violations:\n{}",
         violations.join("\n")
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_cannot_emit_delivery_before_commit() {
+    let responder = ActorId::new("responder");
+    let message_id = MessageId::new("m-order");
+    let router = RouterFixture::start().await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: responder.clone(),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register request passes through router actor");
+    router
+        .apply(RouterInput::PromptObservation(PromptObservation {
+            actor: responder.clone(),
+            state: PromptFact::Empty,
+        }))
+        .await
+        .expect("prompt observation passes through router actor");
+
+    let output = router
+        .apply(RouterInput::RouteMessage(RouteMessage {
+            message: Message {
+                id: message_id.clone(),
+                thread: ThreadId::new("direct-operator-responder"),
+                from: ActorId::new("operator"),
+                to: responder,
+                body: "hello".to_string(),
+                attachments: Vec::new(),
+            },
+        }))
+        .await
+        .expect("route request passes through router actor");
+
+    let RouterOutput::DeliveryChanged(delivery) = output else {
+        panic!("expected delivery changed output");
+    };
+    assert_eq!(delivery.delivered, 0);
+    assert_eq!(delivery.pending, 1);
+
+    let trace = router.trace().await.expect("router trace is readable");
+    let message_steps = trace
+        .events()
+        .iter()
+        .filter(|event| event.message() == &message_id)
+        .map(|event| event.step())
+        .collect::<Vec<_>>();
+    let commit_index = message_steps
+        .iter()
+        .position(|step| *step == RouterTraceStep::MessageCommitted)
+        .expect("message commit is traced");
+    let delivery_index = message_steps
+        .iter()
+        .position(|step| *step == RouterTraceStep::DeliveryAttempted)
+        .expect("delivery attempt is traced");
+    assert!(
+        commit_index < delivery_index,
+        "delivery trace cannot appear before commit trace: {message_steps:?}"
+    );
+
+    router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -354,4 +428,6 @@ fn public_control_records_cannot_be_zero_sized() {
     assert!(std::mem::size_of::<HarnessDelivery>() > 0);
     assert!(std::mem::size_of::<Status>() > 0);
     assert!(std::mem::size_of::<ReadHarnessRegistryStatus>() > 0);
+    assert!(std::mem::size_of::<ReadRouterTrace>() > 0);
+    assert!(std::mem::size_of::<RouterTrace>() > 0);
 }

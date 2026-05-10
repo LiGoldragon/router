@@ -62,6 +62,26 @@ family. The router actor decodes Signal frames, commits through typed
 `persona-sema` tables, and emits follow-up frames only after the database
 commit succeeds.
 
+Current MVP code still uses in-memory pending state. Its first witness is an
+actor trace: `MessageCommitted` must appear for a message before any
+`DeliveryAttempted` event for that same message. When router-owned Sema tables
+land, that trace witness graduates into a chained artifact witness where one
+step writes the router redb and another step reads the committed message and
+delivery state through the authoritative table layer.
+
+Future router-owned durable state includes message acceptance, pending delivery,
+delivery attempt, delivery result, and delivered/failed/deferred status records.
+Successful delivery is another router state transition: after
+`persona-harness` reports the terminal effect, the router commits the delivery
+status update before post-delivery subscription events are emitted.
+
+Future development may add router garbage collection. GC is a router-state
+operation, not an external delete loop: the router decides which delivered or
+expired routing records can leave the live tables, writes an archive/generation
+record first, and only then removes or compacts live entries. A separate archive
+retention component may later garbage-collect archive files, but it does not own
+the router's live delivery truth.
+
 ## 3 · Boundaries
 
 This repo owns:
@@ -97,6 +117,9 @@ This repo does not own:
   buffers are delivery hazards.
 - Every delivery attempt produces typed observable state: delivered, deferred,
   or rejected.
+- Message acceptance commits before any delivery attempt is emitted.
+- Delivery results update router-owned state before post-delivery events are
+  emitted.
 - The router consumes `signal-persona-system` observations at the gate
   boundary; booleans are not a valid inter-component contract.
 - Durable effects commit before externally visible delivery or subscription
