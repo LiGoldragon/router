@@ -1,20 +1,20 @@
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::thread;
-use std::time::Duration;
 
 use kameo::actor::{Actor as KameoActor, ActorRef, Spawn};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message as KameoMessage};
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
-use persona_message::schema::{Actor, ActorId, EndpointKind, Message, expect_end};
-use persona_system::{FocusObservation, SystemTarget};
-use persona_wezterm::pty::PtySocket;
-use persona_wezterm::terminal::{TerminalPrompt, WezTermMux};
+use persona_message::schema::{Actor, ActorId, Message, expect_end};
+use persona_system::FocusObservation;
 
+use crate::delivery_actor::{DeliverHarnessMessage, HarnessDeliveryActor};
+use crate::registry_actor::{
+    AcceptFocusObservation, AcceptPromptObservation, HarnessRegistryActor, MarkHarnessDelivered,
+    ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus, RegisterHarnessActor,
+};
 use crate::{Error, Result};
 
 #[derive(Debug)]
@@ -113,13 +113,27 @@ impl RouterClientArguments {
 #[derive(Debug, Clone)]
 pub struct RouterActorHandle {
     actor_reference: ActorRef<RouterActor>,
+    registry_actor_reference: ActorRef<HarnessRegistryActor>,
+    delivery_actor_reference: ActorRef<HarnessDeliveryActor>,
 }
 
 impl RouterActorHandle {
     pub async fn start() -> Self {
-        let actor_reference = RouterActor::spawn(RouterActor::new());
+        let registry_actor_reference = HarnessRegistryActor::spawn(HarnessRegistryActor::new());
+        registry_actor_reference.wait_for_startup().await;
+        let delivery_actor_reference =
+            HarnessDeliveryActor::spawn_in_thread(HarnessDeliveryActor::new());
+        delivery_actor_reference.wait_for_startup().await;
+        let actor_reference = RouterActor::spawn(RouterActor::new(
+            registry_actor_reference.clone(),
+            delivery_actor_reference.clone(),
+        ));
         actor_reference.wait_for_startup().await;
-        Self { actor_reference }
+        Self {
+            actor_reference,
+            registry_actor_reference,
+            delivery_actor_reference,
+        }
     }
 
     pub async fn apply(&self, input: RouterInput) -> Result<RouterOutput> {
@@ -136,6 +150,16 @@ impl RouterActorHandle {
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?;
         self.actor_reference.wait_for_shutdown().await;
+        self.registry_actor_reference
+            .stop_gracefully()
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?;
+        self.registry_actor_reference.wait_for_shutdown().await;
+        self.delivery_actor_reference
+            .stop_gracefully()
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?;
+        self.delivery_actor_reference.wait_for_shutdown().await;
         Ok(())
     }
 }
@@ -162,82 +186,135 @@ impl RouterApplyReply {
 
 #[derive(Debug)]
 pub struct RouterActor {
-    actors: HashMap<ActorId, HarnessActor>,
     pending: Vec<Message>,
+    registry_actor: ActorRef<HarnessRegistryActor>,
+    delivery_actor: ActorRef<HarnessDeliveryActor>,
 }
 
 impl RouterActor {
-    pub fn new() -> Self {
+    pub fn new(
+        registry_actor: ActorRef<HarnessRegistryActor>,
+        delivery_actor: ActorRef<HarnessDeliveryActor>,
+    ) -> Self {
         Self {
-            actors: HashMap::new(),
             pending: Vec::new(),
+            registry_actor,
+            delivery_actor,
         }
     }
 
-    pub fn apply(&mut self, input: RouterInput) -> Result<RouterOutput> {
+    pub async fn apply(&mut self, input: RouterInput) -> Result<RouterOutput> {
         match input {
             RouterInput::RegisterActor(input) => {
-                self.actors
-                    .insert(input.actor.name.clone(), HarnessActor::new(input.actor));
-                Ok(RouterOutput::Registered(Registered {
-                    actors: self.actors.len() as u64,
-                }))
+                let actors = self
+                    .registry_actor
+                    .ask(RegisterHarnessActor { actor: input.actor })
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                Ok(RouterOutput::Registered(Registered { actors }))
             }
             RouterInput::RouteMessage(input) => {
                 self.pending.push(input.message);
-                let delivered = self.retry_pending()?;
+                let delivered = self.retry_pending().await?;
                 Ok(RouterOutput::DeliveryChanged(DeliveryChanged {
                     delivered,
                     pending: self.pending.len() as u64,
                 }))
             }
             RouterInput::FocusObservation(observation) => {
-                self.accept_focus(observation);
-                let delivered = self.retry_pending()?;
+                self.registry_actor
+                    .ask(AcceptFocusObservation { observation })
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                let delivered = self.retry_pending().await?;
                 Ok(RouterOutput::DeliveryChanged(DeliveryChanged {
                     delivered,
                     pending: self.pending.len() as u64,
                 }))
             }
             RouterInput::PromptObservation(input) => {
-                if let Some(actor) = self.actors.get_mut(&input.actor) {
-                    actor.accept_prompt(input.state);
-                }
-                let delivered = self.retry_pending()?;
+                self.registry_actor
+                    .ask(AcceptPromptObservation { observation: input })
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                let delivered = self.retry_pending().await?;
                 Ok(RouterOutput::DeliveryChanged(DeliveryChanged {
                     delivered,
                     pending: self.pending.len() as u64,
                 }))
             }
-            RouterInput::Status(_) => Ok(RouterOutput::Status(RouterStatus {
-                actors: self.actors.len() as u64,
-                pending: self.pending.len() as u64,
-            })),
-        }
-    }
-
-    fn accept_focus(&mut self, observation: FocusObservation) {
-        for actor in self.actors.values_mut() {
-            if actor.owns_target(observation.target) {
-                actor.accept_focus(observation.focused);
+            RouterInput::Status(_) => {
+                let actors = self
+                    .registry_actor
+                    .ask(ReadHarnessRegistryStatus)
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                Ok(RouterOutput::Status(RouterStatus {
+                    actors,
+                    pending: self.pending.len() as u64,
+                }))
             }
         }
     }
 
-    fn retry_pending(&mut self) -> Result<u64> {
+    async fn retry_pending(&mut self) -> Result<u64> {
         let mut delivered = 0;
         let mut next = Vec::new();
-        for message in self.pending.drain(..) {
-            let Some(actor) = self.actors.get_mut(&message.to) else {
+        let mut messages = std::mem::take(&mut self.pending).into_iter();
+        while let Some(message) = messages.next() {
+            let target = match self
+                .registry_actor
+                .ask(ReadHarnessDeliveryTarget {
+                    recipient: message.to.clone(),
+                })
+                .await
+            {
+                Ok(target) => target,
+                Err(error) => {
+                    self.restore_pending_after_error(next, Some(message), messages);
+                    return Err(Error::ActorCall(error.to_string()));
+                }
+            };
+            let Some(target) = target else {
                 next.push(message);
                 continue;
             };
-            if actor.blocks_delivery() {
+            if target.blocks_delivery {
                 next.push(message);
                 continue;
             }
-            if actor.deliver(&message)? {
-                actor.accept_prompt(PromptFact::Unknown);
+            let delivery_reply = match self
+                .delivery_actor
+                .ask(DeliverHarnessMessage {
+                    actor: target.actor,
+                    message: message.clone(),
+                })
+                .await
+            {
+                Ok(reply) => reply,
+                Err(error) => {
+                    self.restore_pending_after_error(next, Some(message), messages);
+                    return Err(Error::ActorCall(error.to_string()));
+                }
+            };
+            let delivery_result = match delivery_reply.into_result() {
+                Ok(result) => result,
+                Err(error) => {
+                    self.restore_pending_after_error(next, Some(message), messages);
+                    return Err(error);
+                }
+            };
+            if delivery_result {
+                if let Err(error) = self
+                    .registry_actor
+                    .ask(MarkHarnessDelivered {
+                        actor: message.to.clone(),
+                    })
+                    .await
+                {
+                    self.restore_pending_after_error(next, None, messages);
+                    return Err(Error::ActorCall(error.to_string()));
+                }
                 delivered += 1;
             } else {
                 next.push(message);
@@ -245,6 +322,19 @@ impl RouterActor {
         }
         self.pending = next;
         Ok(delivered)
+    }
+
+    fn restore_pending_after_error(
+        &mut self,
+        mut next: Vec<Message>,
+        current: Option<Message>,
+        remaining: impl IntoIterator<Item = Message>,
+    ) {
+        if let Some(message) = current {
+            next.push(message);
+        }
+        next.extend(remaining);
+        self.pending = next;
     }
 }
 
@@ -268,91 +358,7 @@ impl KameoMessage<ApplyRouterInput> for RouterActor {
         message: ApplyRouterInput,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        RouterApplyReply::new(self.apply(message.input))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HarnessActor {
-    actor: Actor,
-    focus: Option<bool>,
-    prompt: PromptFact,
-}
-
-impl HarnessActor {
-    pub fn new(actor: Actor) -> Self {
-        Self {
-            actor,
-            focus: None,
-            prompt: PromptFact::Unknown,
-        }
-    }
-
-    fn accept_focus(&mut self, focused: bool) {
-        self.focus = Some(focused);
-    }
-
-    fn accept_prompt(&mut self, state: PromptFact) {
-        self.prompt = state;
-    }
-
-    fn blocks_delivery(&self) -> bool {
-        if self.is_human() {
-            return false;
-        }
-        matches!(self.focus, Some(true)) || !matches!(self.prompt, PromptFact::Empty)
-    }
-
-    fn is_human(&self) -> bool {
-        self.actor
-            .endpoint
-            .as_ref()
-            .is_some_and(|endpoint| endpoint.kind == EndpointKind::Human)
-    }
-
-    fn owns_target(&self, target: SystemTarget) -> bool {
-        let Some(endpoint) = &self.actor.endpoint else {
-            return false;
-        };
-        let Some(window) = endpoint.niri_window_target().ok().flatten() else {
-            return false;
-        };
-        target
-            .niri_window_id()
-            .is_some_and(|id| id.value() == window.value())
-    }
-
-    fn deliver(&self, message: &Message) -> Result<bool> {
-        let Some(endpoint) = &self.actor.endpoint else {
-            return Ok(false);
-        };
-        let text = message.to_nota()?;
-        let prompt = TerminalPrompt::from_text(text.clone());
-        match endpoint.kind {
-            EndpointKind::Human => Ok(true),
-            EndpointKind::PtySocket => {
-                let socket = PtySocket::from_path(&endpoint.target);
-                socket.send_prompt(prompt.as_str())?;
-                thread::sleep(Duration::from_millis(1000));
-                let evidence = text.chars().take(24).collect::<String>();
-                let capture = socket.capture()?.to_string_lossy();
-                Ok(capture.contains(&evidence))
-            }
-            EndpointKind::WezTermPane => {
-                let pane_id = endpoint
-                    .target
-                    .parse()
-                    .map_err(|_| Error::DeliveryBlocked {
-                        reason: format!("invalid wezterm pane id {:?}", endpoint.target),
-                    })?;
-                let mux = match &endpoint.aux {
-                    Some(socket) => WezTermMux::from_environment().with_socket(socket),
-                    None => WezTermMux::from_environment(),
-                };
-                mux.pane(pane_id).deliver(&prompt)?;
-                Ok(true)
-            }
-        }
+        RouterApplyReply::new(self.apply(message.input).await)
     }
 }
 
