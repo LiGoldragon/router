@@ -3,7 +3,7 @@ use persona_router::{
     RouterOutput,
 };
 use signal_persona_system::{
-    FocusObservation, InputBufferObservation, InputBufferState, SystemTarget,
+    FocusObservation, InputBufferObservation, InputBufferState, ObservationGeneration, SystemTarget,
 };
 
 struct DeliveryGateFixture {
@@ -21,7 +21,7 @@ impl DeliveryGateFixture {
         FocusObservation {
             target: self.target,
             focused,
-            generation: 1,
+            generation: ObservationGeneration::new(1),
         }
     }
 
@@ -29,7 +29,7 @@ impl DeliveryGateFixture {
         InputBufferObservation {
             target: self.target,
             state,
-            generation: 1,
+            generation: ObservationGeneration::new(1),
         }
     }
 
@@ -46,7 +46,7 @@ impl DeliveryGateFixture {
             Some(InputBufferObservation {
                 target: SystemTarget::niri_window(777),
                 state: InputBufferState::Empty,
-                generation: 1,
+                generation: ObservationGeneration::new(1),
             }),
         )
     }
