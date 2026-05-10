@@ -3,17 +3,17 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
-use kameo::actor::{Actor as KameoActor, ActorRef, Spawn};
+use kameo::actor::{ActorRef, Spawn};
 use kameo::error::Infallible;
-use kameo::message::{Context, Message as KameoMessage};
+use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use persona_message::schema::{Actor, ActorId, Message, expect_end};
 use persona_system::FocusObservation;
 
-use crate::delivery_actor::{DeliverHarnessMessage, HarnessDeliveryActor};
-use crate::registry_actor::{
-    AcceptFocusObservation, AcceptPromptObservation, HarnessRegistryActor, MarkHarnessDelivered,
-    ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus, RegisterHarnessActor,
+use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
+use crate::harness_registry::{
+    AcceptFocusObservation, AcceptPromptObservation, HarnessRegistry, MarkHarnessDelivered,
+    ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus, RegisterHarness,
 };
 use crate::{Error, Result};
 
@@ -38,7 +38,7 @@ impl RouterDaemon {
         let _ = std::fs::remove_file(&self.socket);
         let listener = UnixListener::bind(&self.socket)?;
         let runtime = tokio::runtime::Runtime::new()?;
-        let router = runtime.block_on(RouterActorHandle::start());
+        let router = runtime.block_on(RouterRuntime::start());
         eprintln!("persona-router-daemon socket={}", self.socket.display());
         for stream in listener.incoming() {
             let stream = stream?;
@@ -49,7 +49,7 @@ impl RouterDaemon {
 
     fn handle_connection(
         runtime: &tokio::runtime::Runtime,
-        router: &RouterActorHandle,
+        router: &RouterRuntime,
         mut stream: UnixStream,
     ) -> Result<()> {
         let mut line = String::new();
@@ -111,33 +111,29 @@ impl RouterClientArguments {
 }
 
 #[derive(Debug, Clone)]
-pub struct RouterActorHandle {
-    actor_reference: ActorRef<RouterActor>,
-    registry_actor_reference: ActorRef<HarnessRegistryActor>,
-    delivery_actor_reference: ActorRef<HarnessDeliveryActor>,
+pub struct RouterRuntime {
+    root: ActorRef<RouterRoot>,
+    registry: ActorRef<HarnessRegistry>,
+    delivery: ActorRef<HarnessDelivery>,
 }
 
-impl RouterActorHandle {
+impl RouterRuntime {
     pub async fn start() -> Self {
-        let registry_actor_reference = HarnessRegistryActor::spawn(HarnessRegistryActor::new());
-        registry_actor_reference.wait_for_startup().await;
-        let delivery_actor_reference =
-            HarnessDeliveryActor::spawn_in_thread(HarnessDeliveryActor::new());
-        delivery_actor_reference.wait_for_startup().await;
-        let actor_reference = RouterActor::spawn(RouterActor::new(
-            registry_actor_reference.clone(),
-            delivery_actor_reference.clone(),
-        ));
-        actor_reference.wait_for_startup().await;
+        let registry = HarnessRegistry::spawn(HarnessRegistry::new());
+        registry.wait_for_startup().await;
+        let delivery = HarnessDelivery::spawn_in_thread(HarnessDelivery::new());
+        delivery.wait_for_startup().await;
+        let root = RouterRoot::spawn(RouterRoot::new(registry.clone(), delivery.clone()));
+        root.wait_for_startup().await;
         Self {
-            actor_reference,
-            registry_actor_reference,
-            delivery_actor_reference,
+            root,
+            registry,
+            delivery,
         }
     }
 
     pub async fn apply(&self, input: RouterInput) -> Result<RouterOutput> {
-        self.actor_reference
+        self.root
             .ask(ApplyRouterInput { input })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
@@ -145,21 +141,21 @@ impl RouterActorHandle {
     }
 
     pub async fn stop(self) -> Result<()> {
-        self.actor_reference
+        self.root
             .stop_gracefully()
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?;
-        self.actor_reference.wait_for_shutdown().await;
-        self.registry_actor_reference
+        self.root.wait_for_shutdown().await;
+        self.registry
             .stop_gracefully()
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?;
-        self.registry_actor_reference.wait_for_shutdown().await;
-        self.delivery_actor_reference
+        self.registry.wait_for_shutdown().await;
+        self.delivery
             .stop_gracefully()
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?;
-        self.delivery_actor_reference.wait_for_shutdown().await;
+        self.delivery.wait_for_shutdown().await;
         Ok(())
     }
 }
@@ -170,11 +166,11 @@ pub struct ApplyRouterInput {
 }
 
 #[derive(Debug, kameo::Reply)]
-pub struct RouterApplyReply {
+pub struct RouterApplyOutcome {
     result: Result<RouterOutput>,
 }
 
-impl RouterApplyReply {
+impl RouterApplyOutcome {
     fn new(result: Result<RouterOutput>) -> Self {
         Self { result }
     }
@@ -185,21 +181,18 @@ impl RouterApplyReply {
 }
 
 #[derive(Debug)]
-pub struct RouterActor {
+pub struct RouterRoot {
     pending: Vec<Message>,
-    registry_actor: ActorRef<HarnessRegistryActor>,
-    delivery_actor: ActorRef<HarnessDeliveryActor>,
+    registry: ActorRef<HarnessRegistry>,
+    delivery: ActorRef<HarnessDelivery>,
 }
 
-impl RouterActor {
-    pub fn new(
-        registry_actor: ActorRef<HarnessRegistryActor>,
-        delivery_actor: ActorRef<HarnessDeliveryActor>,
-    ) -> Self {
+impl RouterRoot {
+    pub fn new(registry: ActorRef<HarnessRegistry>, delivery: ActorRef<HarnessDelivery>) -> Self {
         Self {
             pending: Vec::new(),
-            registry_actor,
-            delivery_actor,
+            registry,
+            delivery,
         }
     }
 
@@ -207,8 +200,8 @@ impl RouterActor {
         match input {
             RouterInput::RegisterActor(input) => {
                 let actors = self
-                    .registry_actor
-                    .ask(RegisterHarnessActor { actor: input.actor })
+                    .registry
+                    .ask(RegisterHarness { actor: input.actor })
                     .await
                     .map_err(|error| Error::ActorCall(error.to_string()))?;
                 Ok(RouterOutput::Registered(Registered { actors }))
@@ -222,7 +215,7 @@ impl RouterActor {
                 }))
             }
             RouterInput::FocusObservation(observation) => {
-                self.registry_actor
+                self.registry
                     .ask(AcceptFocusObservation { observation })
                     .await
                     .map_err(|error| Error::ActorCall(error.to_string()))?;
@@ -233,7 +226,7 @@ impl RouterActor {
                 }))
             }
             RouterInput::PromptObservation(input) => {
-                self.registry_actor
+                self.registry
                     .ask(AcceptPromptObservation { observation: input })
                     .await
                     .map_err(|error| Error::ActorCall(error.to_string()))?;
@@ -243,10 +236,12 @@ impl RouterActor {
                     pending: self.pending.len() as u64,
                 }))
             }
-            RouterInput::Status(_) => {
+            RouterInput::Status(input) => {
                 let actors = self
-                    .registry_actor
-                    .ask(ReadHarnessRegistryStatus)
+                    .registry
+                    .ask(ReadHarnessRegistryStatus {
+                        requester: input.requester,
+                    })
                     .await
                     .map_err(|error| Error::ActorCall(error.to_string()))?;
                 Ok(RouterOutput::Status(RouterStatus {
@@ -263,7 +258,7 @@ impl RouterActor {
         let mut messages = std::mem::take(&mut self.pending).into_iter();
         while let Some(message) = messages.next() {
             let target = match self
-                .registry_actor
+                .registry
                 .ask(ReadHarnessDeliveryTarget {
                     recipient: message.to.clone(),
                 })
@@ -284,8 +279,8 @@ impl RouterActor {
                 continue;
             }
             let delivery_reply = match self
-                .delivery_actor
-                .ask(DeliverHarnessMessage {
+                .delivery
+                .ask(DeliverHarness {
                     actor: target.actor,
                     message: message.clone(),
                 })
@@ -306,7 +301,7 @@ impl RouterActor {
             };
             if delivery_result {
                 if let Err(error) = self
-                    .registry_actor
+                    .registry
                     .ask(MarkHarnessDelivered {
                         actor: message.to.clone(),
                     })
@@ -338,7 +333,7 @@ impl RouterActor {
     }
 }
 
-impl KameoActor for RouterActor {
+impl kameo::actor::Actor for RouterRoot {
     type Args = Self;
     type Error = Infallible;
 
@@ -350,15 +345,15 @@ impl KameoActor for RouterActor {
     }
 }
 
-impl KameoMessage<ApplyRouterInput> for RouterActor {
-    type Reply = RouterApplyReply;
+impl kameo::message::Message<ApplyRouterInput> for RouterRoot {
+    type Reply = RouterApplyOutcome;
 
     async fn handle(
         &mut self,
         message: ApplyRouterInput,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        RouterApplyReply::new(self.apply(message.input).await)
+        RouterApplyOutcome::new(self.apply(message.input).await)
     }
 }
 
@@ -379,7 +374,9 @@ pub struct PromptObservation {
 }
 
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct Status {}
+pub struct Status {
+    pub requester: ActorId,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterInput {

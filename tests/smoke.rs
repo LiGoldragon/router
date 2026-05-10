@@ -119,6 +119,16 @@ fn router_input_decodes_prompt_observation() {
 }
 
 #[test]
+fn router_input_decodes_status_requester() {
+    let input = RouterInput::from_nota("(Status operator)").expect("input decodes");
+
+    assert!(matches!(
+        input,
+        RouterInput::Status(status) if status.requester.as_str() == "operator"
+    ));
+}
+
+#[test]
 fn router_output_encodes_delivery_changed() {
     let output = RouterOutput::DeliveryChanged(persona_router::DeliveryChanged {
         delivered: 1,

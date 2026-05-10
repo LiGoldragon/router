@@ -1,31 +1,31 @@
 use std::thread;
 use std::time::Duration;
 
-use kameo::actor::{Actor as KameoActor, ActorRef};
+use kameo::actor::ActorRef;
 use kameo::error::Infallible;
-use kameo::message::{Context, Message as KameoMessage};
-use persona_message::schema::{Actor as PersonaActor, EndpointKind, Message};
+use kameo::message::Context;
+use kameo::reply::DelegatedReply;
+use persona_message::schema::{Actor, EndpointKind, Message};
 use persona_wezterm::pty::PtySocket;
 use persona_wezterm::terminal::{TerminalPrompt, WezTermMux};
 
 use crate::{Error, Result};
 
 #[derive(Debug)]
-pub struct HarnessDeliveryActor {
+pub struct HarnessDelivery {
     attempted_delivery_count: u64,
-    delivered_message_count: u64,
+    delegated_delivery_count: u64,
 }
 
-impl HarnessDeliveryActor {
+impl HarnessDelivery {
     pub fn new() -> Self {
         Self {
             attempted_delivery_count: 0,
-            delivered_message_count: 0,
+            delegated_delivery_count: 0,
         }
     }
 
-    fn deliver(&mut self, actor: &PersonaActor, message: &Message) -> Result<bool> {
-        self.attempted_delivery_count = self.attempted_delivery_count.saturating_add(1);
+    fn deliver(actor: &Actor, message: &Message) -> Result<bool> {
         let Some(endpoint) = &actor.endpoint else {
             return Ok(false);
         };
@@ -56,31 +56,28 @@ impl HarnessDeliveryActor {
                 true
             }
         };
-        if delivered {
-            self.delivered_message_count = self.delivered_message_count.saturating_add(1);
-        }
         Ok(delivered)
     }
 }
 
-impl Default for HarnessDeliveryActor {
+impl Default for HarnessDelivery {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeliverHarnessMessage {
-    pub actor: PersonaActor,
+pub struct DeliverHarness {
+    pub actor: Actor,
     pub message: Message,
 }
 
 #[derive(Debug, kameo::Reply)]
-pub struct HarnessDeliveryReply {
+pub struct HarnessDeliveryOutcome {
     result: Result<bool>,
 }
 
-impl HarnessDeliveryReply {
+impl HarnessDeliveryOutcome {
     fn from_result(result: Result<bool>) -> Self {
         Self { result }
     }
@@ -90,7 +87,7 @@ impl HarnessDeliveryReply {
     }
 }
 
-impl KameoActor for HarnessDeliveryActor {
+impl kameo::actor::Actor for HarnessDelivery {
     type Args = Self;
     type Error = Infallible;
 
@@ -102,14 +99,24 @@ impl KameoActor for HarnessDeliveryActor {
     }
 }
 
-impl KameoMessage<DeliverHarnessMessage> for HarnessDeliveryActor {
-    type Reply = HarnessDeliveryReply;
+impl kameo::message::Message<DeliverHarness> for HarnessDelivery {
+    type Reply = DelegatedReply<HarnessDeliveryOutcome>;
 
     async fn handle(
         &mut self,
-        message: DeliverHarnessMessage,
-        _context: &mut Context<Self, Self::Reply>,
+        message: DeliverHarness,
+        context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        HarnessDeliveryReply::from_result(self.deliver(&message.actor, &message.message))
+        self.attempted_delivery_count = self.attempted_delivery_count.saturating_add(1);
+        self.delegated_delivery_count = self.delegated_delivery_count.saturating_add(1);
+        context.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                HarnessDelivery::deliver(&message.actor, &message.message)
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))
+            .and_then(|result| result);
+            HarnessDeliveryOutcome::from_result(result)
+        })
     }
 }

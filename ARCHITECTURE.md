@@ -16,13 +16,13 @@ terminal byte transport, or contract definitions.
 
 ```mermaid
 flowchart LR
-    "signal-persona-message" -->|"message request frame"| "RouterActor"
-    "signal-persona-system" -->|"focus + input-buffer events"| "RouterActor"
-    "RouterActor" -->|"register + observation state"| "HarnessRegistryActor"
-    "RouterActor" -->|"delivery attempt"| "HarnessDeliveryActor"
-    "RouterActor" -->|"pending state"| "DeliveryQueue"
-    "HarnessDeliveryActor" -->|"delivery request"| "persona-harness"
-    "RouterActor" -->|"router-owned records"| "persona-sema"
+    "signal-persona-message" -->|"message request frame"| "RouterRoot"
+    "signal-persona-system" -->|"focus + input-buffer events"| "RouterRoot"
+    "RouterRoot" -->|"register + observation state"| "HarnessRegistry"
+    "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
+    "RouterRoot" -->|"pending state"| "DeliveryQueue"
+    "HarnessDelivery" -->|"delivery request"| "persona-harness"
+    "RouterRoot" -->|"router-owned records"| "persona-sema"
     "persona-system" -->|"system observations"| "signal-persona-system"
 ```
 
@@ -32,10 +32,10 @@ flowchart LR
 
 - a library surface for delivery decisions;
 - a router daemon/CLI surface for isolated development;
-- a Kameo `RouterActor` that owns live routing state behind the daemon;
-- a Kameo `HarnessRegistryActor` that owns registered harness endpoint,
+- a Kameo `RouterRoot` that owns live routing state behind the daemon;
+- a Kameo `HarnessRegistry` that owns registered harness endpoint,
   focus, and prompt facts;
-- a Kameo `HarnessDeliveryActor` that owns terminal delivery attempts as the
+- a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
 - pending-delivery state;
 - subscriptions to pushed system and harness events;
@@ -43,9 +43,9 @@ flowchart LR
 
 ## 2 · State and Ownership
 
-The Kameo `RouterActor` owns live routing state for pending deliveries and
-coordinates smaller actor planes. `HarnessRegistryActor` owns registered
-harness endpoint, focus, and prompt facts. `HarnessDeliveryActor` owns terminal
+The Kameo `RouterRoot` owns live routing state for pending deliveries and
+coordinates smaller actor planes. `HarnessRegistry` owns registered
+harness endpoint, focus, and prompt facts. `HarnessDelivery` owns terminal
 delivery attempts and the blocking terminal/probe calls they require. Durable
 router state lives in the router actor's own Sema database through
 `persona-sema`; no shared database actor owns router transitions.
@@ -78,10 +78,10 @@ This repo does not own:
 ## 4 · Invariants
 
 - Routing reacts to pushed events. It does not poll.
-- Router daemon requests enter through the Kameo `RouterActor` mailbox.
+- Router daemon requests enter through the Kameo `RouterRoot` mailbox.
 - Harness registration and observation state enter through
-  `HarnessRegistryActor`.
-- Terminal delivery and verification calls stay in `HarnessDeliveryActor`, not
+  `HarnessRegistry`.
+- Terminal delivery and verification calls stay in `HarnessDelivery`, not
   in the router state actor.
 - A blocked delivery records the event it needs before it can proceed.
 - Human focus, unknown focus, non-empty prompt buffers, and unknown prompt
@@ -96,14 +96,14 @@ This repo does not own:
 ## Code Map
 
 ```text
-src/router.rs          Kameo router actor, daemon/client protocol, pending retry
-src/registry_actor.rs  Kameo harness registry and observation state owner
-src/delivery_actor.rs  Kameo terminal delivery blocking-plane actor
-src/delivery.rs        delivery decisions and typed gate state
-src/message.rs         legacy router message records
-src/main.rs            daemon entry
-src/bin/router.rs      client entry
-tests/                 router smoke and actor-density truth tests
+src/router.rs           Kameo router root, daemon/client protocol, pending retry
+src/harness_registry.rs Kameo harness registry and observation state owner
+src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
+src/delivery.rs         delivery decisions and typed gate state
+src/message.rs          legacy router message records
+src/main.rs             daemon entry
+src/bin/router.rs       client entry
+tests/                  router smoke and actor-density truth tests
 ```
 
 ## See Also

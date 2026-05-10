@@ -1,32 +1,36 @@
 use std::collections::HashMap;
 
-use kameo::actor::{Actor as KameoActor, ActorRef};
+use kameo::actor::ActorRef;
 use kameo::error::Infallible;
-use kameo::message::{Context, Message as KameoMessage};
+use kameo::message::Context;
 use persona_message::schema::{Actor, ActorId, EndpointKind};
 use persona_system::{FocusObservation, SystemTarget};
 
 use crate::router::{PromptFact, PromptObservation};
 
 #[derive(Debug)]
-pub struct HarnessRegistryActor {
-    actors: HashMap<ActorId, HarnessActor>,
+pub struct HarnessRegistry {
+    actors: HashMap<ActorId, HarnessRegistration>,
     registered_actor_count: u64,
     observation_count: u64,
+    status_request_count: u64,
+    last_status_requester: Option<ActorId>,
 }
 
-impl HarnessRegistryActor {
+impl HarnessRegistry {
     pub fn new() -> Self {
         Self {
             actors: HashMap::new(),
             registered_actor_count: 0,
             observation_count: 0,
+            status_request_count: 0,
+            last_status_requester: None,
         }
     }
 
     fn register(&mut self, actor: Actor) -> u64 {
         self.actors
-            .insert(actor.name.clone(), HarnessActor::new(actor));
+            .insert(actor.name.clone(), HarnessRegistration::new(actor));
         self.registered_actor_count = self.actors.len() as u64;
         self.registered_actor_count
     }
@@ -50,7 +54,7 @@ impl HarnessRegistryActor {
     fn delivery_target(&self, recipient: &ActorId) -> Option<HarnessDeliveryTarget> {
         self.actors
             .get(recipient)
-            .map(HarnessActor::delivery_target)
+            .map(HarnessRegistration::delivery_target)
     }
 
     fn mark_delivered(&mut self, actor: &ActorId) {
@@ -58,22 +62,28 @@ impl HarnessRegistryActor {
             actor.accept_prompt(PromptFact::Unknown);
         }
     }
+
+    fn status(&mut self, requester: ActorId) -> u64 {
+        self.status_request_count = self.status_request_count.saturating_add(1);
+        self.last_status_requester = Some(requester);
+        self.actors.len() as u64
+    }
 }
 
-impl Default for HarnessRegistryActor {
+impl Default for HarnessRegistry {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HarnessActor {
+pub struct HarnessRegistration {
     actor: Actor,
     focus: Option<bool>,
     prompt: PromptFact,
 }
 
-impl HarnessActor {
+impl HarnessRegistration {
     pub fn new(actor: Actor) -> Self {
         Self {
             actor,
@@ -125,7 +135,7 @@ impl HarnessActor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegisterHarnessActor {
+pub struct RegisterHarness {
     pub actor: Actor,
 }
 
@@ -150,7 +160,9 @@ pub struct MarkHarnessDelivered {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadHarnessRegistryStatus;
+pub struct ReadHarnessRegistryStatus {
+    pub requester: ActorId,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
 pub struct HarnessDeliveryTarget {
@@ -158,7 +170,7 @@ pub struct HarnessDeliveryTarget {
     pub blocks_delivery: bool,
 }
 
-impl KameoActor for HarnessRegistryActor {
+impl kameo::actor::Actor for HarnessRegistry {
     type Args = Self;
     type Error = Infallible;
 
@@ -170,19 +182,19 @@ impl KameoActor for HarnessRegistryActor {
     }
 }
 
-impl KameoMessage<RegisterHarnessActor> for HarnessRegistryActor {
+impl kameo::message::Message<RegisterHarness> for HarnessRegistry {
     type Reply = u64;
 
     async fn handle(
         &mut self,
-        message: RegisterHarnessActor,
+        message: RegisterHarness,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.register(message.actor)
     }
 }
 
-impl KameoMessage<AcceptFocusObservation> for HarnessRegistryActor {
+impl kameo::message::Message<AcceptFocusObservation> for HarnessRegistry {
     type Reply = ();
 
     async fn handle(
@@ -194,7 +206,7 @@ impl KameoMessage<AcceptFocusObservation> for HarnessRegistryActor {
     }
 }
 
-impl KameoMessage<AcceptPromptObservation> for HarnessRegistryActor {
+impl kameo::message::Message<AcceptPromptObservation> for HarnessRegistry {
     type Reply = ();
 
     async fn handle(
@@ -206,7 +218,7 @@ impl KameoMessage<AcceptPromptObservation> for HarnessRegistryActor {
     }
 }
 
-impl KameoMessage<ReadHarnessDeliveryTarget> for HarnessRegistryActor {
+impl kameo::message::Message<ReadHarnessDeliveryTarget> for HarnessRegistry {
     type Reply = Option<HarnessDeliveryTarget>;
 
     async fn handle(
@@ -218,7 +230,7 @@ impl KameoMessage<ReadHarnessDeliveryTarget> for HarnessRegistryActor {
     }
 }
 
-impl KameoMessage<MarkHarnessDelivered> for HarnessRegistryActor {
+impl kameo::message::Message<MarkHarnessDelivered> for HarnessRegistry {
     type Reply = ();
 
     async fn handle(
@@ -230,14 +242,14 @@ impl KameoMessage<MarkHarnessDelivered> for HarnessRegistryActor {
     }
 }
 
-impl KameoMessage<ReadHarnessRegistryStatus> for HarnessRegistryActor {
+impl kameo::message::Message<ReadHarnessRegistryStatus> for HarnessRegistry {
     type Reply = u64;
 
     async fn handle(
         &mut self,
-        _message: ReadHarnessRegistryStatus,
+        message: ReadHarnessRegistryStatus,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.actors.len() as u64
+        self.status(message.requester)
     }
 }

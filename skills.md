@@ -13,9 +13,9 @@ Rules for work here:
 - Commit durable router transitions through the router actor's own
   `persona-sema` database when persistence lands. Do not invent a shared store
   actor.
-- Keep harness endpoint/focus/prompt facts in `HarnessRegistryActor`, not in
+- Keep harness endpoint/focus/prompt facts in `HarnessRegistry`, not in
   the router root actor.
-- Keep terminal delivery and verification calls in `HarnessDeliveryActor`.
+- Keep terminal delivery and verification calls in `HarnessDelivery`.
   The router root actor coordinates delivery; it does not own terminal blocking
   work.
 - Use pushed event subscriptions. Do not add polling loops.

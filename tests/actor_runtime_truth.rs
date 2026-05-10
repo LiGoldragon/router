@@ -5,8 +5,8 @@ use persona_message::schema::{
     Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageId, ThreadId,
 };
 use persona_router::{
-    PromptFact, PromptObservation, RegisterActor, RouteMessage, RouterActorHandle, RouterInput,
-    RouterOutput, Status,
+    HarnessDelivery, HarnessRegistry, PromptFact, PromptObservation, ReadHarnessRegistryStatus,
+    RegisterActor, RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime, Status,
 };
 
 struct SourceFile {
@@ -100,10 +100,12 @@ fn router_actor_cannot_use_non_kameo_runtime() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn router_status_cannot_bypass_router_actor_mailbox() {
-    let router = RouterActorHandle::start().await;
+async fn router_status_cannot_bypass_router_root_mailbox() {
+    let router = RouterRuntime::start().await;
     let output = router
-        .apply(RouterInput::Status(Status {}))
+        .apply(RouterInput::Status(Status {
+            requester: ActorId::new("operator"),
+        }))
         .await
         .expect("status request passes through router actor");
 
@@ -118,8 +120,8 @@ async fn router_status_cannot_bypass_router_actor_mailbox() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn router_registry_state_cannot_bypass_registry_actor_between_messages() {
-    let router = RouterActorHandle::start().await;
+async fn router_registry_state_cannot_bypass_harness_registry_between_messages() {
+    let router = RouterRuntime::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
@@ -131,7 +133,9 @@ async fn router_registry_state_cannot_bypass_registry_actor_between_messages() {
         .await
         .expect("register request passes through router actor");
     let output = router
-        .apply(RouterInput::Status(Status {}))
+        .apply(RouterInput::Status(Status {
+            requester: ActorId::new("operator"),
+        }))
         .await
         .expect("status request passes through router actor");
 
@@ -148,7 +152,7 @@ async fn router_registry_state_cannot_bypass_registry_actor_between_messages() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn delivery_error_cannot_drop_pending_message() {
     let responder = ActorId::new("responder");
-    let router = RouterActorHandle::start().await;
+    let router = RouterRuntime::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
@@ -186,7 +190,9 @@ async fn delivery_error_cannot_drop_pending_message() {
     assert!(output.is_err());
 
     let output = router
-        .apply(RouterInput::Status(Status {}))
+        .apply(RouterInput::Status(Status {
+            requester: ActorId::new("operator"),
+        }))
         .await
         .expect("status request passes through router actor");
 
@@ -201,50 +207,51 @@ async fn delivery_error_cannot_drop_pending_message() {
 }
 
 #[test]
-fn router_actor_cannot_be_empty_marker() {
+fn router_root_cannot_be_empty_marker() {
     let router_source = SourceFile::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("router.rs"),
     );
 
-    assert!(router_source.contains("pub struct RouterActor {"));
+    assert!(router_source.contains("pub struct RouterRoot {"));
     assert!(router_source.contains("pending: Vec<Message>,"));
-    assert!(router_source.contains("registry_actor: ActorRef<HarnessRegistryActor>,"));
-    assert!(router_source.contains("delivery_actor: ActorRef<HarnessDeliveryActor>,"));
+    assert!(router_source.contains("registry: ActorRef<HarnessRegistry>,"));
+    assert!(router_source.contains("delivery: ActorRef<HarnessDelivery>,"));
 }
 
 #[test]
-fn harness_registry_actor_cannot_be_empty_marker() {
+fn harness_registry_cannot_be_empty_marker() {
     let registry_source = SourceFile::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
-            .join("registry_actor.rs"),
+            .join("harness_registry.rs"),
     );
 
-    assert!(registry_source.contains("pub struct HarnessRegistryActor {"));
-    assert!(registry_source.contains("actors: HashMap<ActorId, HarnessActor>,"));
+    assert!(registry_source.contains("pub struct HarnessRegistry {"));
+    assert!(registry_source.contains("actors: HashMap<ActorId, HarnessRegistration>,"));
     assert!(registry_source.contains("registered_actor_count: u64,"));
     assert!(registry_source.contains("observation_count: u64,"));
+    assert!(registry_source.contains("status_request_count: u64,"));
 }
 
 #[test]
-fn router_actor_cannot_own_harness_registry_map_directly() {
+fn router_root_cannot_own_harness_registry_map_directly() {
     let router_source = SourceFile::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("router.rs"),
     );
 
-    assert!(!router_source.contains("HashMap<ActorId, HarnessActor>"));
-    assert!(router_source.contains("RegisterHarnessActor"));
+    assert!(!router_source.contains("HashMap<ActorId, HarnessRegistration>"));
+    assert!(router_source.contains("RegisterHarness"));
     assert!(router_source.contains("ReadHarnessDeliveryTarget"));
     assert!(router_source.contains("AcceptFocusObservation"));
     assert!(router_source.contains("AcceptPromptObservation"));
 }
 
 #[test]
-fn router_actor_cannot_hold_terminal_blocking_work() {
+fn router_root_cannot_hold_terminal_blocking_work() {
     let router_source = SourceFile::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
@@ -253,7 +260,7 @@ fn router_actor_cannot_hold_terminal_blocking_work() {
     let delivery_source = SourceFile::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
-            .join("delivery_actor.rs"),
+            .join("harness_delivery.rs"),
     );
 
     for fragment in [
@@ -265,12 +272,23 @@ fn router_actor_cannot_hold_terminal_blocking_work() {
     ] {
         assert!(
             !router_source.contains(fragment),
-            "RouterActor source still owns blocking delivery fragment {fragment}"
+            "RouterRoot source still owns blocking delivery fragment {fragment}"
         );
     }
 
-    assert!(delivery_source.contains("pub struct HarnessDeliveryActor {"));
+    assert!(delivery_source.contains("pub struct HarnessDelivery {"));
     assert!(delivery_source.contains("attempted_delivery_count: u64,"));
-    assert!(delivery_source.contains("delivered_message_count: u64,"));
+    assert!(delivery_source.contains("delegated_delivery_count: u64,"));
+    assert!(delivery_source.contains("DelegatedReply<HarnessDeliveryOutcome>"));
+    assert!(delivery_source.contains("tokio::task::spawn_blocking"));
     assert!(delivery_source.contains("thread::sleep"));
+}
+
+#[test]
+fn public_control_records_cannot_be_zero_sized() {
+    assert!(std::mem::size_of::<RouterRoot>() > 0);
+    assert!(std::mem::size_of::<HarnessRegistry>() > 0);
+    assert!(std::mem::size_of::<HarnessDelivery>() > 0);
+    assert!(std::mem::size_of::<Status>() > 0);
+    assert!(std::mem::size_of::<ReadHarnessRegistryStatus>() > 0);
 }

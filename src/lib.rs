@@ -1,19 +1,21 @@
 pub mod delivery;
-pub mod delivery_actor;
 pub mod error;
+pub mod harness_delivery;
+pub mod harness_registry;
 pub mod message;
-pub mod registry_actor;
 pub mod router;
 
 pub use delivery::{DeliveryDecision, DeliveryGate, PendingDelivery};
-pub use delivery_actor::{DeliverHarnessMessage, HarnessDeliveryActor, HarnessDeliveryReply};
 pub use error::{Error, Result};
-pub use message::{Message, MessageBody, MessageId};
-pub use registry_actor::{
-    HarnessActor, HarnessDeliveryTarget, HarnessRegistryActor, ReadHarnessDeliveryTarget,
+pub use harness_delivery::{DeliverHarness, HarnessDelivery, HarnessDeliveryOutcome};
+pub use harness_registry::{
+    HarnessDeliveryTarget, HarnessRegistration, HarnessRegistry, ReadHarnessDeliveryTarget,
+    ReadHarnessRegistryStatus,
 };
+pub use kameo::actor::ActorRef;
+pub use message::{Message, MessageBody, MessageId};
 pub use router::{
     DeliveryChanged, PromptFact, PromptObservation, RegisterActor, Registered, RouteMessage,
-    RouterActor, RouterActorHandle, RouterClient, RouterDaemon, RouterInput, RouterOutput,
-    RouterStatus, Status,
+    RouterClient, RouterDaemon, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterStatus,
+    Status,
 };
