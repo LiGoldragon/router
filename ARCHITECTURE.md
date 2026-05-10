@@ -16,8 +16,9 @@ terminal byte transport, or contract definitions.
 
 ```mermaid
 flowchart LR
-    "signal-persona-message" -->|"message request frame"| "RouterRoot"
-    "signal-persona-system" -->|"focus + input-buffer events"| "RouterRoot"
+    "signal-persona-message" -->|"message request frame"| "RouterRuntime"
+    "signal-persona-system" -->|"focus + input-buffer events"| "RouterRuntime"
+    "RouterRuntime" -->|"apply input"| "RouterRoot"
     "RouterRoot" -->|"register + observation state"| "HarnessRegistry"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
@@ -32,7 +33,9 @@ flowchart LR
 
 - a library surface for delivery decisions;
 - a router daemon/CLI surface for isolated development;
-- a Kameo `RouterRoot` that owns live routing state behind the daemon;
+- a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
+  tree as `ActorRef<RouterRuntime>`;
+- a Kameo `RouterRoot` that owns live routing state behind the runtime;
 - a Kameo `HarnessRegistry` that owns registered harness endpoint,
   focus, and prompt facts;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
@@ -43,11 +46,13 @@ flowchart LR
 
 ## 2 · State and Ownership
 
-The Kameo `RouterRoot` owns live routing state for pending deliveries and
-coordinates smaller actor planes. `HarnessRegistry` owns registered
-harness endpoint, focus, and prompt facts. `HarnessDelivery` owns terminal
-delivery attempts and the blocking terminal/probe calls they require. Durable
-router state lives in the router actor's own Sema database through
+The Kameo `RouterRuntime` is the public actor surface and owns the child actor
+refs. It starts children in `on_start` and stops them in `on_stop`; there is no
+non-actor runtime owner. `RouterRoot` owns live routing state for pending
+deliveries and coordinates smaller actor planes. `HarnessRegistry` owns
+registered harness endpoint, focus, and prompt facts. `HarnessDelivery` owns
+terminal delivery attempts and the blocking terminal/probe calls they require.
+Durable router state lives in the router actor's own Sema database through
 `persona-sema`; no shared database actor owns router transitions.
 
 Stored router records are typed contract records from the `signal-persona-*`
@@ -78,7 +83,8 @@ This repo does not own:
 ## 4 · Invariants
 
 - Routing reacts to pushed events. It does not poll.
-- Router daemon requests enter through the Kameo `RouterRoot` mailbox.
+- Router daemon requests enter through the Kameo `RouterRuntime` mailbox.
+- `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration and observation state enter through
   `HarnessRegistry`.
 - Terminal delivery and verification calls stay in `HarnessDelivery`, not
@@ -96,7 +102,7 @@ This repo does not own:
 ## Code Map
 
 ```text
-src/router.rs           Kameo router root, daemon/client protocol, pending retry
+src/router.rs           Kameo router runtime/root, daemon/client protocol, pending retry
 src/harness_registry.rs Kameo harness registry and observation state owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/delivery.rs         delivery decisions and typed gate state

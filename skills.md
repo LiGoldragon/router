@@ -13,6 +13,8 @@ Rules for work here:
 - Commit durable router transitions through the router actor's own
   `persona-sema` database when persistence lands. Do not invent a shared store
   actor.
+- Keep `RouterRuntime` as an actor, not as a non-actor owner around actor refs.
+  Public callers talk to `ActorRef<RouterRuntime>`.
 - Keep harness endpoint/focus/prompt facts in `HarnessRegistry`, not in
   the router root actor.
 - Keep terminal delivery and verification calls in `HarnessDelivery`.

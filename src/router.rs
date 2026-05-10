@@ -4,7 +4,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
 use kameo::actor::{ActorRef, Spawn};
-use kameo::error::Infallible;
+use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use persona_message::schema::{Actor, ActorId, Message, expect_end};
@@ -49,12 +49,16 @@ impl RouterDaemon {
 
     fn handle_connection(
         runtime: &tokio::runtime::Runtime,
-        router: &RouterRuntime,
+        router: &ActorRef<RouterRuntime>,
         mut stream: UnixStream,
     ) -> Result<()> {
         let mut line = String::new();
         BufReader::new(stream.try_clone()?).read_line(&mut line)?;
-        let output = runtime.block_on(router.apply(RouterInput::from_nota(line.trim())?))?;
+        let input = RouterInput::from_nota(line.trim())?;
+        let output = runtime
+            .block_on(async { router.ask(ApplyRouterInput { input }).await })
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
         writeln!(stream, "{}", output.to_nota()?)?;
         stream.flush()?;
         Ok(())
@@ -112,51 +116,62 @@ impl RouterClientArguments {
 
 #[derive(Debug, Clone)]
 pub struct RouterRuntime {
-    root: ActorRef<RouterRoot>,
-    registry: ActorRef<HarnessRegistry>,
-    delivery: ActorRef<HarnessDelivery>,
+    root: Option<ActorRef<RouterRoot>>,
+    registry: Option<ActorRef<HarnessRegistry>>,
+    delivery: Option<ActorRef<HarnessDelivery>>,
+    started_child_count: u64,
+    applied_input_count: u64,
 }
 
 impl RouterRuntime {
-    pub async fn start() -> Self {
+    pub async fn start() -> ActorRef<Self> {
+        let runtime = Self::spawn(Self::new());
+        runtime.wait_for_startup().await;
+        runtime
+    }
+
+    fn new() -> Self {
+        Self {
+            root: None,
+            registry: None,
+            delivery: None,
+            started_child_count: 0,
+            applied_input_count: 0,
+        }
+    }
+
+    async fn start_children(&mut self) {
         let registry = HarnessRegistry::spawn(HarnessRegistry::new());
         registry.wait_for_startup().await;
         let delivery = HarnessDelivery::spawn_in_thread(HarnessDelivery::new());
         delivery.wait_for_startup().await;
         let root = RouterRoot::spawn(RouterRoot::new(registry.clone(), delivery.clone()));
         root.wait_for_startup().await;
-        Self {
-            root,
-            registry,
-            delivery,
+        self.root = Some(root);
+        self.registry = Some(registry);
+        self.delivery = Some(delivery);
+        self.started_child_count = 3;
+    }
+
+    fn root(&self) -> Result<&ActorRef<RouterRoot>> {
+        self.root.as_ref().ok_or(Error::RuntimeChildNotStarted {
+            child: "RouterRoot",
+        })
+    }
+
+    async fn stop_children(&mut self) {
+        if let Some(root) = self.root.take() {
+            let _ = root.stop_gracefully().await;
+            root.wait_for_shutdown().await;
         }
-    }
-
-    pub async fn apply(&self, input: RouterInput) -> Result<RouterOutput> {
-        self.root
-            .ask(ApplyRouterInput { input })
-            .await
-            .map_err(|error| Error::ActorCall(error.to_string()))?
-            .into_result()
-    }
-
-    pub async fn stop(self) -> Result<()> {
-        self.root
-            .stop_gracefully()
-            .await
-            .map_err(|error| Error::ActorCall(error.to_string()))?;
-        self.root.wait_for_shutdown().await;
-        self.registry
-            .stop_gracefully()
-            .await
-            .map_err(|error| Error::ActorCall(error.to_string()))?;
-        self.registry.wait_for_shutdown().await;
-        self.delivery
-            .stop_gracefully()
-            .await
-            .map_err(|error| Error::ActorCall(error.to_string()))?;
-        self.delivery.wait_for_shutdown().await;
-        Ok(())
+        if let Some(registry) = self.registry.take() {
+            let _ = registry.stop_gracefully().await;
+            registry.wait_for_shutdown().await;
+        }
+        if let Some(delivery) = self.delivery.take() {
+            let _ = delivery.stop_gracefully().await;
+            delivery.wait_for_shutdown().await;
+        }
     }
 }
 
@@ -175,8 +190,51 @@ impl RouterApplyOutcome {
         Self { result }
     }
 
-    fn into_result(self) -> Result<RouterOutput> {
+    pub fn into_result(self) -> Result<RouterOutput> {
         self.result
+    }
+}
+
+impl kameo::actor::Actor for RouterRuntime {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(
+        mut actor: Self::Args,
+        _actor_reference: ActorRef<Self>,
+    ) -> std::result::Result<Self, Self::Error> {
+        actor.start_children().await;
+        Ok(actor)
+    }
+
+    async fn on_stop(
+        &mut self,
+        _actor_reference: kameo::actor::WeakActorRef<Self>,
+        _reason: ActorStopReason,
+    ) -> std::result::Result<(), Self::Error> {
+        self.stop_children().await;
+        Ok(())
+    }
+}
+
+impl kameo::message::Message<ApplyRouterInput> for RouterRuntime {
+    type Reply = RouterApplyOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyRouterInput,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.applied_input_count = self.applied_input_count.saturating_add(1);
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(RouterApplyOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        RouterApplyOutcome::new(result)
     }
 }
 
@@ -196,7 +254,7 @@ impl RouterRoot {
         }
     }
 
-    pub async fn apply(&mut self, input: RouterInput) -> Result<RouterOutput> {
+    async fn apply(&mut self, input: RouterInput) -> Result<RouterOutput> {
         match input {
             RouterInput::RegisterActor(input) => {
                 let actors = self

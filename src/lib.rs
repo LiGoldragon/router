@@ -15,7 +15,7 @@ pub use harness_registry::{
 pub use kameo::actor::ActorRef;
 pub use message::{Message, MessageBody, MessageId};
 pub use router::{
-    DeliveryChanged, PromptFact, PromptObservation, RegisterActor, Registered, RouteMessage,
-    RouterClient, RouterDaemon, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterStatus,
-    Status,
+    ApplyRouterInput, DeliveryChanged, PromptFact, PromptObservation, RegisterActor, Registered,
+    RouteMessage, RouterApplyOutcome, RouterClient, RouterDaemon, RouterInput, RouterOutput,
+    RouterRoot, RouterRuntime, RouterStatus, Status,
 };

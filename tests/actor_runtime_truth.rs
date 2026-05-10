@@ -5,13 +5,42 @@ use persona_message::schema::{
     Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageId, ThreadId,
 };
 use persona_router::{
-    HarnessDelivery, HarnessRegistry, PromptFact, PromptObservation, ReadHarnessRegistryStatus,
-    RegisterActor, RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime, Status,
+    ActorRef, ApplyRouterInput, HarnessDelivery, HarnessRegistry, PromptFact, PromptObservation,
+    ReadHarnessRegistryStatus, RegisterActor, RouteMessage, RouterInput, RouterOutput, RouterRoot,
+    RouterRuntime, Status,
 };
 
 struct SourceFile {
     path: PathBuf,
     content: String,
+}
+
+struct RouterFixture {
+    runtime: ActorRef<RouterRuntime>,
+}
+
+impl RouterFixture {
+    async fn start() -> Self {
+        Self {
+            runtime: RouterRuntime::start().await,
+        }
+    }
+
+    async fn apply(&self, input: RouterInput) -> persona_router::Result<RouterOutput> {
+        self.runtime
+            .ask(ApplyRouterInput { input })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn stop(self) {
+        self.runtime
+            .stop_gracefully()
+            .await
+            .expect("router runtime stops gracefully");
+        self.runtime.wait_for_shutdown().await;
+    }
 }
 
 impl SourceFile {
@@ -101,7 +130,7 @@ fn router_actor_cannot_use_non_kameo_runtime() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_status_cannot_bypass_router_root_mailbox() {
-    let router = RouterRuntime::start().await;
+    let router = RouterFixture::start().await;
     let output = router
         .apply(RouterInput::Status(Status {
             requester: ActorId::new("operator"),
@@ -116,12 +145,12 @@ async fn router_status_cannot_bypass_router_root_mailbox() {
     assert_eq!(status.actors, 0);
     assert_eq!(status.pending, 0);
 
-    router.stop().await.expect("router actor stops");
+    router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_registry_state_cannot_bypass_harness_registry_between_messages() {
-    let router = RouterRuntime::start().await;
+    let router = RouterFixture::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
@@ -146,13 +175,13 @@ async fn router_registry_state_cannot_bypass_harness_registry_between_messages()
     assert_eq!(status.actors, 1);
     assert_eq!(status.pending, 0);
 
-    router.stop().await.expect("router actor stops");
+    router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn delivery_error_cannot_drop_pending_message() {
     let responder = ActorId::new("responder");
-    let router = RouterRuntime::start().await;
+    let router = RouterFixture::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
@@ -203,7 +232,7 @@ async fn delivery_error_cannot_drop_pending_message() {
     assert_eq!(status.actors, 1);
     assert_eq!(status.pending, 1);
 
-    router.stop().await.expect("router actor stops");
+    router.stop().await;
 }
 
 #[test]
@@ -218,6 +247,25 @@ fn router_root_cannot_be_empty_marker() {
     assert!(router_source.contains("pending: Vec<Message>,"));
     assert!(router_source.contains("registry: ActorRef<HarnessRegistry>,"));
     assert!(router_source.contains("delivery: ActorRef<HarnessDelivery>,"));
+}
+
+#[test]
+fn router_runtime_cannot_be_non_actor_owner_wrapper() {
+    let router_source = SourceFile::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("router.rs"),
+    );
+
+    assert!(router_source.contains("pub struct RouterRuntime {"));
+    assert!(router_source.contains("root: Option<ActorRef<RouterRoot>>,"));
+    assert!(router_source.contains("impl kameo::actor::Actor for RouterRuntime"));
+    assert!(
+        router_source.contains("impl kameo::message::Message<ApplyRouterInput> for RouterRuntime")
+    );
+    assert!(!router_source.contains("pub async fn apply(&self"));
+    assert!(!router_source.contains("pub async fn apply(&mut self"));
+    assert!(!router_source.contains("pub async fn stop(self)"));
 }
 
 #[test]
@@ -286,6 +334,7 @@ fn router_root_cannot_hold_terminal_blocking_work() {
 
 #[test]
 fn public_control_records_cannot_be_zero_sized() {
+    assert!(std::mem::size_of::<RouterRuntime>() > 0);
     assert!(std::mem::size_of::<RouterRoot>() > 0);
     assert!(std::mem::size_of::<HarnessRegistry>() > 0);
     assert!(std::mem::size_of::<HarnessDelivery>() > 0);

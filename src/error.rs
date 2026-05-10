@@ -19,6 +19,9 @@ pub enum Error {
     #[error("actor call: {0}")]
     ActorCall(String),
 
+    #[error("router runtime child {child} is not started")]
+    RuntimeChildNotStarted { child: &'static str },
+
     #[error("unknown message recipient: {recipient}")]
     UnknownRecipient { recipient: String },
 
