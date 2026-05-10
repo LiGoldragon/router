@@ -30,16 +30,17 @@ flowchart LR
 
 - a library surface for delivery decisions;
 - a router daemon/CLI surface for isolated development;
+- a Kameo `RouterActor` that owns live routing state behind the daemon;
 - pending-delivery state;
 - subscriptions to pushed system and harness events;
 - typed delivery results for callers and observers.
 
 ## 2 · State and Ownership
 
-The router owns live routing state: pending deliveries, blocked reasons, and
-the next event each delivery waits on. Durable router state lives in the
-router actor's own Sema database through `persona-sema`; no shared database
-actor owns router transitions.
+The Kameo `RouterActor` owns live routing state: pending deliveries, blocked
+reasons, and the next event each delivery waits on. Durable router state lives
+in the router actor's own Sema database through `persona-sema`; no shared
+database actor owns router transitions.
 
 Stored router records are typed contract records from the `signal-persona-*`
 family. The router actor decodes Signal frames, commits through typed
@@ -69,6 +70,7 @@ This repo does not own:
 ## 4 · Invariants
 
 - Routing reacts to pushed events. It does not poll.
+- Router daemon requests enter through the Kameo `RouterActor` mailbox.
 - A blocked delivery records the event it needs before it can proceed.
 - Human focus, unknown focus, non-empty prompt buffers, and unknown prompt
   buffers are delivery hazards.
@@ -82,7 +84,7 @@ This repo does not own:
 ## Code Map
 
 ```text
-src/router.rs      router actor, daemon/client protocol, pending retry
+src/router.rs      Kameo router actor, daemon/client protocol, pending retry
 src/delivery.rs    delivery decisions and typed gate state
 src/message.rs     legacy router message records
 src/main.rs        daemon entry

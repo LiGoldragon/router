@@ -2,7 +2,7 @@
 name         = "persona-router"
 version      = "0.1.0"
 edition      = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/persona-router"
 description  = "Persona message router and delivery state machine."
@@ -21,12 +21,14 @@ name = "router"
 path = "src/bin/router.rs"
 
 [dependencies]
+kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
 persona-message       = { git = "https://github.com/LiGoldragon/persona-message.git", branch = "main" }
 persona-system        = { git = "https://github.com/LiGoldragon/persona-system.git", branch = "main" }
 persona-wezterm       = { git = "https://github.com/LiGoldragon/persona-wezterm.git", branch = "main" }
 signal-persona-system = { git = "https://github.com/LiGoldragon/signal-persona-system.git", branch = "main" }
 thiserror             = "2"
+tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [lints.rust]
 unsafe_code = "forbid"

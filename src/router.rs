@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
+use kameo::actor::{Actor as KameoActor, ActorRef, Spawn};
+use kameo::error::Infallible;
+use kameo::message::{Context, Message as KameoMessage};
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use persona_message::schema::{Actor, ActorId, EndpointKind, Message, expect_end};
 use persona_system::{FocusObservation, SystemTarget};
@@ -17,7 +20,6 @@ use crate::{Error, Result};
 #[derive(Debug)]
 pub struct RouterDaemon {
     socket: PathBuf,
-    actor: RouterActor,
 }
 
 impl RouterDaemon {
@@ -26,30 +28,33 @@ impl RouterDaemon {
             .nth(1)
             .map(PathBuf::from)
             .ok_or(Error::MissingSocket)?;
-        Ok(Self {
-            socket,
-            actor: RouterActor::new(),
-        })
+        Ok(Self { socket })
     }
 
-    pub fn run(mut self) -> Result<()> {
+    pub fn run(self) -> Result<()> {
         if let Some(parent) = self.socket.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let _ = std::fs::remove_file(&self.socket);
         let listener = UnixListener::bind(&self.socket)?;
+        let runtime = tokio::runtime::Runtime::new()?;
+        let router = runtime.block_on(RouterActorHandle::start());
         eprintln!("persona-router-daemon socket={}", self.socket.display());
         for stream in listener.incoming() {
             let stream = stream?;
-            self.handle_connection(stream)?;
+            Self::handle_connection(&runtime, &router, stream)?;
         }
         Ok(())
     }
 
-    fn handle_connection(&mut self, mut stream: UnixStream) -> Result<()> {
+    fn handle_connection(
+        runtime: &tokio::runtime::Runtime,
+        router: &RouterActorHandle,
+        mut stream: UnixStream,
+    ) -> Result<()> {
         let mut line = String::new();
         BufReader::new(stream.try_clone()?).read_line(&mut line)?;
-        let output = self.actor.apply(RouterInput::from_nota(line.trim())?)?;
+        let output = runtime.block_on(router.apply(RouterInput::from_nota(line.trim())?))?;
         writeln!(stream, "{}", output.to_nota()?)?;
         stream.flush()?;
         Ok(())
@@ -102,6 +107,56 @@ impl RouterClientArguments {
             });
         }
         Ok(first.to_string_lossy().into_owned())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RouterActorHandle {
+    actor_reference: ActorRef<RouterActor>,
+}
+
+impl RouterActorHandle {
+    pub async fn start() -> Self {
+        let actor_reference = RouterActor::spawn(RouterActor::new());
+        actor_reference.wait_for_startup().await;
+        Self { actor_reference }
+    }
+
+    pub async fn apply(&self, input: RouterInput) -> Result<RouterOutput> {
+        self.actor_reference
+            .ask(ApplyRouterInput { input })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    pub async fn stop(self) -> Result<()> {
+        self.actor_reference
+            .stop_gracefully()
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?;
+        self.actor_reference.wait_for_shutdown().await;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyRouterInput {
+    pub input: RouterInput,
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct RouterApplyReply {
+    result: Result<RouterOutput>,
+}
+
+impl RouterApplyReply {
+    fn new(result: Result<RouterOutput>) -> Self {
+        Self { result }
+    }
+
+    fn into_result(self) -> Result<RouterOutput> {
+        self.result
     }
 }
 
@@ -190,6 +245,30 @@ impl RouterActor {
         }
         self.pending = next;
         Ok(delivered)
+    }
+}
+
+impl KameoActor for RouterActor {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(
+        actor: Self::Args,
+        _actor_reference: ActorRef<Self>,
+    ) -> std::result::Result<Self, Self::Error> {
+        Ok(actor)
+    }
+}
+
+impl KameoMessage<ApplyRouterInput> for RouterActor {
+    type Reply = RouterApplyReply;
+
+    async fn handle(
+        &mut self,
+        message: ApplyRouterInput,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        RouterApplyReply::new(self.apply(message.input))
     }
 }
 

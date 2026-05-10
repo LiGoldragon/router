@@ -16,6 +16,9 @@ pub enum Error {
     #[error("terminal: {0}")]
     Terminal(#[from] persona_wezterm::Error),
 
+    #[error("actor call: {0}")]
+    ActorCall(String),
+
     #[error("unknown message recipient: {recipient}")]
     UnknownRecipient { recipient: String },
 
