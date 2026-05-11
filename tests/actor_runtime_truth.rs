@@ -4,13 +4,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
 use persona_router::{
-    Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, ChannelAuthority,
-    ChannelDecision, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, GrantChannel,
-    GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message, MessageId,
-    ReadChannelAuthorityStatus, ReadChannelPersistence, ReadHarnessRegistryStatus,
-    ReadRouterChannelPersistence, ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage,
-    RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables, RouterTrace,
-    RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
+    Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, ChannelAuthority, ChannelClock,
+    ChannelDecision, ChannelEpochSeconds, ChannelLifetime, CheckChannel, EndpointKind,
+    EndpointTransport, GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message,
+    MessageId, ObserveChannelTime, ReadChannelAuthorityStatus, ReadChannelPersistence,
+    ReadHarnessRegistryStatus, ReadRouterChannelPersistence, ReadRouterTrace, RegisterActor,
+    RetractChannel, RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime,
+    RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
@@ -432,6 +432,65 @@ async fn retracted_channel_cannot_authorize_message() {
         .into_result()
         .expect("channel check succeeds");
     assert!(matches!(decision, ChannelDecision::NeedsAdjudication(_)));
+
+    authority
+        .stop_gracefully()
+        .await
+        .expect("channel authority stops gracefully");
+    authority.wait_for_shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expired_channel_cannot_authorize_message() {
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let authority = ChannelAuthority::spawn(ChannelAuthority::with_clock(ChannelClock::fixed(
+        ChannelEpochSeconds::new(10),
+    )));
+    authority.wait_for_startup().await;
+    authority
+        .ask(GrantChannel::direct_message(
+            operator.clone(),
+            responder.clone(),
+            ChannelLifetime::ExpiresAt(ChannelEpochSeconds::new(20)),
+        ))
+        .await
+        .expect("grant reaches channel authority")
+        .into_result()
+        .expect("grant succeeds");
+    let message = Message {
+        id: MessageId::new("m-expires"),
+        thread: ThreadId::new("direct-operator-responder"),
+        from: operator,
+        to: responder,
+        body: "hello".to_string(),
+        attachments: Vec::new(),
+    };
+    let before_expiry = authority
+        .ask(CheckChannel {
+            message: message.clone(),
+        })
+        .await
+        .expect("channel check reaches authority")
+        .into_result()
+        .expect("channel check succeeds");
+    assert!(matches!(before_expiry, ChannelDecision::Authorized { .. }));
+    authority
+        .ask(ObserveChannelTime {
+            now: ChannelEpochSeconds::new(21),
+        })
+        .await
+        .expect("time observation reaches channel authority");
+    let after_expiry = authority
+        .ask(CheckChannel { message })
+        .await
+        .expect("channel check reaches authority")
+        .into_result()
+        .expect("channel check succeeds");
+    assert!(matches!(
+        after_expiry,
+        ChannelDecision::NeedsAdjudication(_)
+    ));
 
     authority
         .stop_gracefully()

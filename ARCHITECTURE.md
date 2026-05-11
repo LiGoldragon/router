@@ -163,6 +163,7 @@ This repo does not own:
   adjudication for misses.
 - A message with no active channel does not reach `HarnessDelivery`.
 - One-shot and retracted channels cannot keep authorizing messages.
+- Expired time-bound channels cannot authorize messages.
 - Channel grants and adjudication requests can be persisted through
   router-owned Sema tables.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
@@ -207,6 +208,7 @@ tests/                  router smoke and actor-density truth tests
 | A message without an active channel parks for adjudication and does not reach delivery. | `nix flake check .#router-unknown-channel-parks-for-adjudication` |
 | A one-shot channel cannot authorize a second message after use. | `nix flake check .#router-one-shot-channel-cannot-authorize-second-message` |
 | A retracted channel cannot authorize messages. | `nix flake check .#router-retracted-channel-cannot-authorize-message` |
+| An expired time-bound channel cannot authorize messages. | `nix flake check .#router-expired-channel-cannot-authorize-message` |
 | Router-owned Sema tables persist channel and adjudication records. | `nix flake check .#router-sema-tables-persist-channel-and-adjudication-records` |
 | Router runtime can wire channel authority to router-owned Sema tables. | `nix flake check .#router-runtime-wires-channel-authority-to-router-tables` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |

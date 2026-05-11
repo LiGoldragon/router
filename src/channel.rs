@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
@@ -19,6 +20,7 @@ pub struct ChannelAuthority {
     status_request_count: u64,
     last_status_requester: Option<ActorId>,
     tables: Option<RouterTables>,
+    clock: ChannelClock,
 }
 
 impl ChannelAuthority {
@@ -32,12 +34,28 @@ impl ChannelAuthority {
             status_request_count: 0,
             last_status_requester: None,
             tables: None,
+            clock: ChannelClock::system(),
         }
     }
 
     pub fn with_tables(tables: RouterTables) -> Self {
         Self {
             tables: Some(tables),
+            ..Self::new()
+        }
+    }
+
+    pub fn with_clock(clock: ChannelClock) -> Self {
+        Self {
+            clock,
+            ..Self::new()
+        }
+    }
+
+    pub fn with_tables_and_clock(tables: RouterTables, clock: ChannelClock) -> Self {
+        Self {
+            tables: Some(tables),
+            clock,
             ..Self::new()
         }
     }
@@ -82,7 +100,7 @@ impl ChannelAuthority {
                 self.adjudication_request(message, triple)?,
             ));
         };
-        if !channel.is_active() {
+        if !channel.is_active_at(self.clock.now()) {
             return Ok(ChannelDecision::NeedsAdjudication(
                 self.adjudication_request(message, triple)?,
             ));
@@ -98,6 +116,13 @@ impl ChannelAuthority {
         };
         channel.accept_use();
         true
+    }
+
+    fn observe_time(&mut self, observation: ObserveChannelTime) -> ChannelClockSnapshot {
+        self.clock.observe(observation.now);
+        ChannelClockSnapshot {
+            now: self.clock.now(),
+        }
     }
 
     fn adjudication_request(
@@ -138,6 +163,63 @@ impl Default for ChannelAuthority {
     }
 }
 
+#[derive(
+    Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[rkyv(derive(Debug))]
+pub struct ChannelEpochSeconds(u64);
+
+impl ChannelEpochSeconds {
+    pub const fn new(seconds: u64) -> Self {
+        Self(seconds)
+    }
+
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChannelClock {
+    mode: ChannelClockMode,
+}
+
+impl ChannelClock {
+    pub const fn system() -> Self {
+        Self {
+            mode: ChannelClockMode::System,
+        }
+    }
+
+    pub const fn fixed(now: ChannelEpochSeconds) -> Self {
+        Self {
+            mode: ChannelClockMode::Fixed(now),
+        }
+    }
+
+    fn now(self) -> ChannelEpochSeconds {
+        match self.mode {
+            ChannelClockMode::System => ChannelEpochSeconds::new(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|duration| duration.as_secs())
+                    .unwrap_or(0),
+            ),
+            ChannelClockMode::Fixed(now) => now,
+        }
+    }
+
+    fn observe(&mut self, now: ChannelEpochSeconds) {
+        self.mode = ChannelClockMode::Fixed(now);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChannelClockMode {
+    System,
+    Fixed(ChannelEpochSeconds),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChannelTriple {
     from: ActorId,
@@ -163,11 +245,12 @@ pub enum ChannelKind {
     DirectMessage,
 }
 
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[rkyv(derive(Debug))]
 pub enum ChannelLifetime {
     Persistent,
     OneShot,
+    ExpiresAt(ChannelEpochSeconds),
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,19 +269,30 @@ pub struct ChannelRecord {
 }
 
 impl ChannelRecord {
-    fn is_active(&self) -> bool {
+    fn is_active_at(&self, now: ChannelEpochSeconds) -> bool {
         if self.status != ChannelStatus::Active {
             return false;
         }
         match self.lifetime {
             ChannelLifetime::Persistent => true,
             ChannelLifetime::OneShot => self.use_count == 0,
+            ChannelLifetime::ExpiresAt(expires_at) => now < expires_at,
         }
     }
 
     fn accept_use(&mut self) {
         self.use_count = self.use_count.saturating_add(1);
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObserveChannelTime {
+    pub now: ChannelEpochSeconds,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
+pub struct ChannelClockSnapshot {
+    pub now: ChannelEpochSeconds,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -387,6 +481,18 @@ impl kameo::message::Message<UseChannel> for ChannelAuthority {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.mark_used(message)
+    }
+}
+
+impl kameo::message::Message<ObserveChannelTime> for ChannelAuthority {
+    type Reply = ChannelClockSnapshot;
+
+    async fn handle(
+        &mut self,
+        message: ObserveChannelTime,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.observe_time(message)
     }
 }
 

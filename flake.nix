@@ -138,6 +138,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth retracted_channel_cannot_authorize_message -- --exact";
             }
           );
+          router-expired-channel-cannot-authorize-message = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth expired_channel_cannot_authorize_message -- --exact";
+            }
+          );
           router-sema-tables-persist-channel-and-adjudication-records = context.craneLib.cargoTest (
             context.commonArgs
             // {

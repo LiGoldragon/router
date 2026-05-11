@@ -9,9 +9,10 @@ pub mod tables;
 
 pub use channel::{
     AdjudicationRequest, ChannelAuthority, ChannelAuthoritySnapshot, ChannelCheckOutcome,
-    ChannelDecision, ChannelGrantOutcome, ChannelKind, ChannelLifetime, ChannelPersistenceOutcome,
-    ChannelPersistenceSnapshot, ChannelRecord, ChannelStatus, ChannelTriple, CheckChannel,
-    GrantChannel, ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel, UseChannel,
+    ChannelClock, ChannelClockSnapshot, ChannelDecision, ChannelEpochSeconds, ChannelGrantOutcome,
+    ChannelKind, ChannelLifetime, ChannelPersistenceOutcome, ChannelPersistenceSnapshot,
+    ChannelRecord, ChannelStatus, ChannelTriple, CheckChannel, GrantChannel, ObserveChannelTime,
+    ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel, UseChannel,
 };
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, Result};
