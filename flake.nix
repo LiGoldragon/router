@@ -145,6 +145,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth router_tables_persist_channel_and_adjudication_record_values -- --exact";
             }
           );
+          router-runtime-wires-channel-authority-to-router-tables = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth router_runtime_wires_channel_authority_to_router_tables -- --exact";
+            }
+          );
         }
       );
 

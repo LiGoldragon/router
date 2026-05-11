@@ -83,7 +83,9 @@ the database commit succeeds.
 Current MVP code still uses in-memory pending state. Channel grants and
 adjudication requests now have a router-owned Sema table layer, and
 `ChannelAuthority` can be constructed with that table layer so grants and
-adjudication requests are persisted through the actor path. The first witnesses
+adjudication requests are persisted through the actor path. `RouterRuntime` and
+the daemon can receive a `RouterTables` handle at startup, so the root actor
+tree can route channel work to a durable channel authority. The first witnesses
 are actor traces and table reads: `MessageCommitted` must appear for a message
 before any `DeliveryAttempted` event for that same message; a message without
 an active channel records `AdjudicationRequested` without reaching
@@ -151,6 +153,8 @@ This repo does not own:
   never as a NOTA line socket protocol.
 - Router CLI client requests accept exactly one NOTA input record and print
   exactly one NOTA reply record.
+- Router daemon startup can attach a router-owned Sema database to
+  `ChannelAuthority`.
 - `signal-persona-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
 - Message provenance comes from ingress context, not from `MessageSubmission`
@@ -204,6 +208,7 @@ tests/                  router smoke and actor-density truth tests
 | A one-shot channel cannot authorize a second message after use. | `nix flake check .#router-one-shot-channel-cannot-authorize-second-message` |
 | A retracted channel cannot authorize messages. | `nix flake check .#router-retracted-channel-cannot-authorize-message` |
 | Router-owned Sema tables persist channel and adjudication records. | `nix flake check .#router-sema-tables-persist-channel-and-adjudication-records` |
+| Router runtime can wire channel authority to router-owned Sema tables. | `nix flake check .#router-runtime-wires-channel-authority-to-router-tables` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 
 ## See Also

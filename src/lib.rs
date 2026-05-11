@@ -26,11 +26,11 @@ pub use message::{
 };
 pub use router::{
     ApplyRouterInput, ApplySignalMessage, ChannelGranted, ChannelRetracted, DeliveryChanged,
-    GrantRouteChannel, ReadRouterTrace, RegisterActor, Registered, RetractRouteChannel,
-    RouteMessage, RouterApplyOutcome, RouterCommandLine, RouterConnection, RouterDaemon,
-    RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterStatus, RouterTrace,
-    RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
-    SignalMessageInput, SignalMessageOutcome, Status,
+    GrantRouteChannel, ReadRouterChannelPersistence, ReadRouterTrace, RegisterActor, Registered,
+    RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterChannelPersistenceOutcome,
+    RouterCommandLine, RouterConnection, RouterDaemon, RouterInput, RouterOutput, RouterRoot,
+    RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
+    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,

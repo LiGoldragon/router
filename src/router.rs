@@ -19,8 +19,8 @@ use signal_persona_message::{
 };
 
 use crate::channel::{
-    ChannelAuthority, ChannelDecision, CheckChannel, GrantChannel, ReadChannelAuthorityStatus,
-    RetractChannel, UseChannel,
+    ChannelAuthority, ChannelDecision, ChannelPersistenceSnapshot, CheckChannel, GrantChannel,
+    ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel, UseChannel,
 };
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
@@ -28,18 +28,29 @@ use crate::harness_registry::{
     RegisterHarness,
 };
 use crate::message::expect_end;
-use crate::{Actor, ActorId, Error, Message, MessageId, Result, ThreadId};
+use crate::{Actor, ActorId, Error, Message, MessageId, Result, RouterTables, ThreadId};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct RouterDaemon {
     socket: PathBuf,
+    tables: Option<RouterTables>,
 }
 
 impl RouterDaemon {
     pub fn from_socket(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),
+            tables: None,
         }
+    }
+
+    pub fn with_tables(mut self, tables: RouterTables) -> Self {
+        self.tables = Some(tables);
+        self
+    }
+
+    pub fn with_store_path(self, path: impl Into<PathBuf>) -> Result<Self> {
+        Ok(self.with_tables(RouterTables::open(path.into())?))
     }
 
     pub fn from_environment() -> Result<Self> {
@@ -57,7 +68,7 @@ impl RouterDaemon {
         let _ = std::fs::remove_file(&self.socket);
         let listener = UnixListener::bind(&self.socket)?;
         let runtime = tokio::runtime::Runtime::new()?;
-        let router = runtime.block_on(RouterRuntime::start());
+        let router = runtime.block_on(RouterRuntime::start_with_optional_tables(self.tables));
         eprintln!("persona-router-daemon socket={}", self.socket.display());
         for stream in listener.incoming() {
             let stream = stream?;
@@ -183,29 +194,41 @@ impl SignalMessageInput {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RouterRuntime {
     root: Option<ActorRef<RouterRoot>>,
     registry: Option<ActorRef<HarnessRegistry>>,
     delivery: Option<ActorRef<HarnessDelivery>>,
     channels: Option<ActorRef<ChannelAuthority>>,
+    channel_tables: Option<RouterTables>,
     started_child_count: u64,
     applied_input_count: u64,
 }
 
 impl RouterRuntime {
     pub async fn start() -> ActorRef<Self> {
-        let runtime = Self::spawn(Self::new());
+        let runtime = Self::spawn(Self::new(None));
         runtime.wait_for_startup().await;
         runtime
     }
 
-    fn new() -> Self {
+    pub async fn start_with_tables(tables: RouterTables) -> ActorRef<Self> {
+        Self::start_with_optional_tables(Some(tables)).await
+    }
+
+    async fn start_with_optional_tables(tables: Option<RouterTables>) -> ActorRef<Self> {
+        let runtime = Self::spawn(Self::new(tables));
+        runtime.wait_for_startup().await;
+        runtime
+    }
+
+    fn new(channel_tables: Option<RouterTables>) -> Self {
         Self {
             root: None,
             registry: None,
             delivery: None,
             channels: None,
+            channel_tables,
             started_child_count: 0,
             applied_input_count: 0,
         }
@@ -216,7 +239,11 @@ impl RouterRuntime {
         registry.wait_for_startup().await;
         let delivery = HarnessDelivery::spawn_in_thread(HarnessDelivery::new());
         delivery.wait_for_startup().await;
-        let channels = ChannelAuthority::spawn(ChannelAuthority::new());
+        let channel_authority = match self.channel_tables.take() {
+            Some(tables) => ChannelAuthority::with_tables(tables),
+            None => ChannelAuthority::new(),
+        };
+        let channels = ChannelAuthority::spawn(channel_authority);
         channels.wait_for_startup().await;
         let root = RouterRoot::spawn(RouterRoot::new(
             registry.clone(),
@@ -699,17 +726,8 @@ impl RouterCommandLine {
     }
 
     fn daemon_command_after_name(&self) -> Result<RouterCommand> {
-        let Some(socket) = self.arguments.get(1) else {
-            return Err(Error::MissingSocket);
-        };
-        if let Some(argument) = self.arguments.get(2) {
-            return Err(Error::UnexpectedArgument {
-                got: argument.to_string_lossy().to_string(),
-            });
-        }
-        Ok(RouterCommand::Daemon(RouterDaemon::from_socket(
-            PathBuf::from(socket),
-        )))
+        let mut parser = RouterDaemonArguments::new(&self.arguments[1..]);
+        Ok(RouterCommand::Daemon(parser.parse()?))
     }
 
     fn client_command(&self) -> Result<RouterCommand> {
@@ -718,7 +736,61 @@ impl RouterCommandLine {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouterDaemonArguments<'arguments> {
+    arguments: &'arguments [OsString],
+    index: usize,
+    socket: Option<PathBuf>,
+    store: Option<PathBuf>,
+}
+
+impl<'arguments> RouterDaemonArguments<'arguments> {
+    fn new(arguments: &'arguments [OsString]) -> Self {
+        Self {
+            arguments,
+            index: 0,
+            socket: None,
+            store: None,
+        }
+    }
+
+    fn parse(&mut self) -> Result<RouterDaemon> {
+        while let Some(argument) = self.next() {
+            match argument.to_string_lossy().as_ref() {
+                "--socket" => self.socket = Some(PathBuf::from(self.required_value("--socket")?)),
+                "--store" => self.store = Some(PathBuf::from(self.required_value("--store")?)),
+                _ if self.socket.is_none()
+                    && !CommandLineArgument::new(argument).starts_option() =>
+                {
+                    self.socket = Some(PathBuf::from(argument));
+                }
+                other => {
+                    return Err(Error::UnexpectedArgument {
+                        got: other.to_string(),
+                    });
+                }
+            }
+        }
+        let daemon = RouterDaemon::from_socket(self.socket.take().ok_or(Error::MissingSocket)?);
+        match self.store.take() {
+            Some(store) => daemon.with_store_path(store),
+            None => Ok(daemon),
+        }
+    }
+
+    fn next(&mut self) -> Option<&'arguments OsString> {
+        let argument = self.arguments.get(self.index)?;
+        self.index += 1;
+        Some(argument)
+    }
+
+    fn required_value(&mut self, option: &str) -> Result<&'arguments OsString> {
+        self.next().ok_or_else(|| Error::UnexpectedArgument {
+            got: format!("{option} without value"),
+        })
+    }
+}
+
+#[derive(Debug)]
 enum RouterCommand {
     Daemon(RouterDaemon),
     Client(RouterClientCommand),
@@ -1102,6 +1174,66 @@ impl kameo::message::Message<ReadRouterTrace> for RouterRuntime {
             Err(error) => Err(error),
         };
         RouterTraceSnapshot::new(result)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadRouterChannelPersistence {
+    pub requester: ActorId,
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct RouterChannelPersistenceOutcome {
+    result: Result<ChannelPersistenceSnapshot>,
+}
+
+impl RouterChannelPersistenceOutcome {
+    fn new(result: Result<ChannelPersistenceSnapshot>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<ChannelPersistenceSnapshot> {
+        self.result
+    }
+}
+
+impl kameo::message::Message<ReadRouterChannelPersistence> for RouterRuntime {
+    type Reply = RouterChannelPersistenceOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterChannelPersistence,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(RouterChannelPersistenceOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        RouterChannelPersistenceOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ReadRouterChannelPersistence> for RouterRoot {
+    type Reply = RouterChannelPersistenceOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterChannelPersistence,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let result = self
+            .channels
+            .ask(ReadChannelPersistence {
+                requester: message.requester,
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))
+            .and_then(|reply| reply.into_result());
+        RouterChannelPersistenceOutcome::new(result)
     }
 }
 

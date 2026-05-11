@@ -7,10 +7,10 @@ use persona_router::{
     Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, ChannelAuthority,
     ChannelDecision, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, GrantChannel,
     GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message, MessageId,
-    ReadChannelAuthorityStatus, ReadChannelPersistence, ReadHarnessRegistryStatus, ReadRouterTrace,
-    RegisterActor, RetractChannel, RouteMessage, RouterInput, RouterOutput, RouterRoot,
-    RouterRuntime, RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput, Status,
-    ThreadId, UseChannel,
+    ReadChannelAuthorityStatus, ReadChannelPersistence, ReadHarnessRegistryStatus,
+    ReadRouterChannelPersistence, ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage,
+    RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables, RouterTrace,
+    RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
@@ -29,6 +29,12 @@ impl RouterFixture {
     async fn start() -> Self {
         Self {
             runtime: RouterRuntime::start().await,
+        }
+    }
+
+    async fn start_with_tables(tables: RouterTables) -> Self {
+        Self {
+            runtime: RouterRuntime::start_with_tables(tables).await,
         }
     }
 
@@ -55,6 +61,18 @@ impl RouterFixture {
     async fn trace(&self) -> persona_router::Result<RouterTrace> {
         self.runtime
             .ask(ReadRouterTrace { since: 0 })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn channel_persistence(
+        &self,
+    ) -> persona_router::Result<persona_router::ChannelPersistenceSnapshot> {
+        self.runtime
+            .ask(ReadRouterChannelPersistence {
+                requester: ActorId::new("operator"),
+            })
             .await
             .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
             .into_result()
@@ -511,6 +529,58 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
     assert_eq!(adjudication[0].message, "m-table");
     assert_eq!(adjudication[0].from, "operator");
     assert_eq!(adjudication[0].to, "reviewer");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_runtime_wires_channel_authority_to_router_tables() {
+    let store = TemporaryRouterStore::new("runtime-tables");
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let reviewer = ActorId::new("reviewer");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let router = RouterFixture::start_with_tables(tables).await;
+    router
+        .apply(RouterInput::GrantChannel(GrantRouteChannel {
+            channel: GrantChannel::direct_message(
+                operator.clone(),
+                responder,
+                ChannelLifetime::Persistent,
+            ),
+        }))
+        .await
+        .expect("runtime routes channel grant to channel authority");
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: reviewer.clone(),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register request passes through router actor");
+    router
+        .apply(RouterInput::RouteMessage(RouteMessage {
+            message: Message {
+                id: MessageId::new("m-runtime-table"),
+                thread: ThreadId::new("direct-operator-reviewer"),
+                from: operator,
+                to: reviewer,
+                body: "persist through runtime".to_string(),
+                attachments: Vec::new(),
+            },
+        }))
+        .await
+        .expect("route request parks for adjudication");
+
+    let persisted = router
+        .channel_persistence()
+        .await
+        .expect("runtime exposes channel authority persistence");
+    assert_eq!(persisted.channels, 1);
+    assert_eq!(persisted.adjudication_pending, 1);
+
+    router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
