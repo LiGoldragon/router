@@ -1,5 +1,4 @@
-use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
@@ -58,23 +57,12 @@ impl RouterDaemon {
         stream: UnixStream,
     ) -> Result<()> {
         let mut connection = RouterConnection::from_stream(stream);
-        let request = connection.read_request()?;
-        match request {
-            RouterConnectionRequest::Line(input) => {
-                let output = runtime
-                    .block_on(async { router.ask(ApplyRouterInput { input }).await })
-                    .map_err(|error| Error::ActorCall(error.to_string()))?
-                    .into_result()?;
-                connection.write_line_output(output)?;
-            }
-            RouterConnectionRequest::Signal(input) => {
-                let output = runtime
-                    .block_on(async { router.ask(ApplySignalMessage { input }).await })
-                    .map_err(|error| Error::ActorCall(error.to_string()))?
-                    .into_result()?;
-                connection.write_signal_reply(output)?;
-            }
-        }
+        let input = connection.read_signal_input()?;
+        let output = runtime
+            .block_on(async { router.ask(ApplySignalMessage { input }).await })
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
+        connection.write_signal_reply(output)?;
         Ok(())
     }
 }
@@ -92,39 +80,15 @@ impl RouterConnection {
         }
     }
 
-    pub fn read_request(&mut self) -> Result<RouterConnectionRequest> {
-        let buffer = self.stream.fill_buf()?;
-        if buffer.first().is_some_and(|byte| *byte == b'(') {
-            let mut line = String::new();
-            self.stream.read_line(&mut line)?;
-            return Ok(RouterConnectionRequest::Line(RouterInput::from_nota(
-                line.trim(),
-            )?));
-        }
-
+    pub fn read_signal_input(&mut self) -> Result<SignalMessageInput> {
         let frame = self.signal.read_frame(&mut self.stream)?;
-        Ok(RouterConnectionRequest::Signal(
-            SignalMessageInput::from_frame(frame)?,
-        ))
-    }
-
-    pub fn write_line_output(&mut self, output: RouterOutput) -> Result<()> {
-        let stream = self.stream.get_mut();
-        writeln!(stream, "{}", output.to_nota()?)?;
-        stream.flush()?;
-        Ok(())
+        SignalMessageInput::from_frame(frame)
     }
 
     pub fn write_signal_reply(&mut self, reply: MessageReply) -> Result<()> {
         let stream = self.stream.get_mut();
         self.signal.write_reply(stream, reply)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RouterConnectionRequest {
-    Line(RouterInput),
-    Signal(SignalMessageInput),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,55 +165,6 @@ impl SignalMessageInput {
             }
         };
         Ok(Self::new(sender, request))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RouterClient {
-    socket: PathBuf,
-    input: String,
-}
-
-impl RouterClient {
-    pub fn from_environment() -> Result<Self> {
-        let mut arguments = std::env::args_os().skip(1);
-        let socket = arguments
-            .next()
-            .map(PathBuf::from)
-            .ok_or(Error::MissingSocket)?;
-        let input = RouterClientArguments::new(arguments.collect()).input()?;
-        Ok(Self { socket, input })
-    }
-
-    pub fn run(&self, mut output: impl Write) -> Result<()> {
-        let mut stream = UnixStream::connect(&self.socket)?;
-        writeln!(stream, "{}", self.input)?;
-        stream.flush()?;
-        std::io::copy(&mut stream, &mut output)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RouterClientArguments {
-    arguments: Vec<OsString>,
-}
-
-impl RouterClientArguments {
-    fn new(arguments: Vec<OsString>) -> Self {
-        Self { arguments }
-    }
-
-    fn input(&self) -> Result<String> {
-        let Some(first) = self.arguments.first() else {
-            return Err(Error::MissingInput);
-        };
-        if let Some(argument) = self.arguments.get(1) {
-            return Err(Error::UnexpectedArgument {
-                got: argument.to_string_lossy().to_string(),
-            });
-        }
-        Ok(first.to_string_lossy().into_owned())
     }
 }
 

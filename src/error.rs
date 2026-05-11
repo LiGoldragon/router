@@ -31,12 +31,6 @@ pub enum Error {
     #[error("delivery blocked: {reason}")]
     DeliveryBlocked { reason: String },
 
-    #[error("missing router input; pass a NOTA record")]
-    MissingInput,
-
-    #[error("unexpected router argument: {got:?}")]
-    UnexpectedArgument { got: String },
-
     #[error("router socket path is missing")]
     MissingSocket,
 

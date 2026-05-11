@@ -16,8 +16,8 @@ pub use kameo::actor::ActorRef;
 pub use message::{Message, MessageBody, MessageId};
 pub use router::{
     ApplyRouterInput, ApplySignalMessage, DeliveryChanged, PromptFact, PromptObservation,
-    ReadRouterTrace, RegisterActor, Registered, RouteMessage, RouterApplyOutcome, RouterClient,
-    RouterConnection, RouterConnectionRequest, RouterDaemon, RouterInput, RouterOutput, RouterRoot,
-    RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
-    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
+    ReadRouterTrace, RegisterActor, Registered, RouteMessage, RouterApplyOutcome, RouterConnection,
+    RouterDaemon, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterStatus, RouterTrace,
+    RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
+    SignalMessageInput, SignalMessageOutcome, Status,
 };

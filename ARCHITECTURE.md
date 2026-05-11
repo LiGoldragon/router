@@ -37,10 +37,9 @@ flowchart LR
 `persona-router` exposes:
 
 - a library surface for delivery decisions;
-- a router daemon/CLI surface for isolated development;
+- a router daemon surface for isolated development;
 - a Signal-frame daemon ingress for `signal-persona-message`
   `MessageSubmission` and `InboxQuery` frames;
-- a legacy NOTA line ingress for existing harness scripts during migration;
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
   tree as `ActorRef<RouterRuntime>`;
 - a Kameo `RouterRoot` that owns live routing state behind the runtime;
@@ -141,13 +140,12 @@ This repo does not own:
 ## Code Map
 
 ```text
-src/router.rs           Kameo router runtime/root, daemon/client protocol, pending retry
+src/router.rs           Kameo router runtime/root, Signal daemon protocol, pending retry
 src/harness_registry.rs Kameo harness registry and observation state owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/delivery.rs         delivery decisions and typed gate state
-src/message.rs          legacy router message records
+src/message.rs          transitional router message records
 src/main.rs             daemon entry
-src/bin/router.rs       client entry
 tests/                  router smoke and actor-density truth tests
 ```
 

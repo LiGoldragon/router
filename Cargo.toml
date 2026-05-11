@@ -16,10 +16,6 @@ path = "src/lib.rs"
 name = "persona-router-daemon"
 path = "src/main.rs"
 
-[[bin]]
-name = "router"
-path = "src/bin/router.rs"
-
 [dependencies]
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }

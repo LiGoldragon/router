@@ -2,7 +2,7 @@ use std::io::Write;
 
 use persona_router::{
     DeliveryGate, Message, MessageBody, MessageId, PendingDelivery, PromptFact, RouterConnection,
-    RouterConnectionRequest, RouterInput, RouterOutput,
+    RouterInput, RouterOutput,
 };
 use signal_core::{AuthProof, FrameBody, LocalOperatorProof, Request};
 use signal_persona_message::{
@@ -167,11 +167,10 @@ fn router_connection_decodes_signal_persona_message_frame() {
         .expect("client writes frame");
     let mut connection = RouterConnection::from_stream(server);
 
-    let request = connection.read_request().expect("router reads request");
+    let input = connection
+        .read_signal_input()
+        .expect("router reads signal input");
 
-    let RouterConnectionRequest::Signal(input) = request else {
-        panic!("expected signal request");
-    };
     assert_eq!(input.sender().as_str(), "operator");
     assert!(matches!(
         input.request(),

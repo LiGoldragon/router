@@ -1,14 +1,14 @@
 # persona-router skill
 
 Work here when the change concerns delivery routing, pending deliveries, gate
-decisions, or the router daemon/CLI surface.
+decisions, or the router daemon surface.
 
 Rules for work here:
 
 - Depend on contract repos for relation-specific frame records. For this router
   slice, that means `signal-persona-message` and `signal-persona-system`.
-- Accept `signal-persona-message` frames as the target message ingress. Keep
-  the old NOTA line protocol only as compatibility for existing harness scripts.
+- Accept `signal-persona-message` frames as the daemon message ingress. Do not
+  add a NOTA line socket protocol.
 - Resolve the signal sender from Signal auth. Do not add sender text to
   `MessageSubmission`.
 - Depend on `persona-system` for OS/window/input runtime observation
