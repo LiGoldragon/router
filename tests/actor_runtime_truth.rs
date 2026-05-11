@@ -643,6 +643,66 @@ async fn router_runtime_wires_channel_authority_to_router_tables() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_root_persists_delivery_attempt_and_result_records() {
+    let store = TemporaryRouterStore::new("delivery-tables");
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let message_id = MessageId::new("m-delivery-table");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: responder.clone(),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register request passes through router actor");
+    router
+        .apply(RouterInput::GrantChannel(GrantRouteChannel {
+            channel: GrantChannel::direct_message(
+                operator.clone(),
+                responder.clone(),
+                ChannelLifetime::Persistent,
+            ),
+        }))
+        .await
+        .expect("runtime routes channel grant to channel authority");
+    router
+        .apply(RouterInput::RouteMessage(RouteMessage {
+            message: Message {
+                id: message_id.clone(),
+                thread: ThreadId::new("direct-operator-responder"),
+                from: operator,
+                to: responder,
+                body: "persist delivery attempt".to_string(),
+                attachments: Vec::new(),
+            },
+        }))
+        .await
+        .expect("route request records delivery attempt and result");
+
+    let attempts = inspection
+        .delivery_attempt_records()
+        .expect("delivery attempts read");
+    let results = inspection
+        .delivery_result_records()
+        .expect("delivery results read");
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].sequence, 1);
+    assert_eq!(attempts[0].message, message_id.as_str());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].sequence, 1);
+    assert_eq!(results[0].message, message_id.as_str());
+    assert!(!results[0].delivered);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
     let router = RouterFixture::start().await;
     let reply = router

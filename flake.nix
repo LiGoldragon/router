@@ -159,6 +159,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth router_runtime_wires_channel_authority_to_router_tables -- --exact";
             }
           );
+          router-root-persists-delivery-attempt-and-result-records = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth router_root_persists_delivery_attempt_and_result_records -- --exact";
+            }
+          );
         }
       );
 

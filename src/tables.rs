@@ -1,11 +1,13 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema::{Schema, SchemaVersion, Sema, Table};
 use signal_persona_auth::ChannelId;
 
 use crate::{
-    AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Result,
+    AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, MessageId,
+    Result,
 };
 
 const ROUTER_SCHEMA: Schema = Schema {
@@ -21,8 +23,9 @@ const DELIVERY_ATTEMPTS: Table<u64, StoredDeliveryAttempt> = Table::new("deliver
 const DELIVERY_RESULTS: Table<u64, StoredDeliveryResult> = Table::new("delivery_results");
 const META: Table<&'static str, u64> = Table::new("meta");
 
+#[derive(Clone)]
 pub struct RouterTables {
-    database: Sema,
+    database: Arc<Sema>,
 }
 
 impl std::fmt::Debug for RouterTables {
@@ -45,7 +48,9 @@ impl RouterTables {
             META.ensure(transaction)?;
             Ok(())
         })?;
-        Ok(Self { database })
+        Ok(Self {
+            database: Arc::new(database),
+        })
     }
 
     pub fn insert_channel(&self, channel_id: &ChannelId, grant: &GrantChannel) -> Result<()> {
@@ -89,6 +94,49 @@ impl RouterTables {
                 .iter(transaction)?
                 .into_iter()
                 .map(|(_key, request)| request)
+                .collect())
+        })?)
+    }
+
+    pub fn insert_delivery_attempt(&self, sequence: u64, message: &MessageId) -> Result<()> {
+        let attempt = StoredDeliveryAttempt::new(sequence, message);
+        self.database.write(|transaction| {
+            DELIVERY_ATTEMPTS.insert(transaction, sequence, &attempt)?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    pub fn insert_delivery_result(
+        &self,
+        sequence: u64,
+        message: &MessageId,
+        delivered: bool,
+    ) -> Result<()> {
+        let result = StoredDeliveryResult::new(sequence, message, delivered);
+        self.database.write(|transaction| {
+            DELIVERY_RESULTS.insert(transaction, sequence, &result)?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    pub fn delivery_attempt_records(&self) -> Result<Vec<StoredDeliveryAttempt>> {
+        Ok(self.database.read(|transaction| {
+            Ok(DELIVERY_ATTEMPTS
+                .iter(transaction)?
+                .into_iter()
+                .map(|(_key, attempt)| attempt)
+                .collect())
+        })?)
+    }
+
+    pub fn delivery_result_records(&self) -> Result<Vec<StoredDeliveryResult>> {
+        Ok(self.database.read(|transaction| {
+            Ok(DELIVERY_RESULTS
+                .iter(transaction)?
+                .into_iter()
+                .map(|(_key, result)| result)
                 .collect())
         })?)
     }
@@ -157,12 +205,31 @@ pub struct StoredDeliveryAttempt {
     pub message: String,
 }
 
+impl StoredDeliveryAttempt {
+    fn new(sequence: u64, message: &MessageId) -> Self {
+        Self {
+            sequence,
+            message: message.as_str().to_string(),
+        }
+    }
+}
+
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
 #[rkyv(derive(Debug))]
 pub struct StoredDeliveryResult {
     pub sequence: u64,
     pub message: String,
     pub delivered: bool,
+}
+
+impl StoredDeliveryResult {
+    fn new(sequence: u64, message: &MessageId, delivered: bool) -> Self {
+        Self {
+            sequence,
+            message: message.as_str().to_string(),
+            delivered,
+        }
+    }
 }
 
 trait ChannelKindTableToken {

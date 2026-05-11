@@ -200,7 +200,7 @@ pub struct RouterRuntime {
     registry: Option<ActorRef<HarnessRegistry>>,
     delivery: Option<ActorRef<HarnessDelivery>>,
     channels: Option<ActorRef<ChannelAuthority>>,
-    channel_tables: Option<RouterTables>,
+    tables: Option<RouterTables>,
     started_child_count: u64,
     applied_input_count: u64,
 }
@@ -222,13 +222,13 @@ impl RouterRuntime {
         runtime
     }
 
-    fn new(channel_tables: Option<RouterTables>) -> Self {
+    fn new(tables: Option<RouterTables>) -> Self {
         Self {
             root: None,
             registry: None,
             delivery: None,
             channels: None,
-            channel_tables,
+            tables,
             started_child_count: 0,
             applied_input_count: 0,
         }
@@ -239,7 +239,7 @@ impl RouterRuntime {
         registry.wait_for_startup().await;
         let delivery = HarnessDelivery::spawn_in_thread(HarnessDelivery::new());
         delivery.wait_for_startup().await;
-        let channel_authority = match self.channel_tables.take() {
+        let channel_authority = match self.tables.clone() {
             Some(tables) => ChannelAuthority::with_tables(tables),
             None => ChannelAuthority::new(),
         };
@@ -249,6 +249,7 @@ impl RouterRuntime {
             registry.clone(),
             delivery.clone(),
             channels.clone(),
+            self.tables.clone(),
         ));
         root.wait_for_startup().await;
         self.root = Some(root);
@@ -394,8 +395,10 @@ pub struct RouterRoot {
     registry: ActorRef<HarnessRegistry>,
     delivery: ActorRef<HarnessDelivery>,
     channels: ActorRef<ChannelAuthority>,
+    tables: Option<RouterTables>,
     trace: RouterTrace,
     signal_message_sequence: u64,
+    delivery_sequence: u64,
     signal_slots: Vec<SignalMessageSlot>,
 }
 
@@ -404,14 +407,17 @@ impl RouterRoot {
         registry: ActorRef<HarnessRegistry>,
         delivery: ActorRef<HarnessDelivery>,
         channels: ActorRef<ChannelAuthority>,
+        tables: Option<RouterTables>,
     ) -> Self {
         Self {
             pending: Vec::new(),
             registry,
             delivery,
             channels,
+            tables,
             trace: RouterTrace::new(),
             signal_message_sequence: 0,
+            delivery_sequence: 0,
             signal_slots: Vec::new(),
         }
     }
@@ -510,6 +516,11 @@ impl RouterRoot {
         SignalSlot::new(self.signal_message_sequence)
     }
 
+    fn next_delivery_sequence(&mut self) -> u64 {
+        self.delivery_sequence = self.delivery_sequence.saturating_add(1);
+        self.delivery_sequence
+    }
+
     fn signal_message(
         &self,
         sender: ActorId,
@@ -592,6 +603,13 @@ impl RouterRoot {
                 next.push(message);
                 continue;
             }
+            let delivery_sequence = self.next_delivery_sequence();
+            if let Some(tables) = &self.tables {
+                if let Err(error) = tables.insert_delivery_attempt(delivery_sequence, &message.id) {
+                    self.restore_pending_after_error(next, Some(message), messages);
+                    return Err(error);
+                }
+            }
             self.trace
                 .record(message.id.clone(), RouterTraceStep::DeliveryAttempted);
             let delivery_reply = match self
@@ -615,6 +633,14 @@ impl RouterRoot {
                     return Err(error);
                 }
             };
+            if let Some(tables) = &self.tables {
+                if let Err(error) =
+                    tables.insert_delivery_result(delivery_sequence, &message.id, delivery_result)
+                {
+                    self.restore_pending_after_error(next, Some(message), messages);
+                    return Err(error);
+                }
+            }
             if delivery_result {
                 let _ = self
                     .channels

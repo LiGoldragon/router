@@ -99,8 +99,8 @@ adjudication, and delivery state through the authoritative table layer.
 
 Current router-owned durable table names are `channels`, `channels_by_triple`,
 `adjudication_pending`, `delivery_attempts`, `delivery_results`, and `meta`.
-Only channel grants and adjudication requests are written through the current
-runtime path. Pending delivery, delivery attempt, delivery result, and
+Channel grants, adjudication requests, delivery attempts, and delivery results
+are written through the current runtime actor path. Pending delivery and
 delivered/failed/deferred status records still need to be wired into
 `RouterRoot`. Successful delivery is another router state transition: after
 `persona-harness` reports the terminal effect, the router commits the delivery
@@ -166,6 +166,8 @@ This repo does not own:
 - Expired time-bound channels cannot authorize messages.
 - Channel grants and adjudication requests can be persisted through
   router-owned Sema tables.
+- Delivery attempts and delivery results can be persisted through
+  router-owned Sema tables.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration state enters through `HarnessRegistry`.
 - Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
@@ -211,6 +213,7 @@ tests/                  router smoke and actor-density truth tests
 | An expired time-bound channel cannot authorize messages. | `nix flake check .#router-expired-channel-cannot-authorize-message` |
 | Router-owned Sema tables persist channel and adjudication records. | `nix flake check .#router-sema-tables-persist-channel-and-adjudication-records` |
 | Router runtime can wire channel authority to router-owned Sema tables. | `nix flake check .#router-runtime-wires-channel-authority-to-router-tables` |
+| RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix flake check .#router-root-persists-delivery-attempt-and-result-records` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 
 ## See Also
