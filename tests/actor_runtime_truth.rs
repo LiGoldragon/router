@@ -1,14 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
 use persona_router::{
     Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, ChannelAuthority,
     ChannelDecision, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, GrantChannel,
     GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message, MessageId,
-    ReadChannelAuthorityStatus, ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor,
-    RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTrace,
-    RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
+    ReadChannelAuthorityStatus, ReadChannelPersistence, ReadHarnessRegistryStatus, ReadRouterTrace,
+    RegisterActor, RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime,
+    RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
@@ -138,6 +139,34 @@ impl SourceTree {
             .map(|entry| entry.expect("test entry is readable").path())
             .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
             .collect()
+    }
+}
+
+struct TemporaryRouterStore {
+    path: PathBuf,
+}
+
+impl TemporaryRouterStore {
+    fn new(name: &str) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "persona-router-{name}-{}-{now}.redb",
+            std::process::id()
+        ));
+        Self { path }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TemporaryRouterStore {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -306,7 +335,9 @@ async fn one_shot_channel_cannot_authorize_second_message() {
             ChannelLifetime::OneShot,
         ))
         .await
-        .expect("one shot grant reaches channel authority");
+        .expect("one shot grant reaches channel authority")
+        .into_result()
+        .expect("one shot grant is stored");
     let message = Message {
         id: MessageId::new("m-one"),
         thread: ThreadId::new("direct-operator-responder"),
@@ -320,7 +351,9 @@ async fn one_shot_channel_cannot_authorize_second_message() {
             message: message.clone(),
         })
         .await
-        .expect("channel check reaches authority");
+        .expect("channel check reaches authority")
+        .into_result()
+        .expect("channel check succeeds");
     assert!(matches!(first, ChannelDecision::Authorized { .. }));
     authority
         .ask(UseChannel::direct_message(operator, responder))
@@ -329,7 +362,9 @@ async fn one_shot_channel_cannot_authorize_second_message() {
     let second = authority
         .ask(CheckChannel { message })
         .await
-        .expect("second channel check reaches authority");
+        .expect("second channel check reaches authority")
+        .into_result()
+        .expect("second channel check succeeds");
     assert!(matches!(second, ChannelDecision::NeedsAdjudication(_)));
 
     authority
@@ -337,6 +372,97 @@ async fn one_shot_channel_cannot_authorize_second_message() {
         .await
         .expect("channel authority stops gracefully");
     authority.wait_for_shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn channel_authority_persists_grants_and_adjudication_requests() {
+    let store = TemporaryRouterStore::new("channel-authority");
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let reviewer = ActorId::new("reviewer");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let authority = ChannelAuthority::spawn(ChannelAuthority::with_tables(tables));
+    authority.wait_for_startup().await;
+    authority
+        .ask(GrantChannel::direct_message(
+            operator.clone(),
+            responder,
+            ChannelLifetime::Persistent,
+        ))
+        .await
+        .expect("grant reaches channel authority")
+        .into_result()
+        .expect("grant persists");
+    authority
+        .ask(CheckChannel {
+            message: Message {
+                id: MessageId::new("m-adjudicate"),
+                thread: ThreadId::new("direct-operator-reviewer"),
+                from: operator,
+                to: reviewer,
+                body: "please review".to_string(),
+                attachments: Vec::new(),
+            },
+        })
+        .await
+        .expect("adjudication check reaches channel authority")
+        .into_result()
+        .expect("adjudication request persists");
+    let persisted = authority
+        .ask(ReadChannelPersistence {
+            requester: ActorId::new("operator"),
+        })
+        .await
+        .expect("persistence read reaches channel authority")
+        .into_result()
+        .expect("persistence read succeeds");
+    assert_eq!(persisted.channels, 1);
+    assert_eq!(persisted.adjudication_pending, 1);
+
+    authority
+        .stop_gracefully()
+        .await
+        .expect("channel authority stops gracefully");
+    authority.wait_for_shutdown().await;
+}
+
+#[test]
+fn router_tables_persist_channel_and_adjudication_record_values() {
+    let store = TemporaryRouterStore::new("tables");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let grant = GrantChannel::direct_message(
+        ActorId::new("operator"),
+        ActorId::new("responder"),
+        ChannelLifetime::Persistent,
+    );
+    let request = persona_router::AdjudicationRequest {
+        message: MessageId::new("m-table"),
+        from: ActorId::new("operator"),
+        to: ActorId::new("reviewer"),
+        kind: persona_router::ChannelKind::DirectMessage,
+    };
+    tables
+        .insert_channel(
+            &signal_persona_auth::ChannelId::new("channel-table"),
+            &grant,
+        )
+        .expect("channel record persists");
+    tables
+        .insert_adjudication(&request)
+        .expect("adjudication record persists");
+
+    let channels = tables.channel_records().expect("channel records read");
+    let adjudication = tables
+        .adjudication_records()
+        .expect("adjudication records read");
+    assert_eq!(channels.len(), 1);
+    assert_eq!(channels[0].id, "channel-table");
+    assert_eq!(channels[0].from, "operator");
+    assert_eq!(channels[0].to, "responder");
+    assert_eq!(adjudication.len(), 1);
+    assert_eq!(adjudication[0].message, "m-table");
+    assert_eq!(adjudication[0].from, "operator");
+    assert_eq!(adjudication[0].to, "reviewer");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -469,6 +469,7 @@ dependencies = [
  "nota-codec",
  "persona-harness",
  "rkyv",
+ "sema",
  "signal-core",
  "signal-persona-auth",
  "signal-persona-message",

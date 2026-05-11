@@ -131,6 +131,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth one_shot_channel_cannot_authorize_second_message -- --exact";
             }
           );
+          router-sema-tables-persist-channel-and-adjudication-records = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth router_tables_persist_channel_and_adjudication_record_values -- --exact";
+            }
+          );
         }
       );
 

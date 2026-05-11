@@ -5,11 +5,13 @@ pub mod harness_delivery;
 pub mod harness_registry;
 pub mod message;
 pub mod router;
+pub mod tables;
 
 pub use channel::{
-    AdjudicationRequest, ChannelAuthority, ChannelAuthoritySnapshot, ChannelDecision,
-    ChannelGrantOutcome, ChannelKind, ChannelLifetime, ChannelRecord, ChannelStatus, ChannelTriple,
-    CheckChannel, GrantChannel, ReadChannelAuthorityStatus, RetractChannel, UseChannel,
+    AdjudicationRequest, ChannelAuthority, ChannelAuthoritySnapshot, ChannelCheckOutcome,
+    ChannelDecision, ChannelGrantOutcome, ChannelKind, ChannelLifetime, ChannelPersistenceOutcome,
+    ChannelPersistenceSnapshot, ChannelRecord, ChannelStatus, ChannelTriple, CheckChannel,
+    GrantChannel, ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel, UseChannel,
 };
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, Result};
@@ -29,4 +31,8 @@ pub use router::{
     RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterStatus, RouterTrace,
     RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
     SignalMessageInput, SignalMessageOutcome, Status,
+};
+pub use tables::{
+    RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,
+    StoredDeliveryAttempt, StoredDeliveryResult,
 };

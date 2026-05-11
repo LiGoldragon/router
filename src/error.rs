@@ -16,6 +16,9 @@ pub enum Error {
     #[error("harness terminal: {0}")]
     Terminal(#[from] persona_harness::Error),
 
+    #[error("router sema: {0}")]
+    Sema(#[from] sema::Error),
+
     #[error("actor call: {0}")]
     ActorCall(String),
 

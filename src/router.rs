@@ -436,9 +436,10 @@ impl RouterRoot {
                     .channels
                     .ask(input.channel)
                     .await
-                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                    .map_err(|error| Error::ActorCall(error.to_string()))?
+                    .into_result()?;
                 Ok(RouterOutput::ChannelGranted(ChannelGranted {
-                    channel: channel.channel.as_str().to_string(),
+                    channel: channel.as_str().to_string(),
                 }))
             }
             RouterInput::RetractChannel(input) => {
@@ -556,7 +557,8 @@ impl RouterRoot {
                     message: message.clone(),
                 })
                 .await
-                .map_err(|error| Error::ActorCall(error.to_string()))?;
+                .map_err(|error| Error::ActorCall(error.to_string()))?
+                .into_result()?;
             if matches!(decision, ChannelDecision::NeedsAdjudication(_)) {
                 self.trace
                     .record(message.id.clone(), RouterTraceStep::AdjudicationRequested);

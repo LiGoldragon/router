@@ -21,6 +21,7 @@ kameo                 = { version = "0.20", default-features = false, features =
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
 persona-harness       = { git = "https://github.com/LiGoldragon/persona-harness.git", branch = "main" }
 rkyv                  = "0.8"
+sema                  = { git = "https://github.com/LiGoldragon/sema.git" }
 signal-core           = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-persona-auth   = { git = "https://github.com/LiGoldragon/signal-persona-auth.git" }
 signal-persona-message = { git = "https://github.com/LiGoldragon/signal-persona-message.git" }

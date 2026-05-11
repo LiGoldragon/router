@@ -4,9 +4,10 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 use nota_codec::NotaEnum;
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_persona_auth::ChannelId;
 
-use crate::{ActorId, Message};
+use crate::{ActorId, Message, Result, RouterTables};
 
 #[derive(Debug)]
 pub struct ChannelAuthority {
@@ -17,6 +18,7 @@ pub struct ChannelAuthority {
     check_count: u64,
     status_request_count: u64,
     last_status_requester: Option<ActorId>,
+    tables: Option<RouterTables>,
 }
 
 impl ChannelAuthority {
@@ -29,10 +31,18 @@ impl ChannelAuthority {
             check_count: 0,
             status_request_count: 0,
             last_status_requester: None,
+            tables: None,
         }
     }
 
-    fn authorize(&mut self, grant: GrantChannel) -> ChannelId {
+    pub fn with_tables(tables: RouterTables) -> Self {
+        Self {
+            tables: Some(tables),
+            ..Self::new()
+        }
+    }
+
+    fn authorize(&mut self, grant: GrantChannel) -> Result<ChannelId> {
         self.channel_sequence = self.channel_sequence.saturating_add(1);
         let triple = grant.triple();
         let channel_id = ChannelId::new(format!(
@@ -50,7 +60,10 @@ impl ChannelAuthority {
                 use_count: 0,
             },
         );
-        channel_id
+        if let Some(tables) = &self.tables {
+            tables.insert_channel(&channel_id, &grant)?;
+        }
+        Ok(channel_id)
     }
 
     fn retract(&mut self, retraction: RetractChannel) -> bool {
@@ -61,18 +74,22 @@ impl ChannelAuthority {
         true
     }
 
-    fn check(&mut self, message: &Message) -> ChannelDecision {
+    fn check(&mut self, message: &Message) -> Result<ChannelDecision> {
         self.check_count = self.check_count.saturating_add(1);
         let triple = ChannelTriple::direct_message(message.from.clone(), message.to.clone());
         let Some(channel) = self.channels.get_mut(&triple) else {
-            return ChannelDecision::NeedsAdjudication(self.adjudication_request(message, triple));
+            return Ok(ChannelDecision::NeedsAdjudication(
+                self.adjudication_request(message, triple)?,
+            ));
         };
         if !channel.is_active() {
-            return ChannelDecision::NeedsAdjudication(self.adjudication_request(message, triple));
+            return Ok(ChannelDecision::NeedsAdjudication(
+                self.adjudication_request(message, triple)?,
+            ));
         }
-        ChannelDecision::Authorized {
+        Ok(ChannelDecision::Authorized {
             channel: channel.id.clone(),
-        }
+        })
     }
 
     fn mark_used(&mut self, usage: UseChannel) -> bool {
@@ -87,7 +104,7 @@ impl ChannelAuthority {
         &mut self,
         message: &Message,
         triple: ChannelTriple,
-    ) -> AdjudicationRequest {
+    ) -> Result<AdjudicationRequest> {
         let request = AdjudicationRequest {
             message: message.id.clone(),
             from: message.from.clone(),
@@ -95,9 +112,12 @@ impl ChannelAuthority {
             kind: triple.kind,
         };
         if self.adjudication_keys.insert(triple) {
+            if let Some(tables) = &self.tables {
+                tables.insert_adjudication(&request)?;
+            }
             self.adjudication_requests.push(request.clone());
         }
-        request
+        Ok(request)
     }
 
     fn snapshot(&mut self, requester: ActorId) -> ChannelAuthoritySnapshot {
@@ -135,18 +155,23 @@ impl ChannelTriple {
     }
 }
 
-#[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Archive, RkyvSerialize, RkyvDeserialize, NotaEnum, Debug, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[rkyv(derive(Debug))]
 pub enum ChannelKind {
     DirectMessage,
 }
 
-#[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[rkyv(derive(Debug))]
 pub enum ChannelLifetime {
     Persistent,
     OneShot,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[rkyv(derive(Debug))]
 pub enum ChannelStatus {
     Active,
     Retracted,
@@ -203,9 +228,19 @@ impl GrantChannel {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
+#[derive(Debug, kameo::Reply)]
 pub struct ChannelGrantOutcome {
-    pub channel: ChannelId,
+    result: Result<ChannelId>,
+}
+
+impl ChannelGrantOutcome {
+    fn new(result: Result<ChannelId>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<ChannelId> {
+        self.result
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,10 +274,25 @@ pub struct CheckChannel {
     pub message: Message,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelDecision {
     Authorized { channel: ChannelId },
     NeedsAdjudication(AdjudicationRequest),
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct ChannelCheckOutcome {
+    result: Result<ChannelDecision>,
+}
+
+impl ChannelCheckOutcome {
+    fn new(result: Result<ChannelDecision>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<ChannelDecision> {
+        self.result
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,12 +308,38 @@ pub struct ReadChannelAuthorityStatus {
     pub requester: ActorId,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadChannelPersistence {
+    pub requester: ActorId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
 pub struct ChannelAuthoritySnapshot {
     pub channels: u64,
     pub adjudication_pending: u64,
     pub check_count: u64,
     pub status_request_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelPersistenceSnapshot {
+    pub channels: u64,
+    pub adjudication_pending: u64,
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct ChannelPersistenceOutcome {
+    result: Result<ChannelPersistenceSnapshot>,
+}
+
+impl ChannelPersistenceOutcome {
+    fn new(result: Result<ChannelPersistenceSnapshot>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<ChannelPersistenceSnapshot> {
+        self.result
+    }
 }
 
 impl kameo::actor::Actor for ChannelAuthority {
@@ -286,9 +362,7 @@ impl kameo::message::Message<GrantChannel> for ChannelAuthority {
         message: GrantChannel,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        ChannelGrantOutcome {
-            channel: self.authorize(message),
-        }
+        ChannelGrantOutcome::new(self.authorize(message))
     }
 }
 
@@ -317,14 +391,14 @@ impl kameo::message::Message<UseChannel> for ChannelAuthority {
 }
 
 impl kameo::message::Message<CheckChannel> for ChannelAuthority {
-    type Reply = ChannelDecision;
+    type Reply = ChannelCheckOutcome;
 
     async fn handle(
         &mut self,
         message: CheckChannel,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.check(&message.message)
+        ChannelCheckOutcome::new(self.check(&message.message))
     }
 }
 
@@ -337,5 +411,31 @@ impl kameo::message::Message<ReadChannelAuthorityStatus> for ChannelAuthority {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.snapshot(message.requester)
+    }
+}
+
+impl kameo::message::Message<ReadChannelPersistence> for ChannelAuthority {
+    type Reply = ChannelPersistenceOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ReadChannelPersistence,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.last_status_requester = Some(message.requester);
+        let result = match &self.tables {
+            Some(tables) => tables.channel_records().and_then(|channels| {
+                let adjudication = tables.adjudication_records()?;
+                Ok(ChannelPersistenceSnapshot {
+                    channels: channels.len() as u64,
+                    adjudication_pending: adjudication.len() as u64,
+                })
+            }),
+            None => Ok(ChannelPersistenceSnapshot {
+                channels: self.channels.len() as u64,
+                adjudication_pending: self.adjudication_requests.len() as u64,
+            }),
+        };
+        ChannelPersistenceOutcome::new(result)
     }
 }

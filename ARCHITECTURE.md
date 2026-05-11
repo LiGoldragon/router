@@ -80,19 +80,27 @@ Stored router records are typed contract records from the relation-specific
 through router-owned typed Sema tables, and emits follow-up frames only after
 the database commit succeeds.
 
-Current MVP code still uses in-memory pending and channel state. Its first
-witnesses are actor traces: `MessageCommitted` must appear for a message before
-any `DeliveryAttempted` event for that same message, and a message without an
-active channel records `AdjudicationRequested` without reaching
-`HarnessDelivery`. When router-owned Sema tables land, those trace witnesses
-graduate into chained artifact witnesses where one step writes the router redb
-and another step reads the committed message, channel, adjudication, and
-delivery state through the authoritative table layer.
+Current MVP code still uses in-memory pending state. Channel grants and
+adjudication requests now have a router-owned Sema table layer, and
+`ChannelAuthority` can be constructed with that table layer so grants and
+adjudication requests are persisted through the actor path. The first witnesses
+are actor traces and table reads: `MessageCommitted` must appear for a message
+before any `DeliveryAttempted` event for that same message; a message without
+an active channel records `AdjudicationRequested` without reaching
+`HarnessDelivery`; a named table test writes channel and adjudication records
+through `RouterTables` and reads them back from router-owned Sema.
 
-Future router-owned durable state includes message acceptance, channel grants,
-channel retractions, channel use, adjudication-pending records, pending
-delivery, delivery attempt, delivery result, and delivered/failed/deferred
-status records. Successful delivery is another router state transition: after
+When the remaining router-owned Sema tables are wired into `RouterRoot`, these
+trace witnesses graduate into chained artifact witnesses where one step writes
+the router redb and another step reads committed message, channel,
+adjudication, and delivery state through the authoritative table layer.
+
+Current router-owned durable table names are `channels`, `channels_by_triple`,
+`adjudication_pending`, `delivery_attempts`, `delivery_results`, and `meta`.
+Only channel grants and adjudication requests are written through the current
+runtime path. Pending delivery, delivery attempt, delivery result, and
+delivered/failed/deferred status records still need to be wired into
+`RouterRoot`. Successful delivery is another router state transition: after
 `persona-harness` reports the terminal effect, the router commits the delivery
 status update before post-delivery subscription events are emitted.
 
@@ -118,6 +126,8 @@ This repo owns:
 - pending-delivery records;
 - transitional router message records that are not owned by `persona-message`;
 - live authorized-channel records and adjudication-pending records;
+- router-owned Sema table layout for channels, channel indexes,
+  adjudication-pending records, delivery attempts, delivery results, and meta;
 - routing decisions based on typed message origin and channel state;
 - subscriptions to producer event streams.
 
@@ -149,6 +159,8 @@ This repo does not own:
   adjudication for misses.
 - A message with no active channel does not reach `HarnessDelivery`.
 - One-shot and retracted channels cannot keep authorizing messages.
+- Channel grants and adjudication requests can be persisted through
+  router-owned Sema tables.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration state enters through `HarnessRegistry`.
 - Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
@@ -172,6 +184,7 @@ src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/delivery.rs         pending-delivery records
 src/message.rs          transitional router message records
+src/tables.rs           router-owned Sema schema and channel/adjudication tables
 src/main.rs             daemon entry and daemon-client CLI entry
 tests/                  router smoke and actor-density truth tests
 ```
@@ -189,6 +202,7 @@ tests/                  router smoke and actor-density truth tests
 | Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
 | A message without an active channel parks for adjudication and does not reach delivery. | `nix flake check .#router-unknown-channel-parks-for-adjudication` |
 | A one-shot channel cannot authorize a second message after use. | `nix flake check .#router-one-shot-channel-cannot-authorize-second-message` |
+| Router-owned Sema tables persist channel and adjudication records. | `nix flake check .#router-sema-tables-persist-channel-and-adjudication-records` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 
 ## See Also
