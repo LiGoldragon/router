@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
@@ -40,20 +38,11 @@ impl HarnessDelivery {
         match endpoint.kind {
             EndpointKind::Human => Ok(HarnessTerminalEndpoint::Human),
             EndpointKind::PtySocket => Ok(HarnessTerminalEndpoint::PtySocket {
-                path: PathBuf::from(&endpoint.target),
+                path: endpoint.target.clone().into(),
             }),
-            EndpointKind::WezTermPane => {
-                let pane_id = endpoint
-                    .target
-                    .parse()
-                    .map_err(|_| Error::DeliveryBlocked {
-                        reason: format!("invalid wezterm pane id {:?}", endpoint.target),
-                    })?;
-                Ok(HarnessTerminalEndpoint::WezTermPane {
-                    pane_id,
-                    mux_socket: endpoint.aux.as_ref().map(PathBuf::from),
-                })
-            }
+            EndpointKind::WezTermPane => Err(Error::DeliveryBlocked {
+                reason: "retired WezTermPane endpoint; use persona-terminal PtySocket".to_string(),
+            }),
         }
     }
 }

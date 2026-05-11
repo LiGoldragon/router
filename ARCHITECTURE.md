@@ -62,8 +62,8 @@ terminal delivery attempts and the blocking terminal/probe calls they require.
 Durable router state lives in the router actor's own Sema database through a
 router-owned Sema layer over the `sema` library; no shared database actor owns
 router transitions. Terminal byte movement and verification are delegated
-through `persona-harness`, which then owns the `persona-wezterm` transport
-adapter.
+through `persona-harness` and then through `persona-terminal`, which owns the
+terminal transport adapter around `terminal-cell`.
 
 Stored router records are typed contract records from the relation-specific
 `signal-persona-*` family. The router actor decodes Signal frames, commits
@@ -104,7 +104,7 @@ This repo does not own:
 - message or system `Frame` record definitions (`signal-persona-message`,
   `signal-persona-system`);
 - focus/window/input backend implementation (`persona-system`);
-- terminal byte movement (`persona-wezterm`);
+- terminal byte movement (`persona-terminal`);
 - terminal adapter execution (`persona-harness`);
 - harness lifecycle internals (`persona-harness`);
 - router-owned redb table layout;

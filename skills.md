@@ -26,4 +26,4 @@ Rules for work here:
 - Use pushed event subscriptions. Do not add polling loops.
 - Treat unknown focus and unknown prompt-buffer state as blocked delivery.
 - Keep terminal byte transport out of this repo; that belongs in
-  `persona-wezterm`.
+  `persona-terminal`.
