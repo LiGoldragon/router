@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use persona_router::{
     Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, EndpointKind,
-    EndpointTransport, HarnessDelivery, HarnessRegistry, Message, MessageId, PromptFact,
-    PromptObservation, ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor, RouteMessage,
-    RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTrace, RouterTraceStep,
-    SignalMessageInput, Status, ThreadId,
+    EndpointTransport, HarnessDelivery, HarnessRegistry, Message, MessageId,
+    ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor, RouteMessage, RouterInput,
+    RouterOutput, RouterRoot, RouterRuntime, RouterTrace, RouterTraceStep, SignalMessageInput,
+    Status, ThreadId,
 };
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
@@ -70,6 +70,11 @@ impl SourceFile {
         Self { path, content }
     }
 
+    fn read_if_present(path: PathBuf) -> Option<Self> {
+        let content = fs::read_to_string(&path).ok()?;
+        Some(Self { path, content })
+    }
+
     fn is_guard_source(&self) -> bool {
         self.path
             .file_name()
@@ -97,7 +102,10 @@ impl SourceTree {
         let mut files = vec![self.root.join("Cargo.toml"), self.root.join("Cargo.lock")];
         files.extend(self.source_files());
         files.extend(self.test_files());
-        files.into_iter().map(SourceFile::read).collect()
+        files
+            .into_iter()
+            .filter_map(SourceFile::read_if_present)
+            .collect()
     }
 
     fn source_files(&self) -> Vec<PathBuf> {
@@ -164,14 +172,6 @@ async fn router_cannot_emit_delivery_before_commit() {
         }))
         .await
         .expect("register request passes through router actor");
-    router
-        .apply(RouterInput::PromptObservation(PromptObservation {
-            actor: responder.clone(),
-            state: PromptFact::Empty,
-        }))
-        .await
-        .expect("prompt observation passes through router actor");
-
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
@@ -314,14 +314,6 @@ async fn delivery_error_cannot_drop_pending_message() {
         }))
         .await
         .expect("register request passes through router actor");
-    router
-        .apply(RouterInput::PromptObservation(PromptObservation {
-            actor: responder.clone(),
-            state: PromptFact::Empty,
-        }))
-        .await
-        .expect("prompt observation passes through router actor");
-
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
@@ -398,7 +390,6 @@ fn harness_registry_cannot_be_empty_marker() {
     assert!(registry_source.contains("pub struct HarnessRegistry {"));
     assert!(registry_source.contains("actors: HashMap<ActorId, HarnessRegistration>,"));
     assert!(registry_source.contains("registered_actor_count: u64,"));
-    assert!(registry_source.contains("observation_count: u64,"));
     assert!(registry_source.contains("status_request_count: u64,"));
 }
 
@@ -413,8 +404,46 @@ fn router_root_cannot_own_harness_registry_map_directly() {
     assert!(!router_source.contains("HashMap<ActorId, HarnessRegistration>"));
     assert!(router_source.contains("RegisterHarness"));
     assert!(router_source.contains("ReadHarnessDeliveryTarget"));
-    assert!(router_source.contains("AcceptFocusObservation"));
-    assert!(router_source.contains("AcceptPromptObservation"));
+}
+
+#[test]
+fn router_source_cannot_reintroduce_pre_127_gate_concepts() {
+    let source_files = SourceTree::new()
+        .source_files()
+        .into_iter()
+        .map(SourceFile::read)
+        .collect::<Vec<_>>();
+    let architecture = SourceFile::read_if_present(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("ARCHITECTURE.md"),
+    );
+    let mut violations = Vec::new();
+
+    for file in source_files.iter().chain(architecture.iter()) {
+        for fragment in [
+            "AuthProof",
+            "LocalOperatorProof",
+            "ConnectionAcceptor",
+            "OwnerApprovalInbox",
+            "EngineRoute",
+            "FocusObservation",
+            "InputBufferObservation",
+            "InputBufferTracker",
+            "signal-persona-system",
+            "class-aware",
+            "focus + input-buffer",
+            "input-buffer",
+        ] {
+            if file.content.contains(fragment) {
+                violations.push(format!("{} contains {fragment}", file.path.display()));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "pre-127 router concept regressions:\n{}",
+        violations.join("\n")
+    );
 }
 
 #[test]

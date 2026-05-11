@@ -7,7 +7,6 @@ use kameo::actor::{ActorRef, Spawn};
 use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
-use persona_system::FocusObservation;
 use signal_core::{FrameBody, Reply, Request};
 use signal_persona_message::{
     Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
@@ -21,8 +20,8 @@ use signal_persona_message::{
 
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
-    AcceptFocusObservation, AcceptPromptObservation, HarnessRegistry, MarkHarnessDelivered,
-    ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus, RegisterHarness,
+    HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
+    RegisterHarness,
 };
 use crate::message::expect_end;
 use crate::{Actor, ActorId, Error, Message, MessageId, Result, ThreadId};
@@ -388,28 +387,6 @@ impl RouterRoot {
                     pending: self.pending.len() as u64,
                 }))
             }
-            RouterInput::FocusObservation(observation) => {
-                self.registry
-                    .ask(AcceptFocusObservation { observation })
-                    .await
-                    .map_err(|error| Error::ActorCall(error.to_string()))?;
-                let delivered = self.retry_pending().await?;
-                Ok(RouterOutput::DeliveryChanged(DeliveryChanged {
-                    delivered,
-                    pending: self.pending.len() as u64,
-                }))
-            }
-            RouterInput::PromptObservation(input) => {
-                self.registry
-                    .ask(AcceptPromptObservation { observation: input })
-                    .await
-                    .map_err(|error| Error::ActorCall(error.to_string()))?;
-                let delivered = self.retry_pending().await?;
-                Ok(RouterOutput::DeliveryChanged(DeliveryChanged {
-                    delivered,
-                    pending: self.pending.len() as u64,
-                }))
-            }
             RouterInput::Status(input) => {
                 let actors = self
                     .registry
@@ -522,10 +499,6 @@ impl RouterRoot {
                 next.push(message);
                 continue;
             };
-            if target.blocks_delivery {
-                next.push(message);
-                continue;
-            }
             self.trace
                 .record(message.id.clone(), RouterTraceStep::DeliveryAttempted);
             let delivery_reply = match self
@@ -1135,12 +1108,6 @@ pub struct RouteMessage {
 }
 
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct PromptObservation {
-    pub actor: ActorId,
-    pub state: PromptFact,
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub requester: ActorId,
 }
@@ -1149,8 +1116,6 @@ pub struct Status {
 pub enum RouterInput {
     RegisterActor(RegisterActor),
     RouteMessage(RouteMessage),
-    FocusObservation(FocusObservation),
-    PromptObservation(PromptObservation),
     Status(Status),
 }
 
@@ -1168,45 +1133,11 @@ impl NotaDecode for RouterInput {
         match decoder.peek_record_head()?.as_str() {
             "RegisterActor" => Ok(Self::RegisterActor(RegisterActor::decode(decoder)?)),
             "RouteMessage" => Ok(Self::RouteMessage(RouteMessage::decode(decoder)?)),
-            "FocusObservation" => Ok(Self::FocusObservation(FocusObservation::decode(decoder)?)),
-            "PromptObservation" => Ok(Self::PromptObservation(PromptObservation::decode(decoder)?)),
             "Status" => Ok(Self::Status(Status::decode(decoder)?)),
             other => Err(nota_codec::Error::UnknownKindForVerb {
                 verb: "RouterInput",
                 got: other.to_string(),
             }),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PromptFact {
-    Empty,
-    Occupied,
-    Unknown,
-}
-
-impl NotaDecode for PromptFact {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        let text = String::decode(decoder)?;
-        match text.as_str() {
-            "Empty" => Ok(Self::Empty),
-            "Occupied" => Ok(Self::Occupied),
-            "Unknown" => Ok(Self::Unknown),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "PromptFact",
-                got: other.to_string(),
-            }),
-        }
-    }
-}
-
-impl NotaEncode for PromptFact {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
-        match self {
-            Self::Empty => "Empty".to_string().encode(encoder),
-            Self::Occupied => "Occupied".to_string().encode(encoder),
-            Self::Unknown => "Unknown".to_string().encode(encoder),
         }
     }
 }

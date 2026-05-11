@@ -20,11 +20,9 @@ path = "src/main.rs"
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
 persona-harness       = { git = "https://github.com/LiGoldragon/persona-harness.git", branch = "main" }
-persona-system        = { git = "https://github.com/LiGoldragon/persona-system.git", branch = "main" }
 rkyv                  = "0.8"
 signal-core           = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-persona-message = { git = "https://github.com/LiGoldragon/signal-persona-message.git" }
-signal-persona-system = { git = "https://github.com/LiGoldragon/signal-persona-system.git", branch = "main" }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }
 

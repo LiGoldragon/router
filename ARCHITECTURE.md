@@ -2,10 +2,10 @@
 
 *Delivery reducer and pending-delivery state for Persona.*
 
-`persona-router` decides when and where messages are delivered. It consumes
-typed frames from the message boundary, observes system and harness state, keeps
-pending deliveries, and owns its router-scoped Sema database for durable
-routing state.
+`persona-router` decides where Persona messages are delivered. It consumes
+typed frames from the message boundary, keeps pending deliveries, owns live
+authorized-channel state, and eventually persists router state in its own Sema
+database.
 
 > **Scope.** "Sema" here means today's `sema` library (rename
 > pending → `sema-db`). The eventual `Sema` is broader; today's
@@ -22,14 +22,12 @@ terminal byte transport, or contract definitions.
 ```mermaid
 flowchart LR
     "signal-persona-message" -->|"message request frame"| "RouterRuntime"
-    "signal-persona-system" -->|"focus + input-buffer events"| "RouterRuntime"
     "RouterRuntime" -->|"apply input"| "RouterRoot"
-    "RouterRoot" -->|"register + observation state"| "HarnessRegistry"
+    "RouterRoot" -->|"registered delivery targets"| "HarnessRegistry"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
     "HarnessDelivery" -->|"typed terminal delivery request"| "persona-harness"
     "RouterRoot" -->|"router-owned records"| "router Sema"
-    "persona-system" -->|"system observations"| "signal-persona-system"
 ```
 
 ## 1 · Component Surface
@@ -46,12 +44,11 @@ flowchart LR
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
   tree as `ActorRef<RouterRuntime>`;
 - a Kameo `RouterRoot` that owns live routing state behind the runtime;
-- a Kameo `HarnessRegistry` that owns registered harness endpoint,
-  focus, and prompt facts;
+- a Kameo `HarnessRegistry` that owns registered harness delivery targets;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
 - pending-delivery state;
-- subscriptions to pushed system and harness events;
+- future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
 
 `persona-message` is not part of the router runtime graph. It is a stateless
@@ -65,8 +62,8 @@ The Kameo `RouterRuntime` is the public actor surface and owns the child actor
 refs. It starts children in `on_start` and stops them in `on_stop`; there is no
 non-actor runtime owner. `RouterRoot` owns live routing state for pending
 deliveries and coordinates smaller actor planes. `HarnessRegistry` owns
-registered harness endpoint, focus, and prompt facts. `HarnessDelivery` owns
-terminal delivery attempts and the blocking terminal/probe calls they require.
+registered harness delivery targets. `HarnessDelivery` owns terminal delivery
+attempts and the blocking terminal/probe calls they require.
 Durable router state lives in the router actor's own Sema database through a
 router-owned Sema layer over the `sema` library; no shared database actor owns
 router transitions. Terminal byte movement and verification are delegated
@@ -91,14 +88,10 @@ Successful delivery is another router state transition: after
 `persona-harness` reports the terminal effect, the router commits the delivery
 status update before post-delivery subscription events are emitted.
 
-Every accepted message carries the engine-boundary `ConnectionClass` minted by
-the `persona` manager, not by payload text. Router policy is class-aware:
-`Owner` messages flow through normal delivery gates; `NonOwnerUser` messages
-are quarantined in a router-owned `OwnerApprovalInbox` until the engine owner
-approves that exact message; `System` messages follow the engine's system
-policy table; `OtherPersona` messages require a matching approved
-`EngineRoute`. The inbox and route observations are router state transitions
-and live in router-owned Sema tables when durability lands.
+Every accepted message will carry a typed `MessageOrigin` from the ingress
+component. Origin is provenance, not an auth proof. Router policy is the
+authorized-channel table: messages on an active channel flow; messages without
+one are parked and forwarded to persona-mind for adjudication.
 
 Future development may add router garbage collection. GC is a router-state
 operation, not an external delete loop: the router decides which delivered or
@@ -114,15 +107,15 @@ This repo owns:
 - delivery reducer logic;
 - pending-delivery records;
 - transitional router message records that are not owned by `persona-message`;
-- owner-approval inbox records for non-owner submissions;
-- routing decisions based on typed observations;
+- authorized-channel and adjudication-pending records when durability lands;
+- routing decisions based on typed message origin and channel state;
 - subscriptions to producer event streams.
 
 This repo does not own:
 
 - message or system `Frame` record definitions (`signal-persona-message`,
-  `signal-persona-system`);
-- focus/window/input backend implementation (`persona-system`);
+  future relation contracts);
+- focus/window/input backend implementation;
 - terminal byte movement (`persona-terminal`);
 - direct dependencies on terminal crates;
 - terminal adapter execution (`persona-harness`);
@@ -140,28 +133,21 @@ This repo does not own:
   exactly one NOTA reply record.
 - `signal-persona-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
-- Signal message sender identity comes from Signal auth, not from
-  `MessageSubmission` payload text.
-- `ConnectionClass` comes from the engine boundary auth context, not from the
-  submitted message payload.
-- Non-owner submissions are quarantined for owner approval before downstream
-  delivery state can change.
-- Cross-engine submissions require an approved `EngineRoute`.
+- Message provenance comes from ingress context, not from `MessageSubmission`
+  payload text.
+- Router authorization is channel-table authorization plus persona-mind
+  adjudication for misses.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
-- Harness registration and observation state enter through
-  `HarnessRegistry`.
+- Harness registration state enters through `HarnessRegistry`.
 - Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
   execution stays behind `persona-harness`.
-- A blocked delivery records the event it needs before it can proceed.
-- Human focus, unknown focus, non-empty prompt buffers, and unknown prompt
-  buffers are delivery hazards.
+- Prompt cleanliness and human input interleaving are terminal-cell /
+  persona-terminal input-gate concerns, not router concerns.
 - Every delivery attempt produces typed observable state: delivered, deferred,
   or rejected.
 - Message acceptance commits before any delivery attempt is emitted.
 - Delivery results update router-owned state before post-delivery events are
   emitted.
-- The router consumes `signal-persona-system` observations at the gate
-  boundary; booleans are not a valid inter-component contract.
 - Durable effects commit before externally visible delivery or subscription
   events.
 
@@ -169,9 +155,9 @@ This repo does not own:
 
 ```text
 src/router.rs           Kameo router runtime/root, Signal daemon protocol, pending retry
-src/harness_registry.rs Kameo harness registry and observation state owner
+src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
-src/delivery.rs         delivery decisions and typed gate state
+src/delivery.rs         pending-delivery records
 src/message.rs          transitional router message records
 src/main.rs             daemon entry and daemon-client CLI entry
 tests/                  router smoke and actor-density truth tests
@@ -188,11 +174,10 @@ tests/                  router smoke and actor-density truth tests
 | Router runtime reacts to pushed events instead of timer polling. | `nix flake check .#router-runtime-cannot-poll` |
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix flake check .#router-runtime-cannot-reference-retired-terminal-brand` |
 | Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
+| Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 
 ## See Also
 
 - `../signal-persona-message/ARCHITECTURE.md`
-- `../signal-persona-system/ARCHITECTURE.md`
-- `../persona-system/ARCHITECTURE.md`
 - `../persona-harness/ARCHITECTURE.md`
 - `../sema/ARCHITECTURE.md`

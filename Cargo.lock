@@ -468,24 +468,9 @@ dependencies = [
  "kameo",
  "nota-codec",
  "persona-harness",
- "persona-system",
  "rkyv",
  "signal-core",
  "signal-persona-message",
- "signal-persona-system",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "persona-system"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#1263a52198bae2306df0f416eb806a00ca96f65e"
-dependencies = [
- "kameo",
- "nota-codec",
- "serde",
- "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -711,19 +696,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_json"
-version = "1.0.149"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
-dependencies = [
- "itoa",
- "memchr",
- "serde",
- "serde_core",
- "zmij",
-]
-
-[[package]]
 name = "serial"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -825,17 +797,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-message.git#c6f38f80353e17e8418c7754f14eaf5b37281459"
-dependencies = [
- "rkyv",
- "signal-core",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "signal-persona-system"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-system.git?branch=main#809e032eb0ad31c8fad3ab3cdf23046dc9513881"
+source = "git+https://github.com/LiGoldragon/signal-persona-message.git#f55c6988c11a7d72b5fb0adf14d2c539a0973aff"
 dependencies = [
  "rkyv",
  "signal-core",
@@ -1224,9 +1186,3 @@ checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
 ]
-
-[[package]]
-name = "zmij"
-version = "1.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
