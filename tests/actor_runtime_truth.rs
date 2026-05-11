@@ -8,8 +8,9 @@ use persona_router::{
     ChannelDecision, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, GrantChannel,
     GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message, MessageId,
     ReadChannelAuthorityStatus, ReadChannelPersistence, ReadHarnessRegistryStatus, ReadRouterTrace,
-    RegisterActor, RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime,
-    RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
+    RegisterActor, RetractChannel, RouteMessage, RouterInput, RouterOutput, RouterRoot,
+    RouterRuntime, RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput, Status,
+    ThreadId, UseChannel,
 };
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
@@ -366,6 +367,53 @@ async fn one_shot_channel_cannot_authorize_second_message() {
         .into_result()
         .expect("second channel check succeeds");
     assert!(matches!(second, ChannelDecision::NeedsAdjudication(_)));
+
+    authority
+        .stop_gracefully()
+        .await
+        .expect("channel authority stops gracefully");
+    authority.wait_for_shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retracted_channel_cannot_authorize_message() {
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let authority = ChannelAuthority::spawn(ChannelAuthority::new());
+    authority.wait_for_startup().await;
+    authority
+        .ask(GrantChannel::direct_message(
+            operator.clone(),
+            responder.clone(),
+            ChannelLifetime::Persistent,
+        ))
+        .await
+        .expect("grant reaches channel authority")
+        .into_result()
+        .expect("grant succeeds");
+    authority
+        .ask(RetractChannel::direct_message(
+            operator.clone(),
+            responder.clone(),
+        ))
+        .await
+        .expect("retraction reaches channel authority");
+    let decision = authority
+        .ask(CheckChannel {
+            message: Message {
+                id: MessageId::new("m-retracted"),
+                thread: ThreadId::new("direct-operator-responder"),
+                from: operator,
+                to: responder,
+                body: "hello".to_string(),
+                attachments: Vec::new(),
+            },
+        })
+        .await
+        .expect("channel check reaches authority")
+        .into_result()
+        .expect("channel check succeeds");
+    assert!(matches!(decision, ChannelDecision::NeedsAdjudication(_)));
 
     authority
         .stop_gracefully()
