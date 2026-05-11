@@ -83,6 +83,15 @@ Successful delivery is another router state transition: after
 `persona-harness` reports the terminal effect, the router commits the delivery
 status update before post-delivery subscription events are emitted.
 
+Every accepted message carries the engine-boundary `ConnectionClass` minted by
+the `persona` manager, not by payload text. Router policy is class-aware:
+`Owner` messages flow through normal delivery gates; `NonOwnerUser` messages
+are quarantined in a router-owned `OwnerApprovalInbox` until the engine owner
+approves that exact message; `System` messages follow the engine's system
+policy table; `OtherPersona` messages require a matching approved
+`EngineRoute`. The inbox and route observations are router state transitions
+and live in router-owned Sema tables when durability lands.
+
 Future development may add router garbage collection. GC is a router-state
 operation, not an external delete loop: the router decides which delivered or
 expired routing records can leave the live tables, writes an archive/generation
@@ -96,6 +105,7 @@ This repo owns:
 
 - delivery reducer logic;
 - pending-delivery records;
+- owner-approval inbox records for non-owner submissions;
 - routing decisions based on typed observations;
 - subscriptions to producer event streams.
 
@@ -119,6 +129,11 @@ This repo does not own:
   `RouterRoot`; they do not bypass the actor tree.
 - Signal message sender identity comes from Signal auth, not from
   `MessageSubmission` payload text.
+- `ConnectionClass` comes from the engine boundary auth context, not from the
+  submitted message payload.
+- Non-owner submissions are quarantined for owner approval before downstream
+  delivery state can change.
+- Cross-engine submissions require an approved `EngineRoute`.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration and observation state enter through
   `HarnessRegistry`.
