@@ -28,7 +28,7 @@ flowchart LR
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
     "HarnessDelivery" -->|"typed terminal delivery request"| "persona-harness"
-    "RouterRoot" -->|"router-owned records"| "persona-sema"
+    "RouterRoot" -->|"router-owned records"| "router Sema"
     "persona-system" -->|"system observations"| "signal-persona-system"
 ```
 
@@ -57,15 +57,16 @@ non-actor runtime owner. `RouterRoot` owns live routing state for pending
 deliveries and coordinates smaller actor planes. `HarnessRegistry` owns
 registered harness endpoint, focus, and prompt facts. `HarnessDelivery` owns
 terminal delivery attempts and the blocking terminal/probe calls they require.
-Durable router state lives in the router actor's own Sema database through
-`persona-sema`; no shared database actor owns router transitions. Terminal
-byte movement and verification are delegated through `persona-harness`, which
-then owns the `persona-wezterm` transport adapter.
+Durable router state lives in the router actor's own Sema database through a
+router-owned Sema layer over the `sema` library; no shared database actor owns
+router transitions. Terminal byte movement and verification are delegated
+through `persona-harness`, which then owns the `persona-wezterm` transport
+adapter.
 
-Stored router records are typed contract records from the `signal-persona-*`
-family. The router actor decodes Signal frames, commits through typed
-`persona-sema` tables, and emits follow-up frames only after the database
-commit succeeds.
+Stored router records are typed contract records from the relation-specific
+`signal-persona-*` family. The router actor decodes Signal frames, commits
+through router-owned typed Sema tables, and emits follow-up frames only after
+the database commit succeeds.
 
 Current MVP code still uses in-memory pending state. Its first witness is an
 actor trace: `MessageCommitted` must appear for a message before any
@@ -104,7 +105,7 @@ This repo does not own:
 - terminal byte movement (`persona-wezterm`);
 - terminal adapter execution (`persona-harness`);
 - harness lifecycle internals (`persona-harness`);
-- redb table layout (`persona-sema`);
+- router-owned redb table layout;
 - the Sema database of any other Persona component;
 - state owned by other actors.
 
@@ -149,4 +150,4 @@ tests/                  router smoke and actor-density truth tests
 - `../signal-persona-system/ARCHITECTURE.md`
 - `../persona-system/ARCHITECTURE.md`
 - `../persona-harness/ARCHITECTURE.md`
-- `../persona-sema/ARCHITECTURE.md`
+- `../sema/ARCHITECTURE.md`

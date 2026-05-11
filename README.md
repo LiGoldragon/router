@@ -10,7 +10,7 @@ This repository owns:
 - event-driven delivery gates;
 - delivery decisions that consume `signal-persona-system` observations.
 
-It does not own the shared frame contracts or OS backend implementation.
+It does not own relation-specific frame contracts or OS backend implementation.
 `signal-persona-message` owns message request records, `signal-persona-system`
 owns focus and prompt-buffer observation records, and `persona-system` produces
 those observations at runtime.
