@@ -308,8 +308,8 @@ async fn delivery_error_cannot_drop_pending_message() {
                 name: responder.clone(),
                 pid: 42,
                 endpoint: Some(EndpointTransport {
-                    kind: EndpointKind::WezTermPane,
-                    target: "not-a-pane".to_string(),
+                    kind: EndpointKind::PtySocket,
+                    target: "/tmp/persona-router-missing-terminal.sock".to_string(),
                     aux: None,
                 }),
             },
@@ -435,7 +435,6 @@ fn router_root_cannot_hold_terminal_blocking_work() {
     for fragment in [
         "thread::sleep",
         "PtySocket::",
-        "WezTermMux::",
         ".capture()?",
         ".deliver(&prompt)",
     ] {
@@ -445,13 +444,7 @@ fn router_root_cannot_hold_terminal_blocking_work() {
         );
     }
 
-    for fragment in [
-        "thread::sleep",
-        "PtySocket::",
-        "WezTermMux::",
-        ".capture()?",
-        "persona_wezterm",
-    ] {
+    for fragment in ["thread::sleep", "PtySocket::", ".capture()?"] {
         assert!(
             !delivery_source.contains(fragment),
             "HarnessDelivery source still owns terminal transport fragment {fragment}"

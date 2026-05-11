@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use persona_message::schema::{Actor, ActorId, EndpointKind};
+use persona_message::schema::{Actor, ActorId, EndpointKind, EndpointTransport};
 use persona_system::{FocusObservation, SystemTarget};
 
 use crate::router::{PromptFact, PromptObservation};
@@ -118,7 +118,7 @@ impl HarnessRegistration {
         let Some(endpoint) = &self.actor.endpoint else {
             return false;
         };
-        let Some(window) = endpoint.niri_window_target().ok().flatten() else {
+        let Some(window) = NiriWindowTarget::from_endpoint(endpoint) else {
             return false;
         };
         target
@@ -131,6 +131,27 @@ impl HarnessRegistration {
             actor: self.actor.clone(),
             blocks_delivery: self.blocks_delivery(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NiriWindowTarget {
+    value: u64,
+}
+
+impl NiriWindowTarget {
+    fn from_endpoint(endpoint: &EndpointTransport) -> Option<Self> {
+        endpoint.aux.as_deref().and_then(Self::from_text)
+    }
+
+    fn from_text(text: &str) -> Option<Self> {
+        let value = text.strip_prefix("niri-window:").unwrap_or(text);
+        let value = value.parse().ok()?;
+        Some(Self { value })
+    }
+
+    fn value(self) -> u64 {
+        self.value
     }
 }
 

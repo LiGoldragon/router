@@ -404,7 +404,7 @@ dependencies = [
 [[package]]
 name = "nota-codec"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/nota-codec.git?branch=main#c01afb680acdca73f0667c2669c08e7d91bca0f4"
+source = "git+https://github.com/LiGoldragon/nota-codec.git?branch=main#6aed60d970f796a6920f8cdd011f128ca0939126"
 dependencies = [
  "nota-derive",
  "thiserror 2.0.18",
@@ -413,7 +413,7 @@ dependencies = [
 [[package]]
 name = "nota-derive"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/nota-derive.git?branch=main#9a002cea928b4a8aadf7bc24d5886aaa4e9a3666"
+source = "git+https://github.com/LiGoldragon/nota-derive.git?branch=main#0d1c24086ae585c84ad92317bb8c463b8cc95697"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -452,10 +452,10 @@ dependencies = [
 [[package]]
 name = "persona-harness"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-harness.git?branch=main#1cc42aa6c16c38c1ea693cc519b3379b35a8c560"
+source = "git+https://github.com/LiGoldragon/persona-harness.git?branch=main#4845a5f394ecb736255b4bad4f02a5080e746baa"
 dependencies = [
  "kameo",
- "persona-wezterm",
+ "persona-terminal",
  "signal-persona-terminal",
  "thiserror 2.0.18",
  "tokio",
@@ -464,12 +464,10 @@ dependencies = [
 [[package]]
 name = "persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#fed30472fdb77775852665dc7ba1d3e15c0b7337"
+source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#e581996e87261f5d40de57bdecacafa8021b1ebb"
 dependencies = [
  "kameo",
  "nota-codec",
- "persona-system",
- "persona-wezterm",
  "rkyv",
  "signal-core",
  "signal-persona-message",
@@ -496,7 +494,7 @@ dependencies = [
 [[package]]
 name = "persona-system"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#3793c86484c5cd921b04e5ecbc031b37c6eaf350"
+source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#1263a52198bae2306df0f416eb806a00ca96f65e"
 dependencies = [
  "kameo",
  "nota-codec",
@@ -507,15 +505,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "persona-wezterm"
+name = "persona-terminal"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-wezterm.git?branch=main#484bc6d80a3286757c146868dd4ef4a10637127c"
+source = "git+https://github.com/LiGoldragon/persona-terminal.git?branch=main#5b86d915ad19e48ca72670c73b3e93a8c37952a8"
 dependencies = [
  "crossterm",
  "kameo",
- "portable-pty",
+ "rkyv",
+ "sema",
+ "signal-core",
+ "signal-hook",
  "signal-persona-terminal",
+ "terminal-cell",
  "thiserror 2.0.18",
+ "tokio",
  "vt100",
 ]
 
@@ -600,6 +603,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e925444704b5f17d32bf42f5b6e2df050bceebc3dcd6e71cc73dafe8092e839"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -671,6 +683,16 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "sema"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/sema.git#eba7122b2a7b70894b24cd18d5acdcd0dbd455f4"
+dependencies = [
+ "redb",
+ "rkyv",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "serde"
@@ -837,7 +859,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-terminal"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#1cc221e0b600e9c17615750fadb50ad2bc97f5a8"
+source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#186987a4399f4d0a072dabe2f1d143f786a10388"
 dependencies = [
  "rkyv",
  "signal-core",
@@ -871,6 +893,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "terminal-cell"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/terminal-cell.git?branch=main#3164b3f41f2ea07c0ab75a8fe8926a9ac52318eb"
+dependencies = [
+ "crossterm",
+ "kameo",
+ "portable-pty",
+ "signal-hook",
+ "thiserror 2.0.18",
+ "tokio",
+ "vt100",
 ]
 
 [[package]]

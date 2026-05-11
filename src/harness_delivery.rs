@@ -40,9 +40,6 @@ impl HarnessDelivery {
             EndpointKind::PtySocket => Ok(HarnessTerminalEndpoint::PtySocket {
                 path: endpoint.target.clone().into(),
             }),
-            EndpointKind::WezTermPane => Err(Error::DeliveryBlocked {
-                reason: "retired WezTermPane endpoint; use persona-terminal PtySocket".to_string(),
-            }),
         }
     }
 }

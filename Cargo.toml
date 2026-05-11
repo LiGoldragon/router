@@ -2,7 +2,7 @@
 name         = "persona-router"
 version      = "0.1.0"
 edition      = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/persona-router"
 description  = "Persona message router and delivery state machine."

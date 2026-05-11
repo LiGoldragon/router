@@ -48,6 +48,16 @@
 
               touch "$out"
             '';
+          sourceConstraintCheck =
+            name: script:
+            pkgs.runCommand name { } ''
+              set -euo pipefail
+
+              export PATH=${pkgs.lib.makeBinPath [ pkgs.ripgrep ]}:$PATH
+              ${pkgs.bash}/bin/bash ${script} ${./.}
+
+              touch "$out"
+            '';
         in
         {
           inherit
@@ -57,6 +67,7 @@
             commonArgs
             cargoArtifacts
             routerConstraintCheck
+            sourceConstraintCheck
             ;
         };
     in
@@ -91,6 +102,8 @@
             }
           );
           router-cli-sends-signal-to-daemon-and-prints-nota-reply = context.routerConstraintCheck "router-cli-sends-signal-to-daemon-and-prints-nota-reply" ./scripts/router-cli-sends-signal-to-daemon-and-prints-nota-reply;
+          router-runtime-cannot-reference-retired-terminal-brand =
+            context.sourceConstraintCheck "router-runtime-cannot-reference-retired-terminal-brand" ./scripts/router-runtime-cannot-reference-retired-terminal-brand;
           router-daemon-accepts-signal-persona-message-only = context.craneLib.cargoTest (
             context.commonArgs
             // {

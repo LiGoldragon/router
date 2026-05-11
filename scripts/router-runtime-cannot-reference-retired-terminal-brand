@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_root="${1:?usage: router-runtime-cannot-reference-retired-terminal-brand <source-root>}"
+
+if rg --line-number \
+  --glob 'Cargo.toml' \
+  --glob 'Cargo.lock' \
+  --glob 'flake.nix' \
+  --glob 'src/**' \
+  --glob 'tests/**' \
+  --glob 'scripts/**' \
+  --glob '!scripts/router-runtime-cannot-reference-retired-terminal-brand' \
+  'WezTerm|wezterm|WEZTERM|persona-wezterm|persona_wezterm|WezTermPane' \
+  "$source_root"
+then
+  echo "active persona-router runtime still references retired terminal-brand infrastructure" >&2
+  exit 1
+fi
