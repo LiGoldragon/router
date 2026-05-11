@@ -7,6 +7,11 @@ typed frames from the message boundary, observes system and harness state, keeps
 pending deliveries, and owns its router-scoped Sema database for durable
 routing state.
 
+> **Scope.** "Sema" here means today's `sema` library (rename
+> pending → `sema-db`). The eventual `Sema` is broader; today's
+> persona-router is a realization step on the eventually-self-hosting
+> stack. See `~/primary/ESSENCE.md` §"Today and eventually".
+
 ---
 
 ## 0 · TL;DR
