@@ -38,6 +38,9 @@ flowchart LR
 
 - a library surface for delivery decisions;
 - a router daemon surface for isolated development;
+- a daemon-client CLI surface that accepts one NOTA `signal-persona-message`
+  projection record, sends one Signal frame to the daemon, and prints one NOTA
+  reply;
 - a Signal-frame daemon ingress for `signal-persona-message`
   `MessageSubmission` and `InboxQuery` frames;
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
@@ -125,6 +128,10 @@ This repo does not own:
 
 - Routing reacts to pushed events. It does not poll.
 - Router daemon requests enter through the Kameo `RouterRuntime` mailbox.
+- Router CLI client requests enter the daemon as length-prefixed Signal frames,
+  never as a NOTA line socket protocol.
+- Router CLI client requests accept exactly one NOTA input record and print
+  exactly one NOTA reply record.
 - `signal-persona-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
 - Signal message sender identity comes from Signal auth, not from
@@ -160,9 +167,17 @@ src/harness_registry.rs Kameo harness registry and observation state owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/delivery.rs         delivery decisions and typed gate state
 src/message.rs          transitional router message records
-src/main.rs             daemon entry
+src/main.rs             daemon entry and daemon-client CLI entry
 tests/                  router smoke and actor-density truth tests
 ```
+
+## Constraint Tests
+
+| Constraint | Test |
+|---|---|
+| Router CLI requests enter the daemon as Signal frames, not a NOTA line socket protocol. | `nix flake check .#router-cli-sends-signal-to-daemon-and-prints-nota-reply` |
+| Router daemon ingress accepts `signal-persona-message` frames. | `nix flake check .#router-daemon-accepts-signal-persona-message-only` |
+| Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
 
 ## See Also
 

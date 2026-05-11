@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::{BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -10,8 +11,13 @@ use persona_message::schema::{Actor, ActorId, Message, MessageId, ThreadId, expe
 use persona_system::FocusObservation;
 use signal_core::{AuthProof, FrameBody, Reply, Request};
 use signal_persona_message::{
-    Frame as SignalMessageFrame, InboxEntry, InboxListing, MessageBody, MessageRecipient,
-    MessageReply, MessageRequest, MessageSender, MessageSlot, SubmissionAcceptance,
+    Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
+    InboxListing as SignalInboxListing, MessageBody as SignalMessageBody,
+    MessageRecipient as SignalMessageRecipient, MessageReply as SignalMessageReply,
+    MessageRequest as SignalMessageRequest, MessageSender as SignalMessageSender,
+    MessageSlot as SignalSlot, MessageSubmission as SignalMessageSubmission,
+    SubmissionAcceptance as SignalSubmissionAcceptance,
+    SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
 
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
@@ -21,18 +27,24 @@ use crate::harness_registry::{
 };
 use crate::{Error, Result};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterDaemon {
     socket: PathBuf,
 }
 
 impl RouterDaemon {
+    pub fn from_socket(socket: impl Into<PathBuf>) -> Self {
+        Self {
+            socket: socket.into(),
+        }
+    }
+
     pub fn from_environment() -> Result<Self> {
         let socket = std::env::args_os()
             .nth(1)
             .map(PathBuf::from)
             .ok_or(Error::MissingSocket)?;
-        Ok(Self { socket })
+        Ok(Self::from_socket(socket))
     }
 
     pub fn run(self) -> Result<()> {
@@ -85,7 +97,7 @@ impl RouterConnection {
         SignalMessageInput::from_frame(frame)
     }
 
-    pub fn write_signal_reply(&mut self, reply: MessageReply) -> Result<()> {
+    pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> Result<()> {
         let stream = self.stream.get_mut();
         self.signal.write_reply(stream, reply)
     }
@@ -117,12 +129,16 @@ impl SignalMessageFrameCodec {
         Ok(SignalMessageFrame::decode_length_prefixed(&bytes)?)
     }
 
-    pub fn write_reply(&self, stream: &mut UnixStream, reply: MessageReply) -> Result<()> {
-        let frame = SignalMessageFrame::new(FrameBody::Reply(Reply::operation(reply)));
+    pub fn write_frame(&self, writer: &mut impl Write, frame: &SignalMessageFrame) -> Result<()> {
         let bytes = frame.encode_length_prefixed()?;
-        stream.write_all(&bytes)?;
-        stream.flush()?;
+        writer.write_all(&bytes)?;
+        writer.flush()?;
         Ok(())
+    }
+
+    pub fn write_reply(&self, stream: &mut UnixStream, reply: SignalMessageReply) -> Result<()> {
+        let frame = SignalMessageFrame::new(FrameBody::Reply(Reply::operation(reply)));
+        self.write_frame(stream, &frame)
     }
 }
 
@@ -135,11 +151,11 @@ impl Default for SignalMessageFrameCodec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalMessageInput {
     sender: ActorId,
-    request: MessageRequest,
+    request: SignalMessageRequest,
 }
 
 impl SignalMessageInput {
-    pub fn new(sender: ActorId, request: MessageRequest) -> Self {
+    pub fn new(sender: ActorId, request: SignalMessageRequest) -> Self {
         Self { sender, request }
     }
 
@@ -147,7 +163,7 @@ impl SignalMessageInput {
         &self.sender
     }
 
-    pub fn request(&self) -> &MessageRequest {
+    pub fn request(&self) -> &SignalMessageRequest {
         &self.request
     }
 
@@ -256,15 +272,15 @@ impl RouterApplyOutcome {
 
 #[derive(Debug, kameo::Reply)]
 pub struct SignalMessageOutcome {
-    result: Result<MessageReply>,
+    result: Result<SignalMessageReply>,
 }
 
 impl SignalMessageOutcome {
-    fn new(result: Result<MessageReply>) -> Self {
+    fn new(result: Result<SignalMessageReply>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<MessageReply> {
+    pub fn into_result(self) -> Result<SignalMessageReply> {
         self.result
     }
 }
@@ -414,9 +430,9 @@ impl RouterRoot {
         }
     }
 
-    async fn apply_signal(&mut self, input: SignalMessageInput) -> Result<MessageReply> {
+    async fn apply_signal(&mut self, input: SignalMessageInput) -> Result<SignalMessageReply> {
         match input.request {
-            MessageRequest::MessageSubmission(submission) => {
+            SignalMessageRequest::MessageSubmission(submission) => {
                 let slot = self.next_signal_message_slot();
                 let message = self.signal_message(input.sender, submission, slot);
                 self.pending.push(message.clone());
@@ -425,26 +441,28 @@ impl RouterRoot {
                 self.trace
                     .record(message.id.clone(), RouterTraceStep::MessageCommitted);
                 let _delivered = self.retry_pending().await?;
-                Ok(MessageReply::SubmissionAccepted(SubmissionAcceptance {
-                    message_slot: slot,
+                Ok(SignalMessageReply::SubmissionAccepted(
+                    SignalSubmissionAcceptance { message_slot: slot },
+                ))
+            }
+            SignalMessageRequest::InboxQuery(query) => {
+                Ok(SignalMessageReply::InboxListing(SignalInboxListing {
+                    messages: self.signal_inbox(&query.recipient),
                 }))
             }
-            MessageRequest::InboxQuery(query) => Ok(MessageReply::InboxListing(InboxListing {
-                messages: self.signal_inbox(&query.recipient),
-            })),
         }
     }
 
-    fn next_signal_message_slot(&mut self) -> MessageSlot {
+    fn next_signal_message_slot(&mut self) -> SignalSlot {
         self.signal_message_sequence = self.signal_message_sequence.saturating_add(1);
-        MessageSlot::new(self.signal_message_sequence)
+        SignalSlot::new(self.signal_message_sequence)
     }
 
     fn signal_message(
         &self,
         sender: ActorId,
-        submission: signal_persona_message::MessageSubmission,
-        slot: MessageSlot,
+        submission: SignalMessageSubmission,
+        slot: SignalSlot,
     ) -> Message {
         let recipient = ActorId::new(submission.recipient.as_str());
         let body = submission.body.as_str().to_string();
@@ -461,22 +479,22 @@ impl RouterRoot {
         }
     }
 
-    fn signal_inbox(&self, recipient: &MessageRecipient) -> Vec<InboxEntry> {
+    fn signal_inbox(&self, recipient: &SignalMessageRecipient) -> Vec<SignalInboxEntry> {
         self.pending
             .iter()
             .filter(|message| message.to.as_str() == recipient.as_str())
             .filter_map(|message| {
                 let slot = self.signal_slot_for(&message.id)?;
-                Some(InboxEntry {
+                Some(SignalInboxEntry {
                     message_slot: slot,
-                    sender: MessageSender::new(message.from.as_str()),
-                    body: MessageBody::new(message.body.as_str()),
+                    sender: SignalMessageSender::new(message.from.as_str()),
+                    body: SignalMessageBody::new(message.body.as_str()),
                 })
             })
             .collect()
     }
 
-    fn signal_slot_for(&self, message_id: &MessageId) -> Option<MessageSlot> {
+    fn signal_slot_for(&self, message_id: &MessageId) -> Option<SignalSlot> {
         self.signal_slots
             .iter()
             .find_map(|slot| slot.matches(message_id).then_some(slot.message_slot()))
@@ -575,11 +593,11 @@ impl RouterRoot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalMessageSlot {
     message: MessageId,
-    slot: MessageSlot,
+    slot: SignalSlot,
 }
 
 impl SignalMessageSlot {
-    fn new(message: MessageId, slot: MessageSlot) -> Self {
+    fn new(message: MessageId, slot: SignalSlot) -> Self {
         Self { message, slot }
     }
 
@@ -587,8 +605,387 @@ impl SignalMessageSlot {
         &self.message == message
     }
 
-    fn message_slot(&self) -> MessageSlot {
+    fn message_slot(&self) -> SignalSlot {
         self.slot
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterCommandLine {
+    arguments: Vec<OsString>,
+}
+
+impl RouterCommandLine {
+    pub fn from_env() -> Self {
+        Self::from_arguments(std::env::args_os().skip(1))
+    }
+
+    pub fn from_arguments<I, S>(arguments: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Self {
+            arguments: arguments.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn run(&self, output: impl Write) -> Result<()> {
+        match self.command()? {
+            RouterCommand::Daemon(daemon) => daemon.run(),
+            RouterCommand::Client(command) => command.run(output),
+        }
+    }
+
+    fn command(&self) -> Result<RouterCommand> {
+        if self
+            .arguments
+            .first()
+            .is_some_and(|argument| argument == "daemon")
+        {
+            return self.daemon_command_after_name();
+        }
+        if self.arguments.len() == 1
+            && !CommandLineArgument::new(&self.arguments[0]).starts_option()
+        {
+            return Ok(RouterCommand::Daemon(RouterDaemon::from_socket(
+                PathBuf::from(&self.arguments[0]),
+            )));
+        }
+        self.client_command()
+    }
+
+    fn daemon_command_after_name(&self) -> Result<RouterCommand> {
+        let Some(socket) = self.arguments.get(1) else {
+            return Err(Error::MissingSocket);
+        };
+        if let Some(argument) = self.arguments.get(2) {
+            return Err(Error::UnexpectedArgument {
+                got: argument.to_string_lossy().to_string(),
+            });
+        }
+        Ok(RouterCommand::Daemon(RouterDaemon::from_socket(
+            PathBuf::from(socket),
+        )))
+    }
+
+    fn client_command(&self) -> Result<RouterCommand> {
+        let mut parser = RouterClientArguments::new(&self.arguments);
+        Ok(RouterCommand::Client(parser.parse()?))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RouterCommand {
+    Daemon(RouterDaemon),
+    Client(RouterClientCommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouterClientCommand {
+    socket: PathBuf,
+    actor: ActorId,
+    input: RouterSignalInput,
+}
+
+impl RouterClientCommand {
+    fn run(self, mut output: impl Write) -> Result<()> {
+        let reply =
+            RouterSignalClient::new(self.socket).submit(&self.actor, self.input.request())?;
+        let text = RouterSignalOutput::from_signal(reply).to_nota()?;
+        writeln!(output, "{text}")?;
+        Ok(())
+    }
+}
+
+struct RouterClientArguments<'arguments> {
+    arguments: &'arguments [OsString],
+    index: usize,
+    socket: Option<PathBuf>,
+    actor: Option<ActorId>,
+    input: Option<RouterSignalInput>,
+}
+
+impl<'arguments> RouterClientArguments<'arguments> {
+    fn new(arguments: &'arguments [OsString]) -> Self {
+        Self {
+            arguments,
+            index: 0,
+            socket: None,
+            actor: None,
+            input: None,
+        }
+    }
+
+    fn parse(&mut self) -> Result<RouterClientCommand> {
+        while let Some(argument) = self.next() {
+            match argument.to_string_lossy().as_ref() {
+                "--socket" => self.socket = Some(PathBuf::from(self.required_value("--socket")?)),
+                "--actor" => {
+                    self.actor = Some(ActorId::new(
+                        self.required_value("--actor")?
+                            .to_string_lossy()
+                            .to_string(),
+                    ));
+                }
+                _ if CommandLineArgument::new(argument).starts_inline_record() => {
+                    self.input = Some(RouterSignalInput::from_argument(argument)?);
+                }
+                other => {
+                    return Err(Error::UnexpectedArgument {
+                        got: other.to_string(),
+                    });
+                }
+            }
+        }
+        Ok(RouterClientCommand {
+            socket: self.socket.take().ok_or(Error::MissingSocket)?,
+            actor: self.actor.take().ok_or(Error::MissingActor)?,
+            input: self.input.take().ok_or(Error::MissingInput)?,
+        })
+    }
+
+    fn next(&mut self) -> Option<&'arguments OsString> {
+        let argument = self.arguments.get(self.index)?;
+        self.index += 1;
+        Some(argument)
+    }
+
+    fn required_value(&mut self, option: &str) -> Result<&'arguments OsString> {
+        self.next().ok_or_else(|| Error::UnexpectedArgument {
+            got: format!("{option} without value"),
+        })
+    }
+}
+
+struct CommandLineArgument<'argument> {
+    argument: &'argument OsString,
+}
+
+impl<'argument> CommandLineArgument<'argument> {
+    fn new(argument: &'argument OsString) -> Self {
+        Self { argument }
+    }
+
+    fn starts_inline_record(&self) -> bool {
+        self.argument.to_string_lossy().starts_with('(')
+    }
+
+    fn starts_option(&self) -> bool {
+        self.argument.to_string_lossy().starts_with("--")
+    }
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct MessageSubmission {
+    pub recipient: ActorId,
+    pub body: String,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct InboxQuery {
+    pub recipient: ActorId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouterSignalInput {
+    MessageSubmission(MessageSubmission),
+    InboxQuery(InboxQuery),
+}
+
+impl RouterSignalInput {
+    fn from_argument(argument: &OsString) -> Result<Self> {
+        let Some(text) = argument.to_str() else {
+            return Err(Error::InvalidInlineNotaArgument {
+                got: format!("{argument:?}"),
+            });
+        };
+        Self::from_nota(text)
+    }
+
+    pub fn from_nota(text: &str) -> Result<Self> {
+        let mut decoder = Decoder::new(text);
+        let input = Self::decode(&mut decoder)?;
+        expect_end(&mut decoder)?;
+        Ok(input)
+    }
+
+    fn request(self) -> SignalMessageRequest {
+        match self {
+            Self::MessageSubmission(input) => {
+                SignalMessageRequest::MessageSubmission(SignalMessageSubmission {
+                    recipient: SignalMessageRecipient::new(input.recipient.as_str()),
+                    body: SignalMessageBody::new(input.body),
+                })
+            }
+            Self::InboxQuery(input) => {
+                SignalMessageRequest::InboxQuery(signal_persona_message::InboxQuery {
+                    recipient: SignalMessageRecipient::new(input.recipient.as_str()),
+                })
+            }
+        }
+    }
+}
+
+impl NotaDecode for RouterSignalInput {
+    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
+        match decoder.peek_record_head()?.as_str() {
+            "MessageSubmission" => Ok(Self::MessageSubmission(MessageSubmission::decode(decoder)?)),
+            "InboxQuery" => Ok(Self::InboxQuery(InboxQuery::decode(decoder)?)),
+            other => Err(nota_codec::Error::UnknownKindForVerb {
+                verb: "RouterSignalInput",
+                got: other.to_string(),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouterSignalClient {
+    socket: PathBuf,
+    codec: SignalMessageFrameCodec,
+}
+
+impl RouterSignalClient {
+    fn new(socket: PathBuf) -> Self {
+        Self {
+            socket,
+            codec: SignalMessageFrameCodec::default(),
+        }
+    }
+
+    fn submit(&self, actor: &ActorId, request: SignalMessageRequest) -> Result<SignalMessageReply> {
+        let mut stream = UnixStream::connect(&self.socket)?;
+        let frame = SignalMessageFrame::new(FrameBody::Request(Request::assert(request)))
+            .with_auth(AuthProof::LocalOperator(
+                signal_core::LocalOperatorProof::new(actor.as_str()),
+            ));
+        self.codec.write_frame(&mut stream, &frame)?;
+        let reply = self.codec.read_frame(&mut stream)?;
+        match reply.into_body() {
+            FrameBody::Reply(Reply::Operation(reply)) => Ok(reply),
+            other => Err(Error::UnexpectedSignalFrame {
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct SubmissionAccepted {
+    pub message_slot: u64,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct SubmissionRejected {
+    pub reason: SubmissionRejectionReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmissionRejectionReason {
+    StoreRejected,
+    RecipientNotFound,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct RouterInboxListing {
+    pub messages: Vec<RouterInboxEntry>,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct RouterInboxEntry {
+    pub message_slot: u64,
+    pub sender: ActorId,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouterSignalOutput {
+    SubmissionAccepted(SubmissionAccepted),
+    SubmissionRejected(SubmissionRejected),
+    RouterInboxListing(RouterInboxListing),
+}
+
+impl RouterSignalOutput {
+    fn from_signal(reply: SignalMessageReply) -> Self {
+        match reply {
+            SignalMessageReply::SubmissionAccepted(reply) => {
+                Self::SubmissionAccepted(SubmissionAccepted {
+                    message_slot: reply.message_slot.into_u64(),
+                })
+            }
+            SignalMessageReply::SubmissionRejected(reply) => {
+                Self::SubmissionRejected(SubmissionRejected {
+                    reason: SubmissionRejectionReason::from_signal(reply.reason),
+                })
+            }
+            SignalMessageReply::InboxListing(reply) => {
+                Self::RouterInboxListing(RouterInboxListing {
+                    messages: reply
+                        .messages
+                        .into_iter()
+                        .map(RouterInboxEntry::from_signal)
+                        .collect(),
+                })
+            }
+        }
+    }
+
+    pub fn to_nota(&self) -> Result<String> {
+        let mut encoder = Encoder::new();
+        self.encode(&mut encoder)?;
+        Ok(encoder.into_string())
+    }
+}
+
+impl NotaEncode for RouterSignalOutput {
+    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
+        match self {
+            Self::SubmissionAccepted(output) => output.encode(encoder),
+            Self::SubmissionRejected(output) => output.encode(encoder),
+            Self::RouterInboxListing(output) => output.encode(encoder),
+        }
+    }
+}
+
+impl NotaEncode for SubmissionRejectionReason {
+    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
+        match self {
+            Self::StoreRejected => "StoreRejected".to_string().encode(encoder),
+            Self::RecipientNotFound => "RecipientNotFound".to_string().encode(encoder),
+        }
+    }
+}
+
+impl NotaDecode for SubmissionRejectionReason {
+    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
+        match String::decode(decoder)?.as_str() {
+            "StoreRejected" => Ok(Self::StoreRejected),
+            "RecipientNotFound" => Ok(Self::RecipientNotFound),
+            other => Err(nota_codec::Error::UnknownKindForVerb {
+                verb: "SubmissionRejectionReason",
+                got: other.to_string(),
+            }),
+        }
+    }
+}
+
+impl SubmissionRejectionReason {
+    fn from_signal(reason: SignalSubmissionRejectionReason) -> Self {
+        match reason {
+            SignalSubmissionRejectionReason::StoreRejected => Self::StoreRejected,
+            SignalSubmissionRejectionReason::RecipientNotFound => Self::RecipientNotFound,
+        }
+    }
+}
+
+impl RouterInboxEntry {
+    fn from_signal(entry: SignalInboxEntry) -> Self {
+        Self {
+            message_slot: entry.message_slot.into_u64(),
+            sender: ActorId::new(entry.sender.as_str()),
+            body: entry.body.as_str().to_string(),
+        }
     }
 }
 

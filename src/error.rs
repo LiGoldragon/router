@@ -34,6 +34,18 @@ pub enum Error {
     #[error("router socket path is missing")]
     MissingSocket,
 
+    #[error("router actor name is missing")]
+    MissingActor,
+
+    #[error("router NOTA input is missing")]
+    MissingInput,
+
+    #[error("unexpected router command-line argument: {got:?}")]
+    UnexpectedArgument { got: String },
+
+    #[error("router inline NOTA argument must be UTF-8: {got:?}")]
+    InvalidInlineNotaArgument { got: String },
+
     #[error("router socket {path:?} did not become ready")]
     SocketNotReady { path: PathBuf },
 

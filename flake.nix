@@ -38,6 +38,16 @@
             strictDeps = true;
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          routerConstraintCheck =
+            name: script:
+            pkgs.runCommand name { } ''
+              set -euo pipefail
+
+              export ROUTER_BIN=${self.packages.${system}.default}/bin/persona-router-daemon
+              ${pkgs.bash}/bin/bash ${script}
+
+              touch "$out"
+            '';
         in
         {
           inherit
@@ -46,6 +56,7 @@
             craneLib
             commonArgs
             cargoArtifacts
+            routerConstraintCheck
             ;
         };
     in
@@ -79,18 +90,23 @@
               inherit (context) cargoArtifacts;
             }
           );
+          router-cli-sends-signal-to-daemon-and-prints-nota-reply = context.routerConstraintCheck "router-cli-sends-signal-to-daemon-and-prints-nota-reply" ./scripts/router-cli-sends-signal-to-daemon-and-prints-nota-reply;
+          router-daemon-accepts-signal-persona-message-only = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test smoke router_connection_decodes_signal_persona_message_frame -- --exact";
+            }
+          );
         }
       );
 
-      apps = forSystems (
-        system:
-        {
-          default = {
-            type = "app";
-            program = "${self.packages.${system}.default}/bin/persona-router-daemon";
-          };
-        }
-      );
+      apps = forSystems (system: {
+        default = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/persona-router-daemon";
+        };
+      });
 
       devShells = forSystems (
         system:

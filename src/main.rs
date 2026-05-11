@@ -1,5 +1,5 @@
-use persona_router::RouterDaemon;
+use persona_router::RouterCommandLine;
 
 fn main() -> persona_router::Result<()> {
-    RouterDaemon::from_environment()?.run()
+    RouterCommandLine::from_env().run(std::io::stdout().lock())
 }
