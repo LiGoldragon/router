@@ -18,6 +18,10 @@ use signal_persona_message::{
     SubmissionAcceptance as SignalSubmissionAcceptance,
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
+use signal_persona_mind::{
+    AdjudicationDeny as MindAdjudicationDeny, ChannelDuration as MindChannelDuration,
+    ChannelEndpoint as MindChannelEndpoint, ChannelGrant as MindChannelGrant,
+};
 
 use crate::adjudication::{
     MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot, ReadMindAdjudicationOutbox,
@@ -539,6 +543,34 @@ impl RouterRoot {
                     },
                 ))
             }
+            RouterInput::ApplyMindChannelGrant(input) => {
+                let mut channels = 0;
+                for grant in input.projected_grants() {
+                    self.channels
+                        .ask(grant)
+                        .await
+                        .map_err(|error| Error::ActorCall(error.to_string()))?
+                        .into_result()?;
+                    channels += 1;
+                }
+                let delivered = self.retry_pending().await?;
+                Ok(RouterOutput::MindChannelGrantApplied(
+                    MindChannelGrantApplied {
+                        channels,
+                        delivered,
+                        pending: self.pending.len() as u64,
+                    },
+                ))
+            }
+            RouterInput::ApplyMindAdjudicationDeny(input) => {
+                let rejected = self.reject_pending_adjudication(&input.deny);
+                Ok(RouterOutput::MindAdjudicationDenyApplied(
+                    MindAdjudicationDenyApplied {
+                        rejected,
+                        pending: self.pending.len() as u64,
+                    },
+                ))
+            }
         }
     }
 
@@ -750,6 +782,25 @@ impl RouterRoot {
         }
         next.extend(remaining);
         self.pending = next;
+    }
+
+    fn reject_pending_adjudication(&mut self, deny: &MindAdjudicationDeny) -> u64 {
+        let before = self.pending.len();
+        let request = deny.request.as_str();
+        let mut rejected = Vec::new();
+        self.pending.retain(|pending| {
+            if pending.message.id.as_str() == request {
+                rejected.push(pending.message.id.clone());
+                false
+            } else {
+                true
+            }
+        });
+        for message in rejected {
+            self.trace
+                .record(message, RouterTraceStep::AdjudicationDenied);
+        }
+        (before - self.pending.len()) as u64
     }
 }
 
@@ -1468,6 +1519,7 @@ impl RouterTraceEvent {
 pub enum RouterTraceStep {
     MessageCommitted,
     AdjudicationRequested,
+    AdjudicationDenied,
     DeliveryAttempted,
     DeliveryMarked,
 }
@@ -1503,6 +1555,75 @@ pub struct InstallRouteStructuralChannels {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyMindChannelGrant {
+    pub grant: MindChannelGrant,
+}
+
+impl ApplyMindChannelGrant {
+    fn projected_grants(&self) -> Vec<GrantChannel> {
+        if self.grant.kinds.is_empty() {
+            return Vec::new();
+        }
+        vec![GrantChannel::direct_message(
+            self.endpoint_actor_id(&self.grant.source),
+            self.endpoint_actor_id(&self.grant.destination),
+            self.channel_lifetime(),
+        )]
+    }
+
+    fn channel_lifetime(&self) -> crate::channel::ChannelLifetime {
+        match self.grant.duration {
+            MindChannelDuration::OneShot => crate::channel::ChannelLifetime::OneShot,
+            MindChannelDuration::Permanent => crate::channel::ChannelLifetime::Persistent,
+            MindChannelDuration::TimeBound(until) => crate::channel::ChannelLifetime::ExpiresAt(
+                crate::channel::ChannelEpochSeconds::new(until.value() / 1_000_000_000),
+            ),
+        }
+    }
+
+    fn endpoint_actor_id(&self, endpoint: &MindChannelEndpoint) -> ActorId {
+        match endpoint {
+            MindChannelEndpoint::Internal(component) => self.component_actor_id(*component),
+            MindChannelEndpoint::External(connection) => self.connection_actor_id(connection),
+        }
+    }
+
+    fn component_actor_id(&self, component: ComponentName) -> ActorId {
+        match component {
+            ComponentName::Mind => ActorId::new("mind"),
+            ComponentName::MessageProxy => ActorId::new("message-proxy"),
+            ComponentName::Router => ActorId::new("router"),
+            ComponentName::Terminal => ActorId::new("terminal"),
+            ComponentName::Harness => ActorId::new("harness"),
+            ComponentName::System => ActorId::new("system"),
+        }
+    }
+
+    fn connection_actor_id(&self, connection: &ConnectionClass) -> ActorId {
+        match connection {
+            ConnectionClass::Owner => ActorId::new("owner"),
+            ConnectionClass::NonOwnerUser(user) => {
+                ActorId::new(format!("non-owner-user-{}", user.as_u32()))
+            }
+            ConnectionClass::System(principal) => {
+                ActorId::new(format!("system-{}", principal.as_str()))
+            }
+            ConnectionClass::OtherPersona { engine_id, host } => ActorId::new(format!(
+                "other-persona-{}-{}",
+                engine_id.as_str(),
+                host.as_str()
+            )),
+            ConnectionClass::Network(peer) => ActorId::new(format!("network-{}", peer.as_str())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyMindAdjudicationDeny {
+    pub deny: MindAdjudicationDeny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterInput {
     RegisterActor(RegisterActor),
     RouteMessage(RouteMessage),
@@ -1510,6 +1631,8 @@ pub enum RouterInput {
     GrantChannel(GrantRouteChannel),
     RetractChannel(RetractRouteChannel),
     InstallStructuralChannels(InstallRouteStructuralChannels),
+    ApplyMindChannelGrant(ApplyMindChannelGrant),
+    ApplyMindAdjudicationDeny(ApplyMindAdjudicationDeny),
 }
 
 impl RouterInput {
@@ -1569,6 +1692,19 @@ pub struct StructuralChannelsInstalled {
     pub installed: u64,
 }
 
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct MindChannelGrantApplied {
+    pub channels: u64,
+    pub delivered: u64,
+    pub pending: u64,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct MindAdjudicationDenyApplied {
+    pub rejected: u64,
+    pub pending: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterOutput {
     Registered(Registered),
@@ -1577,6 +1713,8 @@ pub enum RouterOutput {
     ChannelGranted(ChannelGranted),
     ChannelRetracted(ChannelRetracted),
     StructuralChannelsInstalled(StructuralChannelsInstalled),
+    MindChannelGrantApplied(MindChannelGrantApplied),
+    MindAdjudicationDenyApplied(MindAdjudicationDenyApplied),
 }
 
 impl RouterOutput {
@@ -1596,6 +1734,8 @@ impl NotaEncode for RouterOutput {
             Self::ChannelGranted(output) => output.encode(encoder),
             Self::ChannelRetracted(output) => output.encode(encoder),
             Self::StructuralChannelsInstalled(output) => output.encode(encoder),
+            Self::MindChannelGrantApplied(output) => output.encode(encoder),
+            Self::MindAdjudicationDenyApplied(output) => output.encode(encoder),
         }
     }
 }

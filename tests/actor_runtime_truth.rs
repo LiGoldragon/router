@@ -4,21 +4,25 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
 use persona_router::{
-    Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, ChannelAuthority, ChannelClock,
-    ChannelDecision, ChannelEpochSeconds, ChannelLifetime, CheckChannel, EndpointKind,
-    EndpointTransport, EngineStructuralChannels, GrantChannel, GrantRouteChannel, HarnessDelivery,
-    HarnessRegistry, InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageId,
+    Actor, ActorId, ActorRef, ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput,
+    ApplySignalMessage, ChannelAuthority, ChannelClock, ChannelDecision, ChannelEpochSeconds,
+    ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, EngineStructuralChannels,
+    GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry,
+    InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageId,
     ObserveChannelTime, ReadChannelAuthorityStatus, ReadChannelPersistence,
     ReadHarnessRegistryStatus, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
     ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage, RouterInput, RouterOutput,
     RouterRoot, RouterRuntime, RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput,
     Status, ThreadId, UseChannel,
 };
-use signal_persona_auth::{ConnectionClass, MessageOrigin};
+use signal_persona_auth::{ComponentName, ConnectionClass, MessageOrigin};
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
 };
-use signal_persona_mind::ChannelMessageKind;
+use signal_persona_mind::{
+    AdjudicationDeny, AdjudicationRequestId, ChannelDuration, ChannelEndpoint,
+    ChannelGrant as MindChannelGrant, ChannelMessageKind, TextBody,
+};
 
 struct SourceFile {
     path: PathBuf,
@@ -805,6 +809,186 @@ async fn router_installs_structural_channels_for_engine_setup() {
             .iter()
             .any(|channel| channel.from == "owner" && channel.to == "router")
     );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
+    let store = TemporaryRouterStore::new("mind-grant");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+    let message_id = MessageId::new("m-mind-grant");
+
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorId::new("harness"),
+                pid: 42,
+                endpoint: Some(EndpointTransport {
+                    kind: EndpointKind::Human,
+                    target: String::new(),
+                    aux: None,
+                }),
+            },
+        }))
+        .await
+        .expect("harness registration passes through router actors");
+
+    let parked = router
+        .apply(RouterInput::RouteMessage(RouteMessage {
+            message: Message {
+                id: message_id.clone(),
+                thread: ThreadId::new("direct-router-harness"),
+                from: ActorId::new("router"),
+                to: ActorId::new("harness"),
+                body: "deliver after mind grant".to_string(),
+                attachments: Vec::new(),
+            },
+        }))
+        .await
+        .expect("unknown channel parks before mind grant");
+    let RouterOutput::DeliveryChanged(delivery) = parked else {
+        panic!("expected delivery output for parked message");
+    };
+    assert_eq!(delivery.delivered, 0);
+    assert_eq!(delivery.pending, 1);
+    assert!(
+        inspection
+            .delivery_attempt_records()
+            .expect("delivery attempts read before grant")
+            .is_empty()
+    );
+
+    let applied = router
+        .apply(RouterInput::ApplyMindChannelGrant(ApplyMindChannelGrant {
+            grant: MindChannelGrant {
+                source: ChannelEndpoint::Internal(ComponentName::Router),
+                destination: ChannelEndpoint::Internal(ComponentName::Harness),
+                kinds: vec![ChannelMessageKind::MessageDelivery],
+                duration: ChannelDuration::Permanent,
+            },
+        }))
+        .await
+        .expect("mind grant applies through router actors");
+
+    let RouterOutput::MindChannelGrantApplied(applied) = applied else {
+        panic!("expected mind channel grant output");
+    };
+    assert_eq!(applied.channels, 1);
+    assert_eq!(applied.delivered, 1);
+    assert_eq!(applied.pending, 0);
+
+    let channels = inspection.channel_records().expect("channel records read");
+    let attempts = inspection
+        .delivery_attempt_records()
+        .expect("delivery attempt records read");
+    let results = inspection
+        .delivery_result_records()
+        .expect("delivery result records read");
+    assert_eq!(channels.len(), 1);
+    assert_eq!(channels[0].from, "router");
+    assert_eq!(channels[0].to, "harness");
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].message, message_id.as_str());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].message, message_id.as_str());
+    assert!(results[0].delivered);
+
+    let trace = router.trace().await.expect("router trace is readable");
+    let message_steps = trace
+        .events()
+        .iter()
+        .filter(|event| event.message() == &message_id)
+        .map(|event| event.step())
+        .collect::<Vec<_>>();
+    let adjudication_index = message_steps
+        .iter()
+        .position(|step| *step == RouterTraceStep::AdjudicationRequested)
+        .expect("adjudication request is traced");
+    let delivery_index = message_steps
+        .iter()
+        .position(|step| *step == RouterTraceStep::DeliveryAttempted)
+        .expect("delivery attempt is traced");
+    assert!(
+        adjudication_index < delivery_index,
+        "delivery cannot happen before mind grant unblocks adjudication: {message_steps:?}"
+    );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
+    let store = TemporaryRouterStore::new("mind-deny");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+    let message_id = MessageId::new("m-mind-deny");
+
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorId::new("harness"),
+                pid: 42,
+                endpoint: Some(EndpointTransport {
+                    kind: EndpointKind::Human,
+                    target: String::new(),
+                    aux: None,
+                }),
+            },
+        }))
+        .await
+        .expect("harness registration passes through router actors");
+
+    router
+        .apply(RouterInput::RouteMessage(RouteMessage {
+            message: Message {
+                id: message_id.clone(),
+                thread: ThreadId::new("direct-router-harness"),
+                from: ActorId::new("router"),
+                to: ActorId::new("harness"),
+                body: "deny this adjudication".to_string(),
+                attachments: Vec::new(),
+            },
+        }))
+        .await
+        .expect("unknown channel parks before mind deny");
+
+    let denied = router
+        .apply(RouterInput::ApplyMindAdjudicationDeny(
+            ApplyMindAdjudicationDeny {
+                deny: AdjudicationDeny {
+                    request: AdjudicationRequestId::new(message_id.as_str()),
+                    reason: TextBody::new("denied by mind"),
+                },
+            },
+        ))
+        .await
+        .expect("mind deny applies through router actors");
+    let RouterOutput::MindAdjudicationDenyApplied(denied) = denied else {
+        panic!("expected mind adjudication deny output");
+    };
+    assert_eq!(denied.rejected, 1);
+    assert_eq!(denied.pending, 0);
+    assert!(
+        inspection
+            .delivery_attempt_records()
+            .expect("delivery attempts read after deny")
+            .is_empty()
+    );
+
+    let trace = router.trace().await.expect("router trace is readable");
+    let message_steps = trace
+        .events()
+        .iter()
+        .filter(|event| event.message() == &message_id)
+        .map(|event| event.step())
+        .collect::<Vec<_>>();
+    assert!(message_steps.contains(&RouterTraceStep::AdjudicationRequested));
+    assert!(message_steps.contains(&RouterTraceStep::AdjudicationDenied));
+    assert!(!message_steps.contains(&RouterTraceStep::DeliveryAttempted));
 
     router.stop().await;
 }

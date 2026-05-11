@@ -51,6 +51,8 @@ flowchart LR
   adjudication-pending records;
 - a router actor operation for installing the current first-stack structural
   channels during Persona engine setup;
+- a router actor operation for applying typed `signal-persona-mind` channel
+  grants and retrying parked messages through the normal delivery path;
 - a Kameo `MindAdjudicationOutbox` that owns typed
   `signal-persona-mind` adjudication requests until the live mind transport is
   wired;
@@ -104,6 +106,16 @@ table reads: `MessageCommitted` must appear for a message before any
 channel records `AdjudicationRequested` without reaching `HarnessDelivery`; a
 named table test writes channel and adjudication records through `RouterTables`
 and reads them back from router-owned Sema.
+
+The current router can consume a typed `signal-persona-mind::ChannelGrant` and
+project it into the temporary `ActorId` channel table. The grant is installed
+through `RouterRoot -> ChannelAuthority`; only then does `RouterRoot` retry
+parked messages. This is the first live feedback-loop witness for the mind
+choreography path. The projection still collapses `ChannelMessageKind` into the
+router's current `DirectMessage` kind and must be replaced by the full
+`ChannelEndpoint` + `ChannelMessageKind` table key as the channel table matures.
+The router can also consume `signal-persona-mind::AdjudicationDeny` for a
+parked message and remove that message without touching the delivery actor.
 
 When the remaining router-owned Sema tables are wired into `RouterRoot`, these
 trace witnesses graduate into chained artifact witnesses where one step writes
@@ -172,6 +184,10 @@ This repo does not own:
   `ChannelAuthority`.
 - Router engine setup can install first-stack structural channels through the
   actor tree.
+- A typed mind channel grant can install a channel before a parked message is
+  retried for delivery.
+- A typed mind adjudication deny can remove a parked message without attempting
+  delivery.
 - `signal-persona-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
 - Message provenance comes from ingress context, not from `MessageSubmission`
@@ -236,6 +252,8 @@ tests/                  router smoke and actor-density truth tests
 | Router runtime can wire channel authority to router-owned Sema tables. | `nix flake check .#router-runtime-wires-channel-authority-to-router-tables` |
 | RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix flake check .#router-root-persists-delivery-attempt-and-result-records` |
 | Router engine setup can install first-stack structural channels through the actor tree. | `nix flake check .#router-installs-structural-channels-for-engine-setup` |
+| A typed mind channel grant installs a row before a parked message is retried for delivery. | `nix flake check .#mind-channel-grant-installs-row-before-parked-message-delivers` |
+| A typed mind adjudication deny removes a parked message without delivery. | `nix flake check .#mind-adjudication-deny-removes-parked-message-without-delivery` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 
 ## See Also

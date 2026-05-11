@@ -33,14 +33,16 @@ pub use message::{
     Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageBody, MessageId, ThreadId,
 };
 pub use router::{
-    ApplyRouterInput, ApplySignalMessage, ChannelGranted, ChannelRetracted, DeliveryChanged,
-    GrantRouteChannel, InstallRouteStructuralChannels, ReadRouterChannelPersistence,
-    ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor, Registered,
-    RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterChannelPersistenceOutcome,
-    RouterCommandLine, RouterConnection, RouterDaemon, RouterInput,
-    RouterMindAdjudicationOutboxOutcome, RouterOutput, RouterRoot, RouterRuntime, RouterStatus,
-    RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
-    SignalMessageInput, SignalMessageOutcome, Status, StructuralChannelsInstalled,
+    ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput, ApplySignalMessage,
+    ChannelGranted, ChannelRetracted, DeliveryChanged, GrantRouteChannel,
+    InstallRouteStructuralChannels, MindAdjudicationDenyApplied, MindChannelGrantApplied,
+    ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor,
+    Registered, RetractRouteChannel, RouteMessage, RouterApplyOutcome,
+    RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection, RouterDaemon,
+    RouterInput, RouterMindAdjudicationOutboxOutcome, RouterOutput, RouterRoot, RouterRuntime,
+    RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep,
+    SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
+    StructuralChannelsInstalled,
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,

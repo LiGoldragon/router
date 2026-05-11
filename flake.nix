@@ -180,6 +180,20 @@
               cargoTestExtraArgs = "--test actor_runtime_truth router_installs_structural_channels_for_engine_setup -- --exact";
             }
           );
+          mind-channel-grant-installs-row-before-parked-message-delivers = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth mind_channel_grant_installs_row_before_parked_message_delivers -- --exact";
+            }
+          );
+          mind-adjudication-deny-removes-parked-message-without-delivery = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth mind_adjudication_deny_removes_parked_message_without_delivery -- --exact";
+            }
+          );
         }
       );
 
