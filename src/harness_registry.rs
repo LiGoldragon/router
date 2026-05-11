@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use persona_message::schema::{Actor, ActorId, EndpointKind, EndpointTransport};
 use persona_system::{FocusObservation, SystemTarget};
 
 use crate::router::{PromptFact, PromptObservation};
+use crate::{Actor, ActorId, EndpointKind, EndpointTransport};
 
 #[derive(Debug)]
 pub struct HarnessRegistry {

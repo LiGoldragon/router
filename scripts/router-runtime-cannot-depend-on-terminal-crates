@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_root="${1:?usage: router-runtime-cannot-depend-on-terminal-crates <source-root>}"
+
+violations=0
+
+if rg --line-number '^(persona-terminal|signal-persona-terminal)[[:space:]]*=' "$source_root/Cargo.toml"; then
+  violations=1
+fi
+
+if rg --line-number \
+  --glob 'src/**' \
+  --glob 'tests/**' \
+  'persona_terminal::|signal_persona_terminal::' \
+  "$source_root"
+then
+  violations=1
+fi
+
+if [[ "$violations" -ne 0 ]]; then
+  echo "persona-router must not talk to terminal crates directly; delivery goes through persona-harness" >&2
+  exit 1
+fi

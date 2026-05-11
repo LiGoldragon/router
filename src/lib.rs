@@ -13,7 +13,9 @@ pub use harness_registry::{
     ReadHarnessRegistryStatus,
 };
 pub use kameo::actor::ActorRef;
-pub use message::{Message, MessageBody, MessageId};
+pub use message::{
+    Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageBody, MessageId, ThreadId,
+};
 pub use router::{
     ApplyRouterInput, ApplySignalMessage, DeliveryChanged, PromptFact, PromptObservation,
     ReadRouterTrace, RegisterActor, Registered, RouteMessage, RouterApplyOutcome,

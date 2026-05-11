@@ -1,14 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use persona_message::schema::{
-    Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageId, ThreadId,
-};
 use persona_router::{
-    ActorRef, ApplyRouterInput, ApplySignalMessage, HarnessDelivery, HarnessRegistry, PromptFact,
+    Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, EndpointKind,
+    EndpointTransport, HarnessDelivery, HarnessRegistry, Message, MessageId, PromptFact,
     PromptObservation, ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor, RouteMessage,
     RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTrace, RouterTraceStep,
-    SignalMessageInput, Status,
+    SignalMessageInput, Status, ThreadId,
 };
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,

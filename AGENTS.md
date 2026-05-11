@@ -16,6 +16,10 @@ delivered harness prompt.
 - Use Nix for build and test entry points.
 - `signal-persona-message` is the only daemon message ingress. Do not add a
   NOTA line socket protocol.
+- Do not depend on `persona-message`; it is a stateless CLI/proxy client of
+  this router.
+- Do not depend on terminal crates directly. Terminal effects go through
+  `persona-harness`.
 - Use actor-shaped objects for harness endpoints. Endpoint injection data
   belongs to the harness actor that can perform the delivery.
 - No polling. Blocked deliveries subscribe to pushed system or harness events.

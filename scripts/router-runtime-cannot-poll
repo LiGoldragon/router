@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_root="${1:?usage: router-runtime-cannot-poll <source-root>}"
+
+if rg --line-number \
+  --glob 'src/**' \
+  'tokio::time::interval|tokio::time::sleep|std::thread::sleep|thread::sleep' \
+  "$source_root"
+then
+  echo "persona-router runtime must react to pushed events, not timer polling" >&2
+  exit 1
+fi

@@ -6,9 +6,8 @@ use persona_harness::{
     HarnessId, HarnessTerminalBinding, HarnessTerminalDelivery as TerminalDelivery,
     HarnessTerminalEndpoint,
 };
-use persona_message::schema::{Actor, EndpointKind, EndpointTransport, Message};
 
-use crate::{Error, Result};
+use crate::{Actor, EndpointKind, EndpointTransport, Error, Message, Result};
 
 #[derive(Debug)]
 pub struct HarnessDelivery {

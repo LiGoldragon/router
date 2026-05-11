@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_root="${1:?usage: router-runtime-cannot-depend-on-persona-message <source-root>}"
+
+violations=0
+
+if rg --line-number '^persona-message[[:space:]]*=' "$source_root/Cargo.toml"; then
+  violations=1
+fi
+
+if rg --line-number 'name = "persona-message"' "$source_root/Cargo.lock"; then
+  violations=1
+fi
+
+if rg --line-number \
+  --glob 'src/**' \
+  --glob 'tests/**' \
+  '(^|[^[:alnum:]_])persona_message::' \
+  "$source_root"
+then
+  violations=1
+fi
+
+if [[ "$violations" -ne 0 ]]; then
+  echo "persona-router must not depend on persona-message; it consumes signal-persona-message and owns router state" >&2
+  exit 1
+fi

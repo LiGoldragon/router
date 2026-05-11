@@ -10,9 +10,6 @@ pub enum Error {
     #[error("nota: {0}")]
     Nota(#[from] nota_codec::Error),
 
-    #[error("message: {0}")]
-    Message(#[from] persona_message::Error),
-
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_core::FrameError),
 

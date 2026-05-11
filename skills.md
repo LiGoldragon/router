@@ -7,6 +7,8 @@ Rules for work here:
 
 - Depend on contract repos for relation-specific frame records. For this router
   slice, that means `signal-persona-message` and `signal-persona-system`.
+- Do not depend on `persona-message`. That repo is only a stateless CLI/proxy
+  boundary into the router.
 - Accept `signal-persona-message` frames as the daemon message ingress. Do not
   add a NOTA line socket protocol.
 - Resolve the signal sender from Signal auth. Do not add sender text to
@@ -26,4 +28,4 @@ Rules for work here:
 - Use pushed event subscriptions. Do not add polling loops.
 - Treat unknown focus and unknown prompt-buffer state as blocked delivery.
 - Keep terminal byte transport out of this repo; that belongs in
-  `persona-terminal`.
+  `persona-terminal`. The router does not depend on terminal crates directly.

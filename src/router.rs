@@ -7,7 +7,6 @@ use kameo::actor::{ActorRef, Spawn};
 use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
-use persona_message::schema::{Actor, ActorId, Message, MessageId, ThreadId, expect_end};
 use persona_system::FocusObservation;
 use signal_core::{AuthProof, FrameBody, Reply, Request};
 use signal_persona_message::{
@@ -25,7 +24,8 @@ use crate::harness_registry::{
     AcceptFocusObservation, AcceptPromptObservation, HarnessRegistry, MarkHarnessDelivered,
     ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus, RegisterHarness,
 };
-use crate::{Error, Result};
+use crate::message::expect_end;
+use crate::{Actor, ActorId, Error, Message, MessageId, Result, ThreadId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterDaemon {

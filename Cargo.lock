@@ -462,28 +462,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "persona-message"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#e581996e87261f5d40de57bdecacafa8021b1ebb"
-dependencies = [
- "kameo",
- "nota-codec",
- "rkyv",
- "signal-core",
- "signal-persona-message",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "persona-router"
 version = "0.1.0"
 dependencies = [
  "kameo",
  "nota-codec",
  "persona-harness",
- "persona-message",
  "persona-system",
+ "rkyv",
  "signal-core",
  "signal-persona-message",
  "signal-persona-system",

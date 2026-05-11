@@ -16,3 +16,8 @@ It does not own relation-specific frame contracts or OS backend implementation.
 `signal-persona-message` owns message request records, `signal-persona-system`
 owns focus and prompt-buffer observation records, and `persona-system` produces
 those observations at runtime.
+
+`persona-message` is a stateless CLI/proxy boundary and is not a router
+dependency. The router consumes `signal-persona-message` frames directly, owns
+its transitional pending-message records, and delegates terminal effects only
+through `persona-harness`.

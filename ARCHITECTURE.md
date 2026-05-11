@@ -54,6 +54,11 @@ flowchart LR
 - subscriptions to pushed system and harness events;
 - typed delivery results for callers and observers.
 
+`persona-message` is not part of the router runtime graph. It is a stateless
+CLI/proxy that sends `signal-persona-message` requests into this daemon. The
+router owns the transitional in-memory message records until those records move
+behind router-owned Sema tables.
+
 ## 2 · State and Ownership
 
 The Kameo `RouterRuntime` is the public actor surface and owns the child actor
@@ -108,6 +113,7 @@ This repo owns:
 
 - delivery reducer logic;
 - pending-delivery records;
+- transitional router message records that are not owned by `persona-message`;
 - owner-approval inbox records for non-owner submissions;
 - routing decisions based on typed observations;
 - subscriptions to producer event streams.
@@ -118,9 +124,9 @@ This repo does not own:
   `signal-persona-system`);
 - focus/window/input backend implementation (`persona-system`);
 - terminal byte movement (`persona-terminal`);
+- direct dependencies on terminal crates;
 - terminal adapter execution (`persona-harness`);
 - harness lifecycle internals (`persona-harness`);
-- router-owned redb table layout;
 - the Sema database of any other Persona component;
 - state owned by other actors.
 
@@ -177,6 +183,9 @@ tests/                  router smoke and actor-density truth tests
 |---|---|
 | Router CLI requests enter the daemon as Signal frames, not a NOTA line socket protocol. | `nix flake check .#router-cli-sends-signal-to-daemon-and-prints-nota-reply` |
 | Router daemon ingress accepts `signal-persona-message` frames. | `nix flake check .#router-daemon-accepts-signal-persona-message-only` |
+| Router does not depend on the stateless `persona-message` proxy crate. | `nix flake check .#router-runtime-cannot-depend-on-persona-message` |
+| Router does not depend on terminal crates directly. | `nix flake check .#router-runtime-cannot-depend-on-terminal-crates` |
+| Router runtime reacts to pushed events instead of timer polling. | `nix flake check .#router-runtime-cannot-poll` |
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix flake check .#router-runtime-cannot-reference-retired-terminal-brand` |
 | Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
 
