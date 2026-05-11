@@ -38,6 +38,9 @@ flowchart LR
 
 - a library surface for delivery decisions;
 - a router daemon/CLI surface for isolated development;
+- a Signal-frame daemon ingress for `signal-persona-message`
+  `MessageSubmission` and `InboxQuery` frames;
+- a legacy NOTA line ingress for existing harness scripts during migration;
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
   tree as `ActorRef<RouterRuntime>`;
 - a Kameo `RouterRoot` that owns live routing state behind the runtime;
@@ -113,6 +116,10 @@ This repo does not own:
 
 - Routing reacts to pushed events. It does not poll.
 - Router daemon requests enter through the Kameo `RouterRuntime` mailbox.
+- `signal-persona-message` frames enter through `RouterRuntime` and
+  `RouterRoot`; they do not bypass the actor tree.
+- Signal message sender identity comes from Signal auth, not from
+  `MessageSubmission` payload text.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration and observation state enter through
   `HarnessRegistry`.

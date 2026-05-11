@@ -14,6 +14,8 @@ delivered harness prompt.
 - Use Jujutsu for version control.
 - Keep repositories public unless the human gives a specific reason otherwise.
 - Use Nix for build and test entry points.
+- `signal-persona-message` is the target message ingress; the old NOTA
+  line protocol is compatibility scaffolding for existing harness scripts.
 - Use actor-shaped objects for harness endpoints. Endpoint injection data
   belongs to the harness actor that can perform the delivery.
 - No polling. Blocked deliveries subscribe to pushed system or harness events.

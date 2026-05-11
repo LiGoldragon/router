@@ -5,6 +5,8 @@ Persona message router and delivery state machine.
 This repository owns:
 
 - the router daemon/CLI surface;
+- `signal-persona-message` frame ingress for `message` CLI submissions and
+  inbox queries;
 - typed pending delivery state;
 - harness actor registration;
 - event-driven delivery gates;

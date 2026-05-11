@@ -1,6 +1,12 @@
+use std::io::Write;
+
 use persona_router::{
-    DeliveryGate, Message, MessageBody, MessageId, PendingDelivery, PromptFact, RouterInput,
-    RouterOutput,
+    DeliveryGate, Message, MessageBody, MessageId, PendingDelivery, PromptFact, RouterConnection,
+    RouterConnectionRequest, RouterInput, RouterOutput,
+};
+use signal_core::{AuthProof, FrameBody, LocalOperatorProof, Request};
+use signal_persona_message::{
+    Frame, MessageBody as SignalMessageBody, MessageRecipient, MessageRequest, MessageSubmission,
 };
 use signal_persona_system::{
     FocusObservation, InputBufferObservation, InputBufferState, ObservationGeneration, SystemTarget,
@@ -139,4 +145,38 @@ fn router_output_encodes_delivery_changed() {
         output.to_nota().expect("output encodes"),
         "(DeliveryChanged 1 0)"
     );
+}
+
+#[test]
+fn router_connection_decodes_signal_persona_message_frame() {
+    let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+    let request = MessageRequest::MessageSubmission(MessageSubmission {
+        recipient: MessageRecipient::new("responder"),
+        body: SignalMessageBody::new("socket frame"),
+    });
+    let frame = Frame::new(FrameBody::Request(Request::assert(request))).with_auth(
+        AuthProof::LocalOperator(LocalOperatorProof::new("operator")),
+    );
+    client
+        .write_all(
+            frame
+                .encode_length_prefixed()
+                .expect("signal frame encodes")
+                .as_slice(),
+        )
+        .expect("client writes frame");
+    let mut connection = RouterConnection::from_stream(server);
+
+    let request = connection.read_request().expect("router reads request");
+
+    let RouterConnectionRequest::Signal(input) = request else {
+        panic!("expected signal request");
+    };
+    assert_eq!(input.sender().as_str(), "operator");
+    assert!(matches!(
+        input.request(),
+        MessageRequest::MessageSubmission(submission)
+            if submission.recipient.as_str() == "responder"
+                && submission.body.as_str() == "socket frame"
+    ));
 }

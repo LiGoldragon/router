@@ -5,9 +5,13 @@ use persona_message::schema::{
     Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageId, ThreadId,
 };
 use persona_router::{
-    ActorRef, ApplyRouterInput, HarnessDelivery, HarnessRegistry, PromptFact, PromptObservation,
-    ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor, RouteMessage, RouterInput,
-    RouterOutput, RouterRoot, RouterRuntime, RouterTrace, RouterTraceStep, Status,
+    ActorRef, ApplyRouterInput, ApplySignalMessage, HarnessDelivery, HarnessRegistry, PromptFact,
+    PromptObservation, ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor, RouteMessage,
+    RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTrace, RouterTraceStep,
+    SignalMessageInput, Status,
+};
+use signal_persona_message::{
+    MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
 };
 
 struct SourceFile {
@@ -37,6 +41,17 @@ impl RouterFixture {
     async fn trace(&self) -> persona_router::Result<RouterTrace> {
         self.runtime
             .ask(ReadRouterTrace { since: 0 })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn apply_signal(
+        &self,
+        input: SignalMessageInput,
+    ) -> persona_router::Result<MessageReply> {
+        self.runtime
+            .ask(ApplySignalMessage { input })
             .await
             .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
             .into_result()
@@ -203,6 +218,37 @@ async fn router_cannot_emit_delivery_before_commit() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
+    let router = RouterFixture::start().await;
+    let reply = router
+        .apply_signal(SignalMessageInput::new(
+            ActorId::new("operator"),
+            MessageRequest::MessageSubmission(MessageSubmission {
+                recipient: MessageRecipient::new("responder"),
+                body: MessageBody::new("hello"),
+            }),
+        ))
+        .await
+        .expect("signal message request passes through router actors");
+
+    let MessageReply::SubmissionAccepted(acceptance) = reply else {
+        panic!("expected accepted signal message reply");
+    };
+    assert_eq!(acceptance.message_slot.into_u64(), 1);
+
+    let trace = router.trace().await.expect("router trace is readable");
+    assert!(
+        trace
+            .events()
+            .iter()
+            .any(|event| event.step() == RouterTraceStep::MessageCommitted),
+        "signal message submission must commit through RouterRoot before reply"
+    );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_status_cannot_bypass_router_root_mailbox() {
     let router = RouterFixture::start().await;
     let output = router
@@ -321,6 +367,7 @@ fn router_root_cannot_be_empty_marker() {
     assert!(router_source.contains("pending: Vec<Message>,"));
     assert!(router_source.contains("registry: ActorRef<HarnessRegistry>,"));
     assert!(router_source.contains("delivery: ActorRef<HarnessDelivery>,"));
+    assert!(router_source.contains("signal_slots: Vec<SignalMessageSlot>,"));
 }
 
 #[test]

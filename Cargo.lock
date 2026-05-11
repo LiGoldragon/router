@@ -464,13 +464,15 @@ dependencies = [
 [[package]]
 name = "persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#ab3b901b263290d652f053dde53b012186846d43"
+source = "git+https://github.com/LiGoldragon/persona-message.git?branch=main#fed30472fdb77775852665dc7ba1d3e15c0b7337"
 dependencies = [
  "kameo",
  "nota-codec",
  "persona-system",
  "persona-wezterm",
  "rkyv",
+ "signal-core",
+ "signal-persona-message",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -484,6 +486,8 @@ dependencies = [
  "persona-harness",
  "persona-message",
  "persona-system",
+ "signal-core",
+ "signal-persona-message",
  "signal-persona-system",
  "thiserror 2.0.18",
  "tokio",
@@ -492,7 +496,7 @@ dependencies = [
 [[package]]
 name = "persona-system"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#180a17fd8d9d54a663f91efad2975fb23538871b"
+source = "git+https://github.com/LiGoldragon/persona-system.git?branch=main#3793c86484c5cd921b04e5ecbc031b37c6eaf350"
 dependencies = [
  "kameo",
  "nota-codec",
@@ -505,7 +509,7 @@ dependencies = [
 [[package]]
 name = "persona-wezterm"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-wezterm.git?branch=main#e739e7c4c6185139b8fa7cf074758cd6ae72fd0a"
+source = "git+https://github.com/LiGoldragon/persona-wezterm.git?branch=main#484bc6d80a3286757c146868dd4ef4a10637127c"
 dependencies = [
  "crossterm",
  "kameo",
@@ -772,7 +776,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 [[package]]
 name = "signal-core"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#e27bc600fa9129c4482427ab00c40ecab419d098"
+source = "git+https://github.com/LiGoldragon/signal-core.git#ba5021be2223fdb2f6571eaf2a503abc74aa6829"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -808,6 +812,16 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
+]
+
+[[package]]
+name = "signal-persona-message"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-persona-message.git#c6f38f80353e17e8418c7754f14eaf5b37281459"
+dependencies = [
+ "rkyv",
+ "signal-core",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

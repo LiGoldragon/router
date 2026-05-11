@@ -13,6 +13,9 @@ pub enum Error {
     #[error("message: {0}")]
     Message(#[from] persona_message::Error),
 
+    #[error("signal frame: {0}")]
+    SignalFrame(#[from] signal_core::FrameError),
+
     #[error("harness terminal: {0}")]
     Terminal(#[from] persona_harness::Error),
 
@@ -39,6 +42,15 @@ pub enum Error {
 
     #[error("router socket {path:?} did not become ready")]
     SocketNotReady { path: PathBuf },
+
+    #[error("router signal frame is too large: {bytes} bytes")]
+    SignalFrameTooLarge { bytes: usize },
+
+    #[error("signal request frame is missing local actor auth")]
+    MissingSignalActor,
+
+    #[error("unexpected signal frame: {got}")]
+    UnexpectedSignalFrame { got: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -7,6 +7,10 @@ Rules for work here:
 
 - Depend on contract repos for relation-specific frame records. For this router
   slice, that means `signal-persona-message` and `signal-persona-system`.
+- Accept `signal-persona-message` frames as the target message ingress. Keep
+  the old NOTA line protocol only as compatibility for existing harness scripts.
+- Resolve the signal sender from Signal auth. Do not add sender text to
+  `MessageSubmission`.
 - Depend on `persona-system` for OS/window/input runtime observation
   producers, not for the inter-component record types.
 - Depend on `persona-harness` for harness capabilities.
