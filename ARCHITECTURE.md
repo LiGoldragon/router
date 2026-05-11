@@ -49,6 +49,8 @@ flowchart LR
 - a Kameo `HarnessRegistry` that owns registered harness delivery targets;
 - a Kameo `ChannelAuthority` that owns live authorized-channel records and
   adjudication-pending records;
+- a router actor operation for installing the current first-stack structural
+  channels during Persona engine setup;
 - a Kameo `MindAdjudicationOutbox` that owns typed
   `signal-persona-mind` adjudication requests until the live mind transport is
   wired;
@@ -90,11 +92,18 @@ adjudication requests now have a router-owned Sema table layer, and
 adjudication requests are persisted through the actor path. `RouterRuntime` and
 the daemon can receive a `RouterTables` handle at startup, so the root actor
 tree can route channel work to a durable channel authority. The first witnesses
-are actor traces and table reads: `MessageCommitted` must appear for a message
-before any `DeliveryAttempted` event for that same message; a message without
-an active channel records `AdjudicationRequested` without reaching
-`HarnessDelivery`; a named table test writes channel and adjudication records
-through `RouterTables` and reads them back from router-owned Sema.
+tree can route channel work to a durable channel authority. The router can also
+install the current first-stack structural channels through the actor tree, so
+Persona engine setup does not need to bypass `RouterRoot` or
+`ChannelAuthority`. Those structural channels are currently an `ActorId`
+projection of the first stack (`message-proxy`, `system`, `router`, `harness`,
+`terminal`, `mind`, and `owner`) until the full endpoint/kind channel model is
+wired through the signal contracts. The first witnesses are actor traces and
+table reads: `MessageCommitted` must appear for a message before any
+`DeliveryAttempted` event for that same message; a message without an active
+channel records `AdjudicationRequested` without reaching `HarnessDelivery`; a
+named table test writes channel and adjudication records through `RouterTables`
+and reads them back from router-owned Sema.
 
 When the remaining router-owned Sema tables are wired into `RouterRoot`, these
 trace witnesses graduate into chained artifact witnesses where one step writes
@@ -161,6 +170,8 @@ This repo does not own:
   exactly one NOTA reply record.
 - Router daemon startup can attach a router-owned Sema database to
   `ChannelAuthority`.
+- Router engine setup can install first-stack structural channels through the
+  actor tree.
 - `signal-persona-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
 - Message provenance comes from ingress context, not from `MessageSubmission`
@@ -224,6 +235,7 @@ tests/                  router smoke and actor-density truth tests
 | Router-owned Sema tables persist channel and adjudication records. | `nix flake check .#router-sema-tables-persist-channel-and-adjudication-records` |
 | Router runtime can wire channel authority to router-owned Sema tables. | `nix flake check .#router-runtime-wires-channel-authority-to-router-tables` |
 | RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix flake check .#router-root-persists-delivery-attempt-and-result-records` |
+| Router engine setup can install first-stack structural channels through the actor tree. | `nix flake check .#router-installs-structural-channels-for-engine-setup` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 
 ## See Also

@@ -6,8 +6,9 @@ use kameo::actor::Spawn;
 use persona_router::{
     Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, ChannelAuthority, ChannelClock,
     ChannelDecision, ChannelEpochSeconds, ChannelLifetime, CheckChannel, EndpointKind,
-    EndpointTransport, GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message,
-    MessageId, ObserveChannelTime, ReadChannelAuthorityStatus, ReadChannelPersistence,
+    EndpointTransport, EngineStructuralChannels, GrantChannel, GrantRouteChannel, HarnessDelivery,
+    HarnessRegistry, InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageId,
+    ObserveChannelTime, ReadChannelAuthorityStatus, ReadChannelPersistence,
     ReadHarnessRegistryStatus, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
     ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage, RouterInput, RouterOutput,
     RouterRoot, RouterRuntime, RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput,
@@ -755,6 +756,55 @@ async fn router_root_persists_delivery_attempt_and_result_records() {
     assert_eq!(results[0].sequence, 1);
     assert_eq!(results[0].message, message_id.as_str());
     assert!(!results[0].delivered);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_installs_structural_channels_for_engine_setup() {
+    let store = TemporaryRouterStore::new("structural-channels");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+
+    let output = router
+        .apply(RouterInput::InstallStructuralChannels(
+            InstallRouteStructuralChannels {
+                channels: InstallStructuralChannels {
+                    channels: EngineStructuralChannels::first_stack(),
+                },
+            },
+        ))
+        .await
+        .expect("structural channel installation passes through router actors");
+
+    let RouterOutput::StructuralChannelsInstalled(installation) = output else {
+        panic!("expected structural channel installation output");
+    };
+    assert_eq!(installation.installed, 8);
+
+    let channels = inspection.channel_records().expect("channel records read");
+    assert_eq!(channels.len(), 8);
+    assert!(
+        channels
+            .iter()
+            .any(|channel| channel.from == "message-proxy" && channel.to == "router")
+    );
+    assert!(
+        channels
+            .iter()
+            .any(|channel| channel.from == "router" && channel.to == "mind")
+    );
+    assert!(
+        channels
+            .iter()
+            .any(|channel| channel.from == "mind" && channel.to == "router")
+    );
+    assert!(
+        channels
+            .iter()
+            .any(|channel| channel.from == "owner" && channel.to == "router")
+    );
 
     router.stop().await;
 }

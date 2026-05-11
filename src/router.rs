@@ -25,7 +25,8 @@ use crate::adjudication::{
 };
 use crate::channel::{
     ChannelAuthority, ChannelDecision, ChannelPersistenceSnapshot, CheckChannel, GrantChannel,
-    ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel, UseChannel,
+    InstallStructuralChannels, ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel,
+    UseChannel,
 };
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
@@ -524,6 +525,19 @@ impl RouterRoot {
                 Ok(RouterOutput::ChannelRetracted(ChannelRetracted {
                     retracted,
                 }))
+            }
+            RouterInput::InstallStructuralChannels(input) => {
+                let installation = self
+                    .channels
+                    .ask(input.channels)
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?
+                    .into_result()?;
+                Ok(RouterOutput::StructuralChannelsInstalled(
+                    StructuralChannelsInstalled {
+                        installed: installation.installed,
+                    },
+                ))
             }
         }
     }
@@ -1484,12 +1498,18 @@ pub struct RetractRouteChannel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallRouteStructuralChannels {
+    pub channels: InstallStructuralChannels,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterInput {
     RegisterActor(RegisterActor),
     RouteMessage(RouteMessage),
     Status(Status),
     GrantChannel(GrantRouteChannel),
     RetractChannel(RetractRouteChannel),
+    InstallStructuralChannels(InstallRouteStructuralChannels),
 }
 
 impl RouterInput {
@@ -1544,6 +1564,11 @@ pub struct ChannelRetracted {
     pub retracted: bool,
 }
 
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct StructuralChannelsInstalled {
+    pub installed: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterOutput {
     Registered(Registered),
@@ -1551,6 +1576,7 @@ pub enum RouterOutput {
     Status(RouterStatus),
     ChannelGranted(ChannelGranted),
     ChannelRetracted(ChannelRetracted),
+    StructuralChannelsInstalled(StructuralChannelsInstalled),
 }
 
 impl RouterOutput {
@@ -1569,6 +1595,7 @@ impl NotaEncode for RouterOutput {
             Self::Status(output) => output.encode(encoder),
             Self::ChannelGranted(output) => output.encode(encoder),
             Self::ChannelRetracted(output) => output.encode(encoder),
+            Self::StructuralChannelsInstalled(output) => output.encode(encoder),
         }
     }
 }

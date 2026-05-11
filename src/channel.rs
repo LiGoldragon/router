@@ -118,6 +118,18 @@ impl ChannelAuthority {
         true
     }
 
+    fn install_structural_channels(
+        &mut self,
+        installation: InstallStructuralChannels,
+    ) -> Result<StructuralChannelInstallation> {
+        let mut installed = 0;
+        for grant in installation.channels.into_grants() {
+            self.authorize(grant)?;
+            installed += 1;
+        }
+        Ok(StructuralChannelInstallation { installed })
+    }
+
     fn observe_time(&mut self, observation: ObserveChannelTime) -> ChannelClockSnapshot {
         self.clock.observe(observation.now);
         ChannelClockSnapshot {
@@ -282,6 +294,90 @@ impl ChannelRecord {
 
     fn accept_use(&mut self) {
         self.use_count = self.use_count.saturating_add(1);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineStructuralChannels {
+    grants: Vec<GrantChannel>,
+}
+
+impl EngineStructuralChannels {
+    pub fn first_stack() -> Self {
+        let persistent = ChannelLifetime::Persistent;
+        Self {
+            grants: vec![
+                GrantChannel::direct_message(
+                    ActorId::new("message-proxy"),
+                    ActorId::new("router"),
+                    persistent,
+                ),
+                GrantChannel::direct_message(
+                    ActorId::new("system"),
+                    ActorId::new("router"),
+                    persistent,
+                ),
+                GrantChannel::direct_message(
+                    ActorId::new("router"),
+                    ActorId::new("harness"),
+                    persistent,
+                ),
+                GrantChannel::direct_message(
+                    ActorId::new("harness"),
+                    ActorId::new("terminal"),
+                    persistent,
+                ),
+                GrantChannel::direct_message(
+                    ActorId::new("terminal"),
+                    ActorId::new("harness"),
+                    persistent,
+                ),
+                GrantChannel::direct_message(
+                    ActorId::new("router"),
+                    ActorId::new("mind"),
+                    persistent,
+                ),
+                GrantChannel::direct_message(
+                    ActorId::new("mind"),
+                    ActorId::new("router"),
+                    persistent,
+                ),
+                GrantChannel::direct_message(
+                    ActorId::new("owner"),
+                    ActorId::new("router"),
+                    persistent,
+                ),
+            ],
+        }
+    }
+
+    fn into_grants(self) -> Vec<GrantChannel> {
+        self.grants
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallStructuralChannels {
+    pub channels: EngineStructuralChannels,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, kameo::Reply)]
+pub struct StructuralChannelInstallation {
+    pub installed: u64,
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct StructuralChannelInstallationOutcome {
+    result: Result<StructuralChannelInstallation>,
+}
+
+impl StructuralChannelInstallationOutcome {
+    fn new(result: Result<StructuralChannelInstallation>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<StructuralChannelInstallation> {
+        self.result
     }
 }
 
@@ -481,6 +577,18 @@ impl kameo::message::Message<UseChannel> for ChannelAuthority {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.mark_used(message)
+    }
+}
+
+impl kameo::message::Message<InstallStructuralChannels> for ChannelAuthority {
+    type Reply = StructuralChannelInstallationOutcome;
+
+    async fn handle(
+        &mut self,
+        message: InstallStructuralChannels,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        StructuralChannelInstallationOutcome::new(self.install_structural_channels(message))
     }
 }
 

@@ -173,6 +173,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth router_root_persists_delivery_attempt_and_result_records -- --exact";
             }
           );
+          router-installs-structural-channels-for-engine-setup = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth router_installs_structural_channels_for_engine_setup -- --exact";
+            }
+          );
         }
       );
 

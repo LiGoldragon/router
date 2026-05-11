@@ -16,8 +16,10 @@ pub use channel::{
     AdjudicationRequest, ChannelAuthority, ChannelAuthoritySnapshot, ChannelCheckOutcome,
     ChannelClock, ChannelClockSnapshot, ChannelDecision, ChannelEpochSeconds, ChannelGrantOutcome,
     ChannelKind, ChannelLifetime, ChannelPersistenceOutcome, ChannelPersistenceSnapshot,
-    ChannelRecord, ChannelStatus, ChannelTriple, CheckChannel, GrantChannel, ObserveChannelTime,
-    ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel, UseChannel,
+    ChannelRecord, ChannelStatus, ChannelTriple, CheckChannel, EngineStructuralChannels,
+    GrantChannel, InstallStructuralChannels, ObserveChannelTime, ReadChannelAuthorityStatus,
+    ReadChannelPersistence, RetractChannel, StructuralChannelInstallation,
+    StructuralChannelInstallationOutcome, UseChannel,
 };
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, Result};
@@ -32,12 +34,13 @@ pub use message::{
 };
 pub use router::{
     ApplyRouterInput, ApplySignalMessage, ChannelGranted, ChannelRetracted, DeliveryChanged,
-    GrantRouteChannel, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
-    ReadRouterTrace, RegisterActor, Registered, RetractRouteChannel, RouteMessage,
-    RouterApplyOutcome, RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection,
-    RouterDaemon, RouterInput, RouterMindAdjudicationOutboxOutcome, RouterOutput, RouterRoot,
-    RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
-    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
+    GrantRouteChannel, InstallRouteStructuralChannels, ReadRouterChannelPersistence,
+    ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor, Registered,
+    RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterChannelPersistenceOutcome,
+    RouterCommandLine, RouterConnection, RouterDaemon, RouterInput,
+    RouterMindAdjudicationOutboxOutcome, RouterOutput, RouterRoot, RouterRuntime, RouterStatus,
+    RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
+    SignalMessageInput, SignalMessageOutcome, Status, StructuralChannelsInstalled,
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,
