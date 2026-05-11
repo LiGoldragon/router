@@ -8,6 +8,7 @@ use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use signal_core::{FrameBody, Reply, Request};
+use signal_persona_auth::{ComponentName, ConnectionClass, MessageOrigin};
 use signal_persona_message::{
     Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, MessageBody as SignalMessageBody,
@@ -18,6 +19,10 @@ use signal_persona_message::{
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
 
+use crate::adjudication::{
+    MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot, ReadMindAdjudicationOutbox,
+    RecordMindAdjudication,
+};
 use crate::channel::{
     ChannelAuthority, ChannelDecision, ChannelPersistenceSnapshot, CheckChannel, GrantChannel,
     ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel, UseChannel,
@@ -165,12 +170,29 @@ impl Default for SignalMessageFrameCodec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalMessageInput {
     sender: ActorId,
+    origin: MessageOrigin,
     request: SignalMessageRequest,
 }
 
 impl SignalMessageInput {
     pub fn new(sender: ActorId, request: SignalMessageRequest) -> Self {
-        Self { sender, request }
+        Self::with_origin(
+            sender,
+            MessageOrigin::External(ConnectionClass::Owner),
+            request,
+        )
+    }
+
+    pub fn with_origin(
+        sender: ActorId,
+        origin: MessageOrigin,
+        request: SignalMessageRequest,
+    ) -> Self {
+        Self {
+            sender,
+            origin,
+            request,
+        }
     }
 
     pub fn sender(&self) -> &ActorId {
@@ -179,6 +201,10 @@ impl SignalMessageInput {
 
     pub fn request(&self) -> &SignalMessageRequest {
         &self.request
+    }
+
+    pub fn origin(&self) -> &MessageOrigin {
+        &self.origin
     }
 
     fn from_frame_with_sender(frame: SignalMessageFrame, sender: ActorId) -> Result<Self> {
@@ -200,6 +226,7 @@ pub struct RouterRuntime {
     registry: Option<ActorRef<HarnessRegistry>>,
     delivery: Option<ActorRef<HarnessDelivery>>,
     channels: Option<ActorRef<ChannelAuthority>>,
+    mind_adjudication: Option<ActorRef<MindAdjudicationOutbox>>,
     tables: Option<RouterTables>,
     started_child_count: u64,
     applied_input_count: u64,
@@ -228,6 +255,7 @@ impl RouterRuntime {
             registry: None,
             delivery: None,
             channels: None,
+            mind_adjudication: None,
             tables,
             started_child_count: 0,
             applied_input_count: 0,
@@ -245,10 +273,13 @@ impl RouterRuntime {
         };
         let channels = ChannelAuthority::spawn(channel_authority);
         channels.wait_for_startup().await;
+        let mind_adjudication = MindAdjudicationOutbox::spawn(MindAdjudicationOutbox::new());
+        mind_adjudication.wait_for_startup().await;
         let root = RouterRoot::spawn(RouterRoot::new(
             registry.clone(),
             delivery.clone(),
             channels.clone(),
+            mind_adjudication.clone(),
             self.tables.clone(),
         ));
         root.wait_for_startup().await;
@@ -256,7 +287,8 @@ impl RouterRuntime {
         self.registry = Some(registry);
         self.delivery = Some(delivery);
         self.channels = Some(channels);
-        self.started_child_count = 4;
+        self.mind_adjudication = Some(mind_adjudication);
+        self.started_child_count = 5;
     }
 
     fn root(&self) -> Result<&ActorRef<RouterRoot>> {
@@ -281,6 +313,10 @@ impl RouterRuntime {
         if let Some(channels) = self.channels.take() {
             let _ = channels.stop_gracefully().await;
             channels.wait_for_shutdown().await;
+        }
+        if let Some(mind_adjudication) = self.mind_adjudication.take() {
+            let _ = mind_adjudication.stop_gracefully().await;
+            mind_adjudication.wait_for_shutdown().await;
         }
     }
 }
@@ -391,10 +427,11 @@ impl kameo::message::Message<ApplySignalMessage> for RouterRuntime {
 
 #[derive(Debug)]
 pub struct RouterRoot {
-    pending: Vec<Message>,
+    pending: Vec<PendingRouterMessage>,
     registry: ActorRef<HarnessRegistry>,
     delivery: ActorRef<HarnessDelivery>,
     channels: ActorRef<ChannelAuthority>,
+    mind_adjudication: ActorRef<MindAdjudicationOutbox>,
     tables: Option<RouterTables>,
     trace: RouterTrace,
     signal_message_sequence: u64,
@@ -407,6 +444,7 @@ impl RouterRoot {
         registry: ActorRef<HarnessRegistry>,
         delivery: ActorRef<HarnessDelivery>,
         channels: ActorRef<ChannelAuthority>,
+        mind_adjudication: ActorRef<MindAdjudicationOutbox>,
         tables: Option<RouterTables>,
     ) -> Self {
         Self {
@@ -414,6 +452,7 @@ impl RouterRoot {
             registry,
             delivery,
             channels,
+            mind_adjudication,
             tables,
             trace: RouterTrace::new(),
             signal_message_sequence: 0,
@@ -434,7 +473,8 @@ impl RouterRoot {
             }
             RouterInput::RouteMessage(input) => {
                 let message_id = input.message.id.clone();
-                self.pending.push(input.message);
+                self.pending
+                    .push(PendingRouterMessage::internal_router(input.message));
                 self.trace
                     .record(message_id, RouterTraceStep::MessageCommitted);
                 let delivered = self.retry_pending().await?;
@@ -493,7 +533,8 @@ impl RouterRoot {
             SignalMessageRequest::MessageSubmission(submission) => {
                 let slot = self.next_signal_message_slot();
                 let message = self.signal_message(input.sender, submission, slot);
-                self.pending.push(message.clone());
+                self.pending
+                    .push(PendingRouterMessage::new(message.clone(), input.origin));
                 self.signal_slots
                     .push(SignalMessageSlot::new(message.id.clone(), slot));
                 self.trace
@@ -545,13 +586,13 @@ impl RouterRoot {
     fn signal_inbox(&self, recipient: &SignalMessageRecipient) -> Vec<SignalInboxEntry> {
         self.pending
             .iter()
-            .filter(|message| message.to.as_str() == recipient.as_str())
-            .filter_map(|message| {
-                let slot = self.signal_slot_for(&message.id)?;
+            .filter(|pending| pending.message.to.as_str() == recipient.as_str())
+            .filter_map(|pending| {
+                let slot = self.signal_slot_for(&pending.message.id)?;
                 Some(SignalInboxEntry {
                     message_slot: slot,
-                    sender: SignalMessageSender::new(message.from.as_str()),
-                    body: SignalMessageBody::new(message.body.as_str()),
+                    sender: SignalMessageSender::new(pending.message.from.as_str()),
+                    body: SignalMessageBody::new(pending.message.body.as_str()),
                 })
             })
             .collect()
@@ -571,7 +612,8 @@ impl RouterRoot {
         let mut delivered = 0;
         let mut next = Vec::new();
         let mut messages = std::mem::take(&mut self.pending).into_iter();
-        while let Some(message) = messages.next() {
+        while let Some(pending) = messages.next() {
+            let message = pending.message.clone();
             let target = match self
                 .registry
                 .ask(ReadHarnessDeliveryTarget {
@@ -581,12 +623,12 @@ impl RouterRoot {
             {
                 Ok(target) => target,
                 Err(error) => {
-                    self.restore_pending_after_error(next, Some(message), messages);
+                    self.restore_pending_after_error(next, Some(pending), messages);
                     return Err(Error::ActorCall(error.to_string()));
                 }
             };
             let Some(target) = target else {
-                next.push(message);
+                next.push(pending);
                 continue;
             };
             let decision = self
@@ -600,13 +642,24 @@ impl RouterRoot {
             if matches!(decision, ChannelDecision::NeedsAdjudication(_)) {
                 self.trace
                     .record(message.id.clone(), RouterTraceStep::AdjudicationRequested);
-                next.push(message);
+                if let Err(error) = self
+                    .mind_adjudication
+                    .ask(RecordMindAdjudication {
+                        message: message.clone(),
+                        origin: pending.origin.clone(),
+                    })
+                    .await
+                {
+                    self.restore_pending_after_error(next, Some(pending), messages);
+                    return Err(Error::ActorCall(error.to_string()));
+                }
+                next.push(pending);
                 continue;
             }
             let delivery_sequence = self.next_delivery_sequence();
             if let Some(tables) = &self.tables {
                 if let Err(error) = tables.insert_delivery_attempt(delivery_sequence, &message.id) {
-                    self.restore_pending_after_error(next, Some(message), messages);
+                    self.restore_pending_after_error(next, Some(pending), messages);
                     return Err(error);
                 }
             }
@@ -622,14 +675,14 @@ impl RouterRoot {
             {
                 Ok(reply) => reply,
                 Err(error) => {
-                    self.restore_pending_after_error(next, Some(message), messages);
+                    self.restore_pending_after_error(next, Some(pending), messages);
                     return Err(Error::ActorCall(error.to_string()));
                 }
             };
             let delivery_result = match delivery_reply.into_result() {
                 Ok(result) => result,
                 Err(error) => {
-                    self.restore_pending_after_error(next, Some(message), messages);
+                    self.restore_pending_after_error(next, Some(pending), messages);
                     return Err(error);
                 }
             };
@@ -637,7 +690,7 @@ impl RouterRoot {
                 if let Err(error) =
                     tables.insert_delivery_result(delivery_sequence, &message.id, delivery_result)
                 {
-                    self.restore_pending_after_error(next, Some(message), messages);
+                    self.restore_pending_after_error(next, Some(pending), messages);
                     return Err(error);
                 }
             }
@@ -665,7 +718,7 @@ impl RouterRoot {
                 self.trace
                     .record(message.id.clone(), RouterTraceStep::DeliveryMarked);
             } else {
-                next.push(message);
+                next.push(pending);
             }
         }
         self.pending = next;
@@ -674,15 +727,31 @@ impl RouterRoot {
 
     fn restore_pending_after_error(
         &mut self,
-        mut next: Vec<Message>,
-        current: Option<Message>,
-        remaining: impl IntoIterator<Item = Message>,
+        mut next: Vec<PendingRouterMessage>,
+        current: Option<PendingRouterMessage>,
+        remaining: impl IntoIterator<Item = PendingRouterMessage>,
     ) {
-        if let Some(message) = current {
-            next.push(message);
+        if let Some(pending) = current {
+            next.push(pending);
         }
         next.extend(remaining);
         self.pending = next;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingRouterMessage {
+    message: Message,
+    origin: MessageOrigin,
+}
+
+impl PendingRouterMessage {
+    fn new(message: Message, origin: MessageOrigin) -> Self {
+        Self { message, origin }
+    }
+
+    fn internal_router(message: Message) -> Self {
+        Self::new(message, MessageOrigin::Internal(ComponentName::Router))
     }
 }
 
@@ -1260,6 +1329,65 @@ impl kameo::message::Message<ReadRouterChannelPersistence> for RouterRoot {
             .map_err(|error| Error::ActorCall(error.to_string()))
             .and_then(|reply| reply.into_result());
         RouterChannelPersistenceOutcome::new(result)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadRouterMindAdjudicationOutbox {
+    pub requester: ActorId,
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct RouterMindAdjudicationOutboxOutcome {
+    result: Result<MindAdjudicationOutboxSnapshot>,
+}
+
+impl RouterMindAdjudicationOutboxOutcome {
+    fn new(result: Result<MindAdjudicationOutboxSnapshot>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<MindAdjudicationOutboxSnapshot> {
+        self.result
+    }
+}
+
+impl kameo::message::Message<ReadRouterMindAdjudicationOutbox> for RouterRuntime {
+    type Reply = RouterMindAdjudicationOutboxOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterMindAdjudicationOutbox,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(RouterMindAdjudicationOutboxOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        RouterMindAdjudicationOutboxOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ReadRouterMindAdjudicationOutbox> for RouterRoot {
+    type Reply = RouterMindAdjudicationOutboxOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterMindAdjudicationOutbox,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let result = self
+            .mind_adjudication
+            .ask(ReadMindAdjudicationOutbox {
+                requester: message.requester,
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()));
+        RouterMindAdjudicationOutboxOutcome::new(result)
     }
 }
 

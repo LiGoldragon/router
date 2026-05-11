@@ -8,13 +8,16 @@ use persona_router::{
     ChannelDecision, ChannelEpochSeconds, ChannelLifetime, CheckChannel, EndpointKind,
     EndpointTransport, GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message,
     MessageId, ObserveChannelTime, ReadChannelAuthorityStatus, ReadChannelPersistence,
-    ReadHarnessRegistryStatus, ReadRouterChannelPersistence, ReadRouterTrace, RegisterActor,
-    RetractChannel, RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime,
-    RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
+    ReadHarnessRegistryStatus, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
+    ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage, RouterInput, RouterOutput,
+    RouterRoot, RouterRuntime, RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput,
+    Status, ThreadId, UseChannel,
 };
+use signal_persona_auth::{ConnectionClass, MessageOrigin};
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
 };
+use signal_persona_mind::ChannelMessageKind;
 
 struct SourceFile {
     path: PathBuf,
@@ -71,6 +74,18 @@ impl RouterFixture {
     ) -> persona_router::Result<persona_router::ChannelPersistenceSnapshot> {
         self.runtime
             .ask(ReadRouterChannelPersistence {
+                requester: ActorId::new("operator"),
+            })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn mind_adjudication_outbox(
+        &self,
+    ) -> persona_router::Result<persona_router::MindAdjudicationOutboxSnapshot> {
+        self.runtime
+            .ask(ReadRouterMindAdjudicationOutbox {
                 requester: ActorId::new("operator"),
             })
             .await
@@ -337,6 +352,48 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
         panic!("expected router status output");
     };
     assert_eq!(status.adjudication_pending, 1);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unknown_channel_emits_typed_mind_adjudication_request() {
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let router = RouterFixture::start().await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: responder.clone(),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register request passes through router actor");
+    router
+        .apply_signal(SignalMessageInput::with_origin(
+            operator,
+            MessageOrigin::External(ConnectionClass::Owner),
+            MessageRequest::MessageSubmission(MessageSubmission {
+                recipient: MessageRecipient::new(responder.as_str()),
+                body: MessageBody::new("please answer"),
+            }),
+        ))
+        .await
+        .expect("signal message request passes through router actors");
+
+    let outbox = router
+        .mind_adjudication_outbox()
+        .await
+        .expect("mind adjudication outbox is readable");
+    assert_eq!(outbox.requests.len(), 1);
+    assert_eq!(
+        outbox.requests[0].origin,
+        MessageOrigin::External(ConnectionClass::Owner)
+    );
+    assert_eq!(outbox.requests[0].kind, ChannelMessageKind::MessageDelivery);
+    assert_eq!(outbox.requests[0].body_summary.as_str(), "please answer");
 
     router.stop().await;
 }
@@ -849,10 +906,11 @@ fn router_root_cannot_be_empty_marker() {
     );
 
     assert!(router_source.contains("pub struct RouterRoot {"));
-    assert!(router_source.contains("pending: Vec<Message>,"));
+    assert!(router_source.contains("pending: Vec<PendingRouterMessage>,"));
     assert!(router_source.contains("registry: ActorRef<HarnessRegistry>,"));
     assert!(router_source.contains("delivery: ActorRef<HarnessDelivery>,"));
     assert!(router_source.contains("channels: ActorRef<ChannelAuthority>,"));
+    assert!(router_source.contains("mind_adjudication: ActorRef<MindAdjudicationOutbox>,"));
     assert!(router_source.contains("signal_slots: Vec<SignalMessageSlot>,"));
 }
 

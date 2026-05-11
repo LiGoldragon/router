@@ -124,6 +124,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth unknown_channel_cannot_reach_delivery_actor -- --exact";
             }
           );
+          router-unknown-channel-emits-typed-mind-adjudication-request = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth unknown_channel_emits_typed_mind_adjudication_request -- --exact";
+            }
+          );
           router-one-shot-channel-cannot-authorize-second-message = context.craneLib.cargoTest (
             context.commonArgs
             // {

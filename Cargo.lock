@@ -473,6 +473,7 @@ dependencies = [
  "signal-core",
  "signal-persona-auth",
  "signal-persona-message",
+ "signal-persona-mind",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -812,6 +813,17 @@ source = "git+https://github.com/LiGoldragon/signal-persona-message.git#f55c6988
 dependencies = [
  "rkyv",
  "signal-core",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "signal-persona-mind"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-persona-mind.git#89d843cc8129f34685444c6e27ab8ac4ff98269d"
+dependencies = [
+ "rkyv",
+ "signal-core",
+ "signal-persona-auth",
  "thiserror 2.0.18",
 ]
 

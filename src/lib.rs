@@ -1,3 +1,4 @@
+pub mod adjudication;
 pub mod channel;
 pub mod delivery;
 pub mod error;
@@ -7,6 +8,10 @@ pub mod message;
 pub mod router;
 pub mod tables;
 
+pub use adjudication::{
+    MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot, MindAdjudicationReceipt,
+    ReadMindAdjudicationOutbox, RecordMindAdjudication,
+};
 pub use channel::{
     AdjudicationRequest, ChannelAuthority, ChannelAuthoritySnapshot, ChannelCheckOutcome,
     ChannelClock, ChannelClockSnapshot, ChannelDecision, ChannelEpochSeconds, ChannelGrantOutcome,
@@ -27,9 +32,10 @@ pub use message::{
 };
 pub use router::{
     ApplyRouterInput, ApplySignalMessage, ChannelGranted, ChannelRetracted, DeliveryChanged,
-    GrantRouteChannel, ReadRouterChannelPersistence, ReadRouterTrace, RegisterActor, Registered,
-    RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterChannelPersistenceOutcome,
-    RouterCommandLine, RouterConnection, RouterDaemon, RouterInput, RouterOutput, RouterRoot,
+    GrantRouteChannel, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
+    ReadRouterTrace, RegisterActor, Registered, RetractRouteChannel, RouteMessage,
+    RouterApplyOutcome, RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection,
+    RouterDaemon, RouterInput, RouterMindAdjudicationOutboxOutcome, RouterOutput, RouterRoot,
     RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
     RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
 };

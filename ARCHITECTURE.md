@@ -25,6 +25,7 @@ flowchart LR
     "RouterRuntime" -->|"apply input"| "RouterRoot"
     "RouterRoot" -->|"registered delivery targets"| "HarnessRegistry"
     "RouterRoot" -->|"channel check / adjudication"| "ChannelAuthority"
+    "RouterRoot" -->|"typed adjudication request"| "MindAdjudicationOutbox"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
     "HarnessDelivery" -->|"typed terminal delivery request"| "persona-harness"
@@ -48,6 +49,9 @@ flowchart LR
 - a Kameo `HarnessRegistry` that owns registered harness delivery targets;
 - a Kameo `ChannelAuthority` that owns live authorized-channel records and
   adjudication-pending records;
+- a Kameo `MindAdjudicationOutbox` that owns typed
+  `signal-persona-mind` adjudication requests until the live mind transport is
+  wired;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
 - pending-delivery state;
@@ -110,8 +114,9 @@ Every accepted message will carry a typed `MessageOrigin` from the ingress
 component. Origin is provenance, not an auth proof. Router policy is the
 authorized-channel table: messages on an active channel flow; messages without
 one are parked and queued for persona-mind adjudication. In current code that
-queue is in `ChannelAuthority`; the outgoing mind contract is the next
-integration step.
+queue is in `ChannelAuthority`, and `MindAdjudicationOutbox` projects parked
+messages into typed `signal-persona-mind::AdjudicationRequest` records. It is
+an outbox actor, not the final live mind socket transport.
 
 Future development may add router garbage collection. GC is a router-state
 operation, not an external delete loop: the router decides which delivered or
@@ -128,6 +133,7 @@ This repo owns:
 - pending-delivery records;
 - transitional router message records that are not owned by `persona-message`;
 - live authorized-channel records and adjudication-pending records;
+- typed mind-adjudication outbox records for parked messages;
 - router-owned Sema table layout for channels, channel indexes,
   adjudication-pending records, delivery attempts, delivery results, and meta;
 - routing decisions based on typed message origin and channel state;
@@ -162,6 +168,8 @@ This repo does not own:
 - Router authorization is channel-table authorization plus persona-mind
   adjudication for misses.
 - A message with no active channel does not reach `HarnessDelivery`.
+- A message with no active channel emits a typed `signal-persona-mind`
+  adjudication request.
 - One-shot and retracted channels cannot keep authorizing messages.
 - Expired time-bound channels cannot authorize messages.
 - Channel grants and adjudication requests can be persisted through
@@ -186,6 +194,7 @@ This repo does not own:
 
 ```text
 src/router.rs           Kameo router runtime/root, Signal daemon protocol, pending retry
+src/adjudication.rs     Kameo mind-adjudication outbox for parked messages
 src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
@@ -208,6 +217,7 @@ tests/                  router smoke and actor-density truth tests
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix flake check .#router-runtime-cannot-reference-retired-terminal-brand` |
 | Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
 | A message without an active channel parks for adjudication and does not reach delivery. | `nix flake check .#router-unknown-channel-parks-for-adjudication` |
+| A message without an active channel emits a typed mind adjudication request. | `nix flake check .#router-unknown-channel-emits-typed-mind-adjudication-request` |
 | A one-shot channel cannot authorize a second message after use. | `nix flake check .#router-one-shot-channel-cannot-authorize-second-message` |
 | A retracted channel cannot authorize messages. | `nix flake check .#router-retracted-channel-cannot-authorize-message` |
 | An expired time-bound channel cannot authorize messages. | `nix flake check .#router-expired-channel-cannot-authorize-message` |
