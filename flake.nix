@@ -117,6 +117,20 @@
               cargoTestExtraArgs = "--test smoke router_connection_decodes_signal_persona_message_frame -- --exact";
             }
           );
+          router-unknown-channel-parks-for-adjudication = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth unknown_channel_cannot_reach_delivery_actor -- --exact";
+            }
+          );
+          router-one-shot-channel-cannot-authorize-second-message = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth one_shot_channel_cannot_authorize_second_message -- --exact";
+            }
+          );
         }
       );
 

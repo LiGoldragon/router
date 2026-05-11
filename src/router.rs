@@ -18,6 +18,10 @@ use signal_persona_message::{
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
 
+use crate::channel::{
+    ChannelAuthority, ChannelDecision, CheckChannel, GrantChannel, ReadChannelAuthorityStatus,
+    RetractChannel, UseChannel,
+};
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
     HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
@@ -184,6 +188,7 @@ pub struct RouterRuntime {
     root: Option<ActorRef<RouterRoot>>,
     registry: Option<ActorRef<HarnessRegistry>>,
     delivery: Option<ActorRef<HarnessDelivery>>,
+    channels: Option<ActorRef<ChannelAuthority>>,
     started_child_count: u64,
     applied_input_count: u64,
 }
@@ -200,6 +205,7 @@ impl RouterRuntime {
             root: None,
             registry: None,
             delivery: None,
+            channels: None,
             started_child_count: 0,
             applied_input_count: 0,
         }
@@ -210,12 +216,19 @@ impl RouterRuntime {
         registry.wait_for_startup().await;
         let delivery = HarnessDelivery::spawn_in_thread(HarnessDelivery::new());
         delivery.wait_for_startup().await;
-        let root = RouterRoot::spawn(RouterRoot::new(registry.clone(), delivery.clone()));
+        let channels = ChannelAuthority::spawn(ChannelAuthority::new());
+        channels.wait_for_startup().await;
+        let root = RouterRoot::spawn(RouterRoot::new(
+            registry.clone(),
+            delivery.clone(),
+            channels.clone(),
+        ));
         root.wait_for_startup().await;
         self.root = Some(root);
         self.registry = Some(registry);
         self.delivery = Some(delivery);
-        self.started_child_count = 3;
+        self.channels = Some(channels);
+        self.started_child_count = 4;
     }
 
     fn root(&self) -> Result<&ActorRef<RouterRoot>> {
@@ -236,6 +249,10 @@ impl RouterRuntime {
         if let Some(delivery) = self.delivery.take() {
             let _ = delivery.stop_gracefully().await;
             delivery.wait_for_shutdown().await;
+        }
+        if let Some(channels) = self.channels.take() {
+            let _ = channels.stop_gracefully().await;
+            channels.wait_for_shutdown().await;
         }
     }
 }
@@ -349,17 +366,23 @@ pub struct RouterRoot {
     pending: Vec<Message>,
     registry: ActorRef<HarnessRegistry>,
     delivery: ActorRef<HarnessDelivery>,
+    channels: ActorRef<ChannelAuthority>,
     trace: RouterTrace,
     signal_message_sequence: u64,
     signal_slots: Vec<SignalMessageSlot>,
 }
 
 impl RouterRoot {
-    pub fn new(registry: ActorRef<HarnessRegistry>, delivery: ActorRef<HarnessDelivery>) -> Self {
+    pub fn new(
+        registry: ActorRef<HarnessRegistry>,
+        delivery: ActorRef<HarnessDelivery>,
+        channels: ActorRef<ChannelAuthority>,
+    ) -> Self {
         Self {
             pending: Vec::new(),
             registry,
             delivery,
+            channels,
             trace: RouterTrace::new(),
             signal_message_sequence: 0,
             signal_slots: Vec::new(),
@@ -388,16 +411,44 @@ impl RouterRoot {
                 }))
             }
             RouterInput::Status(input) => {
+                let requester = input.requester;
                 let actors = self
                     .registry
                     .ask(ReadHarnessRegistryStatus {
-                        requester: input.requester,
+                        requester: requester.clone(),
                     })
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                let channels = self
+                    .channels
+                    .ask(ReadChannelAuthorityStatus { requester })
                     .await
                     .map_err(|error| Error::ActorCall(error.to_string()))?;
                 Ok(RouterOutput::Status(RouterStatus {
                     actors,
+                    channels: channels.channels,
+                    adjudication_pending: channels.adjudication_pending,
                     pending: self.pending.len() as u64,
+                }))
+            }
+            RouterInput::GrantChannel(input) => {
+                let channel = self
+                    .channels
+                    .ask(input.channel)
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                Ok(RouterOutput::ChannelGranted(ChannelGranted {
+                    channel: channel.channel.as_str().to_string(),
+                }))
+            }
+            RouterInput::RetractChannel(input) => {
+                let retracted = self
+                    .channels
+                    .ask(input.channel)
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                Ok(RouterOutput::ChannelRetracted(ChannelRetracted {
+                    retracted,
                 }))
             }
         }
@@ -499,6 +550,19 @@ impl RouterRoot {
                 next.push(message);
                 continue;
             };
+            let decision = self
+                .channels
+                .ask(CheckChannel {
+                    message: message.clone(),
+                })
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))?;
+            if matches!(decision, ChannelDecision::NeedsAdjudication(_)) {
+                self.trace
+                    .record(message.id.clone(), RouterTraceStep::AdjudicationRequested);
+                next.push(message);
+                continue;
+            }
             self.trace
                 .record(message.id.clone(), RouterTraceStep::DeliveryAttempted);
             let delivery_reply = match self
@@ -523,6 +587,14 @@ impl RouterRoot {
                 }
             };
             if delivery_result {
+                let _ = self
+                    .channels
+                    .ask(UseChannel::direct_message(
+                        message.from.clone(),
+                        message.to.clone(),
+                    ))
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
                 self.mark_signal_delivered(&message.id);
                 if let Err(error) = self
                     .registry
@@ -1093,6 +1165,7 @@ impl RouterTraceEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouterTraceStep {
     MessageCommitted,
+    AdjudicationRequested,
     DeliveryAttempted,
     DeliveryMarked,
 }
@@ -1113,10 +1186,22 @@ pub struct Status {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantRouteChannel {
+    pub channel: GrantChannel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetractRouteChannel {
+    pub channel: RetractChannel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterInput {
     RegisterActor(RegisterActor),
     RouteMessage(RouteMessage),
     Status(Status),
+    GrantChannel(GrantRouteChannel),
+    RetractChannel(RetractRouteChannel),
 }
 
 impl RouterInput {
@@ -1156,7 +1241,19 @@ pub struct DeliveryChanged {
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct RouterStatus {
     pub actors: u64,
+    pub channels: u64,
+    pub adjudication_pending: u64,
     pub pending: u64,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct ChannelGranted {
+    pub channel: String,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct ChannelRetracted {
+    pub retracted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1164,6 +1261,8 @@ pub enum RouterOutput {
     Registered(Registered),
     DeliveryChanged(DeliveryChanged),
     Status(RouterStatus),
+    ChannelGranted(ChannelGranted),
+    ChannelRetracted(ChannelRetracted),
 }
 
 impl RouterOutput {
@@ -1180,6 +1279,8 @@ impl NotaEncode for RouterOutput {
             Self::Registered(output) => output.encode(encoder),
             Self::DeliveryChanged(output) => output.encode(encoder),
             Self::Status(output) => output.encode(encoder),
+            Self::ChannelGranted(output) => output.encode(encoder),
+            Self::ChannelRetracted(output) => output.encode(encoder),
         }
     }
 }

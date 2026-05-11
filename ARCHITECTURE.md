@@ -24,6 +24,7 @@ flowchart LR
     "signal-persona-message" -->|"message request frame"| "RouterRuntime"
     "RouterRuntime" -->|"apply input"| "RouterRoot"
     "RouterRoot" -->|"registered delivery targets"| "HarnessRegistry"
+    "RouterRoot" -->|"channel check / adjudication"| "ChannelAuthority"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
     "HarnessDelivery" -->|"typed terminal delivery request"| "persona-harness"
@@ -45,6 +46,8 @@ flowchart LR
   tree as `ActorRef<RouterRuntime>`;
 - a Kameo `RouterRoot` that owns live routing state behind the runtime;
 - a Kameo `HarnessRegistry` that owns registered harness delivery targets;
+- a Kameo `ChannelAuthority` that owns live authorized-channel records and
+  adjudication-pending records;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
 - pending-delivery state;
@@ -62,8 +65,10 @@ The Kameo `RouterRuntime` is the public actor surface and owns the child actor
 refs. It starts children in `on_start` and stops them in `on_stop`; there is no
 non-actor runtime owner. `RouterRoot` owns live routing state for pending
 deliveries and coordinates smaller actor planes. `HarnessRegistry` owns
-registered harness delivery targets. `HarnessDelivery` owns terminal delivery
-attempts and the blocking terminal/probe calls they require.
+registered harness delivery targets. `ChannelAuthority` owns the live
+authorized-channel table, channel use accounting, and deduplicated
+adjudication requests. `HarnessDelivery` owns terminal delivery attempts and
+the blocking terminal/probe calls they require.
 Durable router state lives in the router actor's own Sema database through a
 router-owned Sema layer over the `sema` library; no shared database actor owns
 router transitions. Terminal byte movement and verification are delegated
@@ -75,23 +80,28 @@ Stored router records are typed contract records from the relation-specific
 through router-owned typed Sema tables, and emits follow-up frames only after
 the database commit succeeds.
 
-Current MVP code still uses in-memory pending state. Its first witness is an
-actor trace: `MessageCommitted` must appear for a message before any
-`DeliveryAttempted` event for that same message. When router-owned Sema tables
-land, that trace witness graduates into a chained artifact witness where one
-step writes the router redb and another step reads the committed message and
+Current MVP code still uses in-memory pending and channel state. Its first
+witnesses are actor traces: `MessageCommitted` must appear for a message before
+any `DeliveryAttempted` event for that same message, and a message without an
+active channel records `AdjudicationRequested` without reaching
+`HarnessDelivery`. When router-owned Sema tables land, those trace witnesses
+graduate into chained artifact witnesses where one step writes the router redb
+and another step reads the committed message, channel, adjudication, and
 delivery state through the authoritative table layer.
 
-Future router-owned durable state includes message acceptance, pending delivery,
-delivery attempt, delivery result, and delivered/failed/deferred status records.
-Successful delivery is another router state transition: after
+Future router-owned durable state includes message acceptance, channel grants,
+channel retractions, channel use, adjudication-pending records, pending
+delivery, delivery attempt, delivery result, and delivered/failed/deferred
+status records. Successful delivery is another router state transition: after
 `persona-harness` reports the terminal effect, the router commits the delivery
 status update before post-delivery subscription events are emitted.
 
 Every accepted message will carry a typed `MessageOrigin` from the ingress
 component. Origin is provenance, not an auth proof. Router policy is the
 authorized-channel table: messages on an active channel flow; messages without
-one are parked and forwarded to persona-mind for adjudication.
+one are parked and queued for persona-mind adjudication. In current code that
+queue is in `ChannelAuthority`; the outgoing mind contract is the next
+integration step.
 
 Future development may add router garbage collection. GC is a router-state
 operation, not an external delete loop: the router decides which delivered or
@@ -107,7 +117,7 @@ This repo owns:
 - delivery reducer logic;
 - pending-delivery records;
 - transitional router message records that are not owned by `persona-message`;
-- authorized-channel and adjudication-pending records when durability lands;
+- live authorized-channel records and adjudication-pending records;
 - routing decisions based on typed message origin and channel state;
 - subscriptions to producer event streams.
 
@@ -137,6 +147,8 @@ This repo does not own:
   payload text.
 - Router authorization is channel-table authorization plus persona-mind
   adjudication for misses.
+- A message with no active channel does not reach `HarnessDelivery`.
+- One-shot and retracted channels cannot keep authorizing messages.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration state enters through `HarnessRegistry`.
 - Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
@@ -155,6 +167,7 @@ This repo does not own:
 
 ```text
 src/router.rs           Kameo router runtime/root, Signal daemon protocol, pending retry
+src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/delivery.rs         pending-delivery records
@@ -174,6 +187,8 @@ tests/                  router smoke and actor-density truth tests
 | Router runtime reacts to pushed events instead of timer polling. | `nix flake check .#router-runtime-cannot-poll` |
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix flake check .#router-runtime-cannot-reference-retired-terminal-brand` |
 | Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
+| A message without an active channel parks for adjudication and does not reach delivery. | `nix flake check .#router-unknown-channel-parks-for-adjudication` |
+| A one-shot channel cannot authorize a second message after use. | `nix flake check .#router-one-shot-channel-cannot-authorize-second-message` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 
 ## See Also

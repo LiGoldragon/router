@@ -22,7 +22,7 @@ impl PendingDelivery {
         Self { message }
     }
 
-pub fn recipient(&self) -> &str {
+    pub fn recipient(&self) -> &str {
         self.message.recipient()
     }
 }

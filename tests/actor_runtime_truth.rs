@@ -1,12 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use kameo::actor::Spawn;
 use persona_router::{
-    Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, EndpointKind,
-    EndpointTransport, HarnessDelivery, HarnessRegistry, Message, MessageId,
-    ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor, RouteMessage, RouterInput,
-    RouterOutput, RouterRoot, RouterRuntime, RouterTrace, RouterTraceStep, SignalMessageInput,
-    Status, ThreadId,
+    Actor, ActorId, ActorRef, ApplyRouterInput, ApplySignalMessage, ChannelAuthority,
+    ChannelDecision, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, GrantChannel,
+    GrantRouteChannel, HarnessDelivery, HarnessRegistry, Message, MessageId,
+    ReadChannelAuthorityStatus, ReadHarnessRegistryStatus, ReadRouterTrace, RegisterActor,
+    RouteMessage, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTrace,
+    RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
 use signal_persona_message::{
     MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
@@ -34,6 +36,18 @@ impl RouterFixture {
             .await
             .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
             .into_result()
+    }
+
+    async fn grant_direct(&self, sender: &ActorId, recipient: &ActorId) {
+        self.apply(RouterInput::GrantChannel(GrantRouteChannel {
+            channel: GrantChannel::direct_message(
+                sender.clone(),
+                recipient.clone(),
+                ChannelLifetime::Persistent,
+            ),
+        }))
+        .await
+        .expect("channel grant passes through router actor");
     }
 
     async fn trace(&self) -> persona_router::Result<RouterTrace> {
@@ -159,6 +173,7 @@ fn router_actor_cannot_use_non_kameo_runtime() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_cannot_emit_delivery_before_commit() {
+    let operator = ActorId::new("operator");
     let responder = ActorId::new("responder");
     let message_id = MessageId::new("m-order");
     let router = RouterFixture::start().await;
@@ -172,12 +187,13 @@ async fn router_cannot_emit_delivery_before_commit() {
         }))
         .await
         .expect("register request passes through router actor");
+    router.grant_direct(&operator, &responder).await;
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_id.clone(),
                 thread: ThreadId::new("direct-operator-responder"),
-                from: ActorId::new("operator"),
+                from: operator,
                 to: responder,
                 body: "hello".to_string(),
                 attachments: Vec::new(),
@@ -213,6 +229,114 @@ async fn router_cannot_emit_delivery_before_commit() {
     );
 
     router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unknown_channel_cannot_reach_delivery_actor() {
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let message_id = MessageId::new("m-channel");
+    let router = RouterFixture::start().await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: responder.clone(),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register request passes through router actor");
+
+    let output = router
+        .apply(RouterInput::RouteMessage(RouteMessage {
+            message: Message {
+                id: message_id.clone(),
+                thread: ThreadId::new("direct-operator-responder"),
+                from: operator,
+                to: responder,
+                body: "hello".to_string(),
+                attachments: Vec::new(),
+            },
+        }))
+        .await
+        .expect("route request parks for adjudication");
+
+    let RouterOutput::DeliveryChanged(delivery) = output else {
+        panic!("expected delivery changed output");
+    };
+    assert_eq!(delivery.delivered, 0);
+    assert_eq!(delivery.pending, 1);
+
+    let trace = router.trace().await.expect("router trace is readable");
+    let message_steps = trace
+        .events()
+        .iter()
+        .filter(|event| event.message() == &message_id)
+        .map(|event| event.step())
+        .collect::<Vec<_>>();
+    assert!(message_steps.contains(&RouterTraceStep::MessageCommitted));
+    assert!(message_steps.contains(&RouterTraceStep::AdjudicationRequested));
+    assert!(!message_steps.contains(&RouterTraceStep::DeliveryAttempted));
+
+    let output = router
+        .apply(RouterInput::Status(Status {
+            requester: ActorId::new("operator"),
+        }))
+        .await
+        .expect("status request passes through router actor");
+    let RouterOutput::Status(status) = output else {
+        panic!("expected router status output");
+    };
+    assert_eq!(status.adjudication_pending, 1);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_shot_channel_cannot_authorize_second_message() {
+    let operator = ActorId::new("operator");
+    let responder = ActorId::new("responder");
+    let authority = ChannelAuthority::spawn(ChannelAuthority::new());
+    authority.wait_for_startup().await;
+    authority
+        .ask(GrantChannel::direct_message(
+            operator.clone(),
+            responder.clone(),
+            ChannelLifetime::OneShot,
+        ))
+        .await
+        .expect("one shot grant reaches channel authority");
+    let message = Message {
+        id: MessageId::new("m-one"),
+        thread: ThreadId::new("direct-operator-responder"),
+        from: operator.clone(),
+        to: responder.clone(),
+        body: "hello".to_string(),
+        attachments: Vec::new(),
+    };
+    let first = authority
+        .ask(CheckChannel {
+            message: message.clone(),
+        })
+        .await
+        .expect("channel check reaches authority");
+    assert!(matches!(first, ChannelDecision::Authorized { .. }));
+    authority
+        .ask(UseChannel::direct_message(operator, responder))
+        .await
+        .expect("channel use reaches authority");
+    let second = authority
+        .ask(CheckChannel { message })
+        .await
+        .expect("second channel check reaches authority");
+    assert!(matches!(second, ChannelDecision::NeedsAdjudication(_)));
+
+    authority
+        .stop_gracefully()
+        .await
+        .expect("channel authority stops gracefully");
+    authority.wait_for_shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -261,6 +385,8 @@ async fn router_status_cannot_bypass_router_root_mailbox() {
     };
 
     assert_eq!(status.actors, 0);
+    assert_eq!(status.channels, 0);
+    assert_eq!(status.adjudication_pending, 0);
     assert_eq!(status.pending, 0);
 
     router.stop().await;
@@ -291,6 +417,8 @@ async fn router_registry_state_cannot_bypass_harness_registry_between_messages()
     };
 
     assert_eq!(status.actors, 1);
+    assert_eq!(status.channels, 0);
+    assert_eq!(status.adjudication_pending, 0);
     assert_eq!(status.pending, 0);
 
     router.stop().await;
@@ -298,6 +426,7 @@ async fn router_registry_state_cannot_bypass_harness_registry_between_messages()
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn delivery_error_cannot_drop_pending_message() {
+    let operator = ActorId::new("operator");
     let responder = ActorId::new("responder");
     let router = RouterFixture::start().await;
     router
@@ -314,12 +443,13 @@ async fn delivery_error_cannot_drop_pending_message() {
         }))
         .await
         .expect("register request passes through router actor");
+    router.grant_direct(&operator, &responder).await;
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: MessageId::new("m-error"),
                 thread: ThreadId::new("direct-operator-responder"),
-                from: ActorId::new("operator"),
+                from: operator,
                 to: responder,
                 body: "hello".to_string(),
                 attachments: Vec::new(),
@@ -340,6 +470,8 @@ async fn delivery_error_cannot_drop_pending_message() {
     };
 
     assert_eq!(status.actors, 1);
+    assert_eq!(status.channels, 1);
+    assert_eq!(status.adjudication_pending, 0);
     assert_eq!(status.pending, 1);
 
     router.stop().await;
@@ -357,6 +489,7 @@ fn router_root_cannot_be_empty_marker() {
     assert!(router_source.contains("pending: Vec<Message>,"));
     assert!(router_source.contains("registry: ActorRef<HarnessRegistry>,"));
     assert!(router_source.contains("delivery: ActorRef<HarnessDelivery>,"));
+    assert!(router_source.contains("channels: ActorRef<ChannelAuthority>,"));
     assert!(router_source.contains("signal_slots: Vec<SignalMessageSlot>,"));
 }
 
@@ -370,6 +503,7 @@ fn router_runtime_cannot_be_non_actor_owner_wrapper() {
 
     assert!(router_source.contains("pub struct RouterRuntime {"));
     assert!(router_source.contains("root: Option<ActorRef<RouterRoot>>,"));
+    assert!(router_source.contains("channels: Option<ActorRef<ChannelAuthority>>,"));
     assert!(router_source.contains("impl kameo::actor::Actor for RouterRuntime"));
     assert!(
         router_source.contains("impl kameo::message::Message<ApplyRouterInput> for RouterRuntime")
@@ -413,9 +547,8 @@ fn router_source_cannot_reintroduce_pre_127_gate_concepts() {
         .into_iter()
         .map(SourceFile::read)
         .collect::<Vec<_>>();
-    let architecture = SourceFile::read_if_present(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("ARCHITECTURE.md"),
-    );
+    let architecture =
+        SourceFile::read_if_present(Path::new(env!("CARGO_MANIFEST_DIR")).join("ARCHITECTURE.md"));
     let mut violations = Vec::new();
 
     for file in source_files.iter().chain(architecture.iter()) {
@@ -493,7 +626,9 @@ fn public_control_records_cannot_be_zero_sized() {
     assert!(std::mem::size_of::<RouterRoot>() > 0);
     assert!(std::mem::size_of::<HarnessRegistry>() > 0);
     assert!(std::mem::size_of::<HarnessDelivery>() > 0);
+    assert!(std::mem::size_of::<ChannelAuthority>() > 0);
     assert!(std::mem::size_of::<Status>() > 0);
+    assert!(std::mem::size_of::<ReadChannelAuthorityStatus>() > 0);
     assert!(std::mem::size_of::<ReadHarnessRegistryStatus>() > 0);
     assert!(std::mem::size_of::<ReadRouterTrace>() > 0);
     assert!(std::mem::size_of::<RouterTrace>() > 0);
