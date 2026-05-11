@@ -4,7 +4,7 @@ use persona_router::{
     DeliveryGate, Message, MessageBody, MessageId, PendingDelivery, PromptFact, RouterConnection,
     RouterInput, RouterOutput,
 };
-use signal_core::{AuthProof, FrameBody, LocalOperatorProof, Request};
+use signal_core::{FrameBody, Request};
 use signal_persona_message::{
     Frame, MessageBody as SignalMessageBody, MessageRecipient, MessageRequest, MessageSubmission,
 };
@@ -154,9 +154,7 @@ fn router_connection_decodes_signal_persona_message_frame() {
         recipient: MessageRecipient::new("responder"),
         body: SignalMessageBody::new("socket frame"),
     });
-    let frame = Frame::new(FrameBody::Request(Request::assert(request))).with_auth(
-        AuthProof::LocalOperator(LocalOperatorProof::new("operator")),
-    );
+    let frame = Frame::new(FrameBody::Request(Request::assert(request)));
     client
         .write_all(
             frame

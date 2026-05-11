@@ -49,9 +49,6 @@ pub enum Error {
     #[error("router signal frame is too large: {bytes} bytes")]
     SignalFrameTooLarge { bytes: usize },
 
-    #[error("signal request frame is missing local actor auth")]
-    MissingSignalActor,
-
     #[error("unexpected signal frame: {got}")]
     UnexpectedSignalFrame { got: String },
 }

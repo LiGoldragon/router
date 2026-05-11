@@ -8,7 +8,7 @@ use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use persona_system::FocusObservation;
-use signal_core::{AuthProof, FrameBody, Reply, Request};
+use signal_core::{FrameBody, Reply, Request};
 use signal_persona_message::{
     Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, MessageBody as SignalMessageBody,
@@ -94,7 +94,7 @@ impl RouterConnection {
 
     pub fn read_signal_input(&mut self) -> Result<SignalMessageInput> {
         let frame = self.signal.read_frame(&mut self.stream)?;
-        SignalMessageInput::from_frame(frame)
+        SignalMessageInput::from_frame_with_sender(frame, ActorId::new("operator"))
     }
 
     pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> Result<()> {
@@ -167,11 +167,7 @@ impl SignalMessageInput {
         &self.request
     }
 
-    fn from_frame(frame: SignalMessageFrame) -> Result<Self> {
-        let sender = match frame.auth() {
-            Some(AuthProof::LocalOperator(proof)) => ActorId::new(proof.operator()),
-            None => return Err(Error::MissingSignalActor),
-        };
+    fn from_frame_with_sender(frame: SignalMessageFrame, sender: ActorId) -> Result<Self> {
         let request = match frame.into_body() {
             FrameBody::Request(Request::Operation { payload, .. }) => payload,
             other => {
@@ -856,10 +852,8 @@ impl RouterSignalClient {
 
     fn submit(&self, actor: &ActorId, request: SignalMessageRequest) -> Result<SignalMessageReply> {
         let mut stream = UnixStream::connect(&self.socket)?;
-        let frame = SignalMessageFrame::new(FrameBody::Request(Request::assert(request)))
-            .with_auth(AuthProof::LocalOperator(
-                signal_core::LocalOperatorProof::new(actor.as_str()),
-            ));
+        let _ingress_scaffold = actor;
+        let frame = SignalMessageFrame::new(FrameBody::Request(Request::assert(request)));
         self.codec.write_frame(&mut stream, &frame)?;
         let reply = self.codec.read_frame(&mut stream)?;
         match reply.into_body() {
