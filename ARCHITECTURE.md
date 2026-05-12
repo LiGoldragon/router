@@ -40,7 +40,7 @@ flowchart LR
 - a router daemon surface for isolated development;
 - a daemon-client CLI surface that accepts one NOTA `signal-persona-message`
   projection record, sends one Signal frame to the daemon, and prints one NOTA
-  reply;
+  reply. The CLI does not mint the message sender;
 - a Signal-frame daemon ingress for `signal-persona-message`
   `MessageSubmission` and `InboxQuery` frames;
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
@@ -131,13 +131,15 @@ delivered/failed/deferred status records still need to be wired into
 `persona-harness` reports the terminal effect, the router commits the delivery
 status update before post-delivery subscription events are emitted.
 
-Every accepted message will carry a typed `MessageOrigin` from the ingress
-component. Origin is provenance, not an auth proof. Router policy is the
-authorized-channel table: messages on an active channel flow; messages without
-one are parked and queued for persona-mind adjudication. In current code that
-queue is in `ChannelAuthority`, and `MindAdjudicationOutbox` projects parked
-messages into typed `signal-persona-mind::AdjudicationRequest` records. It is
-an outbox actor, not the final live mind socket transport.
+Every accepted message carries a typed `IngressContext` from the accepted
+socket relation. Origin is provenance, not an auth proof. The production daemon
+default is the internal `message-proxy -> router` relation; owner/operator
+origin is only a named test fixture, never hidden in frame decoding. Router
+policy is the authorized-channel table: messages on an active channel flow;
+messages without one are parked and queued for persona-mind adjudication. In
+current code that queue is in `ChannelAuthority`, and `MindAdjudicationOutbox`
+projects parked messages into typed `signal-persona-mind::AdjudicationRequest`
+records. It is an outbox actor, not the final live mind socket transport.
 
 Future development may add router garbage collection. GC is a router-state
 operation, not an external delete loop: the router decides which delivered or
@@ -192,6 +194,9 @@ This repo does not own:
   `RouterRoot`; they do not bypass the actor tree.
 - Message provenance comes from ingress context, not from `MessageSubmission`
   payload text.
+- Router frame decoding does not stamp hidden `operator` or `Owner` origin.
+- Owner/operator origin may appear only as explicit fixture ingress in tests or
+  as an explicit external endpoint in channel records.
 - Router authorization is channel-table authorization plus persona-mind
   adjudication for misses.
 - A message with no active channel does not reach `HarnessDelivery`.
@@ -238,6 +243,7 @@ tests/                  router smoke and actor-density truth tests
 |---|---|
 | Router CLI requests enter the daemon as Signal frames, not a NOTA line socket protocol. | `nix flake check .#router-cli-sends-signal-to-daemon-and-prints-nota-reply` |
 | Router daemon ingress accepts `signal-persona-message` frames. | `nix flake check .#router-daemon-accepts-signal-persona-message-only` |
+| Router daemon ingress derives sender/origin from `RouterIngressContext`, not hidden owner/operator stamping. | `nix flake check .#router-ingress-cannot-stamp-hidden-owner-origin` |
 | Router does not depend on the stateless `persona-message` proxy crate. | `nix flake check .#router-runtime-cannot-depend-on-persona-message` |
 | Router does not depend on terminal crates directly. | `nix flake check .#router-runtime-cannot-depend-on-terminal-crates` |
 | Router runtime reacts to pushed events instead of timer polling. | `nix flake check .#router-runtime-cannot-poll` |

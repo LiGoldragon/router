@@ -117,6 +117,13 @@
               cargoTestExtraArgs = "--test smoke router_connection_decodes_signal_persona_message_frame -- --exact";
             }
           );
+          router-ingress-cannot-stamp-hidden-owner-origin = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth router_ingress_cannot_stamp_hidden_operator_owner_origin -- --exact";
+            }
+          );
           router-unknown-channel-parks-for-adjudication = context.craneLib.cargoTest (
             context.commonArgs
             // {

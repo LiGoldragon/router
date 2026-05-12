@@ -39,9 +39,9 @@ pub use router::{
     ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor,
     Registered, RetractRouteChannel, RouteMessage, RouterApplyOutcome,
     RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection, RouterDaemon,
-    RouterInput, RouterMindAdjudicationOutboxOutcome, RouterOutput, RouterRoot, RouterRuntime,
-    RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep,
-    SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
+    RouterIngressContext, RouterInput, RouterMindAdjudicationOutboxOutcome, RouterOutput,
+    RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
+    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
     StructuralChannelsInstalled,
 };
 pub use tables::{

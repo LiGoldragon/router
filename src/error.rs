@@ -34,9 +34,6 @@ pub enum Error {
     #[error("router socket path is missing")]
     MissingSocket,
 
-    #[error("router actor name is missing")]
-    MissingActor,
-
     #[error("router NOTA input is missing")]
     MissingInput,
 

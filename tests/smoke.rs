@@ -4,6 +4,7 @@ use persona_router::{
     Message, MessageBody, MessageId, PendingDelivery, RouterConnection, RouterInput, RouterOutput,
 };
 use signal_core::{FrameBody, Request};
+use signal_persona_auth::{ComponentName, MessageOrigin};
 use signal_persona_message::{
     Frame, MessageBody as SignalMessageBody, MessageRecipient, MessageRequest, MessageSubmission,
 };
@@ -66,7 +67,11 @@ fn router_connection_decodes_signal_persona_message_frame() {
         .read_signal_input()
         .expect("router reads signal input");
 
-    assert_eq!(input.sender().as_str(), "operator");
+    assert_eq!(input.sender().as_str(), "message-proxy");
+    assert_eq!(
+        input.origin(),
+        &MessageOrigin::Internal(ComponentName::MessageProxy)
+    );
     assert!(matches!(
         input.request(),
         MessageRequest::MessageSubmission(submission)

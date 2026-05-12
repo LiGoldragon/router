@@ -8,7 +8,7 @@ use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use signal_core::{FrameBody, Reply, Request};
-use signal_persona_auth::{ComponentName, ConnectionClass, MessageOrigin};
+use signal_persona_auth::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
 use signal_persona_message::{
     Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, MessageBody as SignalMessageBody,
@@ -44,6 +44,7 @@ use crate::{Actor, ActorId, Error, Message, MessageId, Result, RouterTables, Thr
 pub struct RouterDaemon {
     socket: PathBuf,
     tables: Option<RouterTables>,
+    ingress: RouterIngressContext,
 }
 
 impl RouterDaemon {
@@ -51,11 +52,17 @@ impl RouterDaemon {
         Self {
             socket: socket.into(),
             tables: None,
+            ingress: RouterIngressContext::message_proxy(),
         }
     }
 
     pub fn with_tables(mut self, tables: RouterTables) -> Self {
         self.tables = Some(tables);
+        self
+    }
+
+    pub fn with_ingress(mut self, ingress: RouterIngressContext) -> Self {
+        self.ingress = ingress;
         self
     }
 
@@ -82,7 +89,7 @@ impl RouterDaemon {
         eprintln!("persona-router-daemon socket={}", self.socket.display());
         for stream in listener.incoming() {
             let stream = stream?;
-            Self::handle_connection(&runtime, &router, stream)?;
+            Self::handle_connection(&runtime, &router, stream, self.ingress.clone())?;
         }
         Ok(())
     }
@@ -91,8 +98,9 @@ impl RouterDaemon {
         runtime: &tokio::runtime::Runtime,
         router: &ActorRef<RouterRuntime>,
         stream: UnixStream,
+        ingress: RouterIngressContext,
     ) -> Result<()> {
-        let mut connection = RouterConnection::from_stream(stream);
+        let mut connection = RouterConnection::from_stream_with_ingress(stream, ingress);
         let input = connection.read_signal_input()?;
         let output = runtime
             .block_on(async { router.ask(ApplySignalMessage { input }).await })
@@ -106,24 +114,105 @@ impl RouterDaemon {
 pub struct RouterConnection {
     stream: BufReader<UnixStream>,
     signal: SignalMessageFrameCodec,
+    ingress: RouterIngressContext,
 }
 
 impl RouterConnection {
     pub fn from_stream(stream: UnixStream) -> Self {
+        Self::from_stream_with_ingress(stream, RouterIngressContext::message_proxy())
+    }
+
+    pub fn from_stream_with_ingress(stream: UnixStream, ingress: RouterIngressContext) -> Self {
         Self {
             stream: BufReader::new(stream),
             signal: SignalMessageFrameCodec::default(),
+            ingress,
         }
     }
 
     pub fn read_signal_input(&mut self) -> Result<SignalMessageInput> {
         let frame = self.signal.read_frame(&mut self.stream)?;
-        SignalMessageInput::from_frame_with_sender(frame, ActorId::new("operator"))
+        SignalMessageInput::from_frame_with_ingress(frame, self.ingress.clone())
     }
 
     pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> Result<()> {
         let stream = self.stream.get_mut();
         self.signal.write_reply(stream, reply)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterIngressContext {
+    sender: ActorId,
+    context: IngressContext,
+}
+
+impl RouterIngressContext {
+    pub fn new(sender: ActorId, context: IngressContext) -> Self {
+        Self { sender, context }
+    }
+
+    pub fn message_proxy() -> Self {
+        Self::internal_component(ComponentName::MessageProxy)
+    }
+
+    pub fn internal_component(component: ComponentName) -> Self {
+        Self::new(
+            Self::component_actor_id(component),
+            IngressContext::internal(component),
+        )
+    }
+
+    pub fn external(connection_class: ConnectionClass) -> Self {
+        Self::new(
+            Self::connection_actor_id(&connection_class),
+            IngressContext::external(connection_class),
+        )
+    }
+
+    pub fn fixture_external_owner(sender: ActorId) -> Self {
+        Self::new(sender, IngressContext::external(ConnectionClass::Owner))
+    }
+
+    pub fn sender(&self) -> &ActorId {
+        &self.sender
+    }
+
+    pub fn context(&self) -> &IngressContext {
+        &self.context
+    }
+
+    pub fn origin(&self) -> &MessageOrigin {
+        self.context.origin()
+    }
+
+    fn component_actor_id(component: ComponentName) -> ActorId {
+        match component {
+            ComponentName::Mind => ActorId::new("mind"),
+            ComponentName::MessageProxy => ActorId::new("message-proxy"),
+            ComponentName::Router => ActorId::new("router"),
+            ComponentName::Terminal => ActorId::new("terminal"),
+            ComponentName::Harness => ActorId::new("harness"),
+            ComponentName::System => ActorId::new("system"),
+        }
+    }
+
+    fn connection_actor_id(connection: &ConnectionClass) -> ActorId {
+        match connection {
+            ConnectionClass::Owner => ActorId::new("owner"),
+            ConnectionClass::NonOwnerUser(user) => {
+                ActorId::new(format!("non-owner-user-{}", user.as_u32()))
+            }
+            ConnectionClass::System(principal) => {
+                ActorId::new(format!("system-{}", principal.as_str()))
+            }
+            ConnectionClass::OtherPersona { engine_id, host } => ActorId::new(format!(
+                "other-persona-{}-{}",
+                engine_id.as_str(),
+                host.as_str()
+            )),
+            ConnectionClass::Network(peer) => ActorId::new(format!("network-{}", peer.as_str())),
+        }
     }
 }
 
@@ -175,17 +264,17 @@ impl Default for SignalMessageFrameCodec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalMessageInput {
     sender: ActorId,
-    origin: MessageOrigin,
+    ingress: IngressContext,
     request: SignalMessageRequest,
 }
 
 impl SignalMessageInput {
-    pub fn new(sender: ActorId, request: SignalMessageRequest) -> Self {
-        Self::with_origin(
-            sender,
-            MessageOrigin::External(ConnectionClass::Owner),
+    pub fn with_ingress(ingress: RouterIngressContext, request: SignalMessageRequest) -> Self {
+        Self {
+            sender: ingress.sender,
+            ingress: ingress.context,
             request,
-        )
+        }
     }
 
     pub fn with_origin(
@@ -195,7 +284,7 @@ impl SignalMessageInput {
     ) -> Self {
         Self {
             sender,
-            origin,
+            ingress: IngressContext::new(origin),
             request,
         }
     }
@@ -209,10 +298,17 @@ impl SignalMessageInput {
     }
 
     pub fn origin(&self) -> &MessageOrigin {
-        &self.origin
+        self.ingress.origin()
     }
 
-    fn from_frame_with_sender(frame: SignalMessageFrame, sender: ActorId) -> Result<Self> {
+    pub fn ingress(&self) -> &IngressContext {
+        &self.ingress
+    }
+
+    fn from_frame_with_ingress(
+        frame: SignalMessageFrame,
+        ingress: RouterIngressContext,
+    ) -> Result<Self> {
         let request = match frame.into_body() {
             FrameBody::Request(Request::Operation { payload, .. }) => payload,
             other => {
@@ -221,7 +317,7 @@ impl SignalMessageInput {
                 });
             }
         };
-        Ok(Self::new(sender, request))
+        Ok(Self::with_ingress(ingress, request))
     }
 }
 
@@ -575,12 +671,14 @@ impl RouterRoot {
     }
 
     async fn apply_signal(&mut self, input: SignalMessageInput) -> Result<SignalMessageReply> {
+        let sender = input.sender.clone();
+        let origin = input.origin().clone();
         match input.request {
             SignalMessageRequest::MessageSubmission(submission) => {
                 let slot = self.next_signal_message_slot();
-                let message = self.signal_message(input.sender, submission, slot);
+                let message = self.signal_message(sender, submission, slot);
                 self.pending
-                    .push(PendingRouterMessage::new(message.clone(), input.origin));
+                    .push(PendingRouterMessage::new(message.clone(), origin));
                 self.signal_slots
                     .push(SignalMessageSlot::new(message.id.clone(), slot));
                 self.trace
@@ -959,14 +1057,12 @@ enum RouterCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RouterClientCommand {
     socket: PathBuf,
-    actor: ActorId,
     input: RouterSignalInput,
 }
 
 impl RouterClientCommand {
     fn run(self, mut output: impl Write) -> Result<()> {
-        let reply =
-            RouterSignalClient::new(self.socket).submit(&self.actor, self.input.request())?;
+        let reply = RouterSignalClient::new(self.socket).submit(self.input.request())?;
         let text = RouterSignalOutput::from_signal(reply).to_nota()?;
         writeln!(output, "{text}")?;
         Ok(())
@@ -977,7 +1073,6 @@ struct RouterClientArguments<'arguments> {
     arguments: &'arguments [OsString],
     index: usize,
     socket: Option<PathBuf>,
-    actor: Option<ActorId>,
     input: Option<RouterSignalInput>,
 }
 
@@ -987,7 +1082,6 @@ impl<'arguments> RouterClientArguments<'arguments> {
             arguments,
             index: 0,
             socket: None,
-            actor: None,
             input: None,
         }
     }
@@ -996,13 +1090,6 @@ impl<'arguments> RouterClientArguments<'arguments> {
         while let Some(argument) = self.next() {
             match argument.to_string_lossy().as_ref() {
                 "--socket" => self.socket = Some(PathBuf::from(self.required_value("--socket")?)),
-                "--actor" => {
-                    self.actor = Some(ActorId::new(
-                        self.required_value("--actor")?
-                            .to_string_lossy()
-                            .to_string(),
-                    ));
-                }
                 _ if CommandLineArgument::new(argument).starts_inline_record() => {
                     self.input = Some(RouterSignalInput::from_argument(argument)?);
                 }
@@ -1015,7 +1102,6 @@ impl<'arguments> RouterClientArguments<'arguments> {
         }
         Ok(RouterClientCommand {
             socket: self.socket.take().ok_or(Error::MissingSocket)?,
-            actor: self.actor.take().ok_or(Error::MissingActor)?,
             input: self.input.take().ok_or(Error::MissingInput)?,
         })
     }
@@ -1129,9 +1215,8 @@ impl RouterSignalClient {
         }
     }
 
-    fn submit(&self, actor: &ActorId, request: SignalMessageRequest) -> Result<SignalMessageReply> {
+    fn submit(&self, request: SignalMessageRequest) -> Result<SignalMessageReply> {
         let mut stream = UnixStream::connect(&self.socket)?;
-        let _ingress_scaffold = actor;
         let frame = SignalMessageFrame::new(FrameBody::Request(Request::assert(request)));
         self.codec.write_frame(&mut stream, &frame)?;
         let reply = self.codec.read_frame(&mut stream)?;

@@ -11,9 +11,9 @@ use persona_router::{
     InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageId,
     ObserveChannelTime, ReadChannelAuthorityStatus, ReadChannelPersistence,
     ReadHarnessRegistryStatus, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
-    ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage, RouterInput, RouterOutput,
-    RouterRoot, RouterRuntime, RouterTables, RouterTrace, RouterTraceStep, SignalMessageInput,
-    Status, ThreadId, UseChannel,
+    ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage, RouterIngressContext,
+    RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables, RouterTrace,
+    RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
 use signal_persona_auth::{ComponentName, ConnectionClass, MessageOrigin};
 use signal_persona_message::{
@@ -997,8 +997,8 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
 async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
     let router = RouterFixture::start().await;
     let reply = router
-        .apply_signal(SignalMessageInput::new(
-            ActorId::new("operator"),
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
             MessageRequest::MessageSubmission(MessageSubmission {
                 recipient: MessageRecipient::new("responder"),
                 body: MessageBody::new("hello"),
@@ -1231,6 +1231,39 @@ fn router_source_cannot_reintroduce_pre_127_gate_concepts() {
         violations.is_empty(),
         "pre-127 router concept regressions:\n{}",
         violations.join("\n")
+    );
+}
+
+#[test]
+fn router_ingress_cannot_stamp_hidden_operator_owner_origin() {
+    let router_source = SourceFile::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("router.rs"),
+    );
+
+    for fragment in [
+        "from_frame_with_sender",
+        "SignalMessageInput::new",
+        "ActorId::new(\"operator\")",
+        "MessageOrigin::External(ConnectionClass::Owner),\n            request",
+        "let _ingress_scaffold = actor",
+    ] {
+        assert!(
+            !router_source.content.contains(fragment),
+            "router ingress must not hide owner/operator fixture stamping: {fragment}"
+        );
+    }
+
+    assert!(
+        router_source
+            .content
+            .contains("RouterIngressContext::message_proxy()")
+    );
+    assert!(
+        router_source
+            .content
+            .contains("IngressContext::internal(component)")
     );
 }
 

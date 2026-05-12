@@ -17,7 +17,6 @@ test -S "$socket"
 
 "$router" \
   --socket "$socket" \
-  --actor operator \
   '(MessageSubmission responder "router hello")' \
   >"$workspace/submission.out"
 
@@ -25,9 +24,8 @@ grep -Fq '(SubmissionAccepted 1)' "$workspace/submission.out"
 
 "$router" \
   --socket "$socket" \
-  --actor operator \
   '(InboxQuery responder)' \
   >"$workspace/inbox.out"
 
-grep -Fq '(RouterInboxListing [(RouterInboxEntry 1 operator "router hello")])' \
+grep -Fq '(RouterInboxListing [(RouterInboxEntry 1 message-proxy "router hello")])' \
   "$workspace/inbox.out"
