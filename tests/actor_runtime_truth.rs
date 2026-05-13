@@ -792,7 +792,7 @@ async fn router_installs_structural_channels_for_engine_setup() {
     assert!(
         channels
             .iter()
-            .any(|channel| channel.from == "message-proxy" && channel.to == "router")
+            .any(|channel| channel.from == "message" && channel.to == "router")
     );
     assert!(
         channels
@@ -1258,7 +1258,7 @@ fn router_ingress_cannot_stamp_hidden_operator_owner_origin() {
     assert!(
         router_source
             .content
-            .contains("RouterIngressContext::message_proxy()")
+            .contains("RouterIngressContext::message()")
     );
     assert!(
         router_source

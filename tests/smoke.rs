@@ -67,10 +67,10 @@ fn router_connection_decodes_signal_persona_message_frame() {
         .read_signal_input()
         .expect("router reads signal input");
 
-    assert_eq!(input.sender().as_str(), "message-proxy");
+    assert_eq!(input.sender().as_str(), "message");
     assert_eq!(
         input.origin(),
-        &MessageOrigin::Internal(ComponentName::MessageProxy)
+        &MessageOrigin::Internal(ComponentName::Message)
     );
     assert!(matches!(
         input.request(),

@@ -308,7 +308,7 @@ impl EngineStructuralChannels {
         Self {
             grants: vec![
                 GrantChannel::direct_message(
-                    ActorId::new("message-proxy"),
+                    ActorId::new("message"),
                     ActorId::new("router"),
                     persistent,
                 ),

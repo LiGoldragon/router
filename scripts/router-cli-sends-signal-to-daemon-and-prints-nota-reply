@@ -27,5 +27,5 @@ grep -Fq '(SubmissionAccepted 1)' "$workspace/submission.out"
   '(InboxQuery responder)' \
   >"$workspace/inbox.out"
 
-grep -Fq '(RouterInboxListing [(RouterInboxEntry 1 message-proxy "router hello")])' \
+grep -Fq '(RouterInboxListing [(RouterInboxEntry 1 message "router hello")])' \
   "$workspace/inbox.out"

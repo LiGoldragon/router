@@ -7,7 +7,7 @@ Rules for work here:
 
 - Depend on contract repos for relation-specific frame records. For this router
   slice, that means `signal-persona-message` and `signal-persona-system`.
-- Do not depend on `persona-message`. That repo is only a stateless CLI/proxy
+- Do not depend on `persona-message`. That repo is the message-ingress
   boundary into the router.
 - Accept `signal-persona-message` frames as the daemon message ingress. Do not
   add a NOTA line socket protocol.

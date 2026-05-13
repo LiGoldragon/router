@@ -52,7 +52,7 @@ impl RouterDaemon {
         Self {
             socket: socket.into(),
             tables: None,
-            ingress: RouterIngressContext::message_proxy(),
+            ingress: RouterIngressContext::message(),
         }
     }
 
@@ -119,7 +119,7 @@ pub struct RouterConnection {
 
 impl RouterConnection {
     pub fn from_stream(stream: UnixStream) -> Self {
-        Self::from_stream_with_ingress(stream, RouterIngressContext::message_proxy())
+        Self::from_stream_with_ingress(stream, RouterIngressContext::message())
     }
 
     pub fn from_stream_with_ingress(stream: UnixStream, ingress: RouterIngressContext) -> Self {
@@ -152,8 +152,8 @@ impl RouterIngressContext {
         Self { sender, context }
     }
 
-    pub fn message_proxy() -> Self {
-        Self::internal_component(ComponentName::MessageProxy)
+    pub fn message() -> Self {
+        Self::internal_component(ComponentName::Message)
     }
 
     pub fn internal_component(component: ComponentName) -> Self {
@@ -189,7 +189,7 @@ impl RouterIngressContext {
     fn component_actor_id(component: ComponentName) -> ActorId {
         match component {
             ComponentName::Mind => ActorId::new("mind"),
-            ComponentName::MessageProxy => ActorId::new("message-proxy"),
+            ComponentName::Message => ActorId::new("message"),
             ComponentName::Router => ActorId::new("router"),
             ComponentName::Terminal => ActorId::new("terminal"),
             ComponentName::Harness => ActorId::new("harness"),
@@ -1676,7 +1676,7 @@ impl ApplyMindChannelGrant {
     fn component_actor_id(&self, component: ComponentName) -> ActorId {
         match component {
             ComponentName::Mind => ActorId::new("mind"),
-            ComponentName::MessageProxy => ActorId::new("message-proxy"),
+            ComponentName::Message => ActorId::new("message"),
             ComponentName::Router => ActorId::new("router"),
             ComponentName::Terminal => ActorId::new("terminal"),
             ComponentName::Harness => ActorId::new("harness"),

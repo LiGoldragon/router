@@ -70,10 +70,37 @@ flowchart LR
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
 
-`persona-message` is not part of the router runtime graph. It is a stateless
-CLI/proxy that sends `signal-persona-message` requests into this daemon. The
+`persona-message` is not part of the router runtime graph. It is the
+message-ingress component: its CLI talks to `persona-message-daemon`, and that
+daemon forwards typed `signal-persona-message` requests into this daemon. The
 router owns the transitional in-memory message records until those records move
 behind router-owned Sema tables.
+
+## 1.5 · Supervision-relation reception
+
+Per
+`~/primary/reports/designer/142-supervision-in-signal-persona-no-message-proxy-daemon.md` §2.2
+and
+`~/primary/reports/designer/143-prototype-readiness-gap-audit.md` §4.2:
+the router daemon answers `signal-persona::SupervisionRequest` from a
+canonical `SupervisionPhase` Kameo actor alongside `RouterRoot`. The phase
+actor carries `component_name`, `component_kind`,
+`supervision_protocol_version`, and a cached `ComponentHealth` pushed from
+the routing plane. Router reads its `signal-persona::SpawnEnvelope` at
+startup, binds `router.sock` at mode 0600, and proceeds.
+
+The router's structural-channels install names a channel from
+`Internal(Message) → Internal(Router)` carrying
+`ChannelMessageKind::MessageIngressSubmission` (per
+`~/primary/reports/designer/143-prototype-readiness-gap-audit.md` §4.6) —
+not the generic `DirectMessage` kind. This distinguishes user-message
+ingress from internal component traffic at the channel level.
+
+A schema-version guard runs at `RouterTables::open()` (per
+`~/primary/skills/rust/storage-and-wire.md` §"Schema discipline"): the
+manager-known `RouterSchemaVersion` is compared against the value stored in
+`router.redb`'s `meta` table; mismatch fails closed. Schema bumps land as
+coordinated upgrades.
 
 ## 2 · State and Ownership
 
@@ -106,7 +133,7 @@ tree can route channel work to a durable channel authority. The router can also
 install the current first-stack structural channels through the actor tree, so
 Persona engine setup does not need to bypass `RouterRoot` or
 `ChannelAuthority`. Those structural channels are currently an `ActorId`
-projection of the first stack (`message-proxy`, `system`, `router`, `harness`,
+projection of the first stack (`message`, `system`, `router`, `harness`,
 `terminal`, `mind`, and `owner`) until the full endpoint/kind channel model is
 wired through the signal contracts. The first witnesses are actor traces and
 table reads: `MessageCommitted` must appear for a message before any
@@ -141,7 +168,7 @@ status update before post-delivery subscription events are emitted.
 
 Every accepted message carries a typed `IngressContext` from the accepted
 socket relation. Origin is provenance, not an auth proof. The production daemon
-default is the internal `message-proxy -> router` relation; owner/operator
+default is the internal `message -> router` relation; owner/operator
 origin is only a named test fixture, never hidden in frame decoding. Router
 policy is the authorized-channel table: messages on an active channel flow;
 messages without one are parked and queued for persona-mind adjudication. In
@@ -252,7 +279,7 @@ tests/                  router smoke and actor-density truth tests
 | Router CLI requests enter the daemon as Signal frames, not a NOTA line socket protocol. | `nix flake check .#router-cli-sends-signal-to-daemon-and-prints-nota-reply` |
 | Router daemon ingress accepts `signal-persona-message` frames. | `nix flake check .#router-daemon-accepts-signal-persona-message-only` |
 | Router daemon ingress derives sender/origin from `RouterIngressContext`, not hidden owner/operator stamping. | `nix flake check .#router-ingress-cannot-stamp-hidden-owner-origin` |
-| Router does not depend on the stateless `persona-message` proxy crate. | `nix flake check .#router-runtime-cannot-depend-on-persona-message` |
+| Router does not depend on the `persona-message` runtime crate. | `nix flake check .#router-runtime-cannot-depend-on-persona-message` |
 | Router does not depend on terminal crates directly. | `nix flake check .#router-runtime-cannot-depend-on-terminal-crates` |
 | Router runtime reacts to pushed events instead of timer polling. | `nix flake check .#router-runtime-cannot-poll` |
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix flake check .#router-runtime-cannot-reference-retired-terminal-brand` |
