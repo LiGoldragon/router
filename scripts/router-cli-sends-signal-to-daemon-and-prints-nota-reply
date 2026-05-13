@@ -17,7 +17,7 @@ test -S "$socket"
 
 "$router" \
   --socket "$socket" \
-  '(MessageSubmission responder "router hello")' \
+  '(StampedMessageSubmission (MessageSubmission responder Send "router hello") (Internal Message) 1)' \
   >"$workspace/submission.out"
 
 grep -Fq '(SubmissionAccepted 1)' "$workspace/submission.out"

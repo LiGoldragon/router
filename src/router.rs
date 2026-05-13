@@ -11,11 +11,13 @@ use signal_core::{FrameBody, Reply, Request};
 use signal_persona_auth::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
 use signal_persona_message::{
     Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
-    InboxListing as SignalInboxListing, MessageBody as SignalMessageBody,
+    InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
+    MessageBody as SignalMessageBody, MessageKind, MessageOperationKind,
     MessageRecipient as SignalMessageRecipient, MessageReply as SignalMessageReply,
-    MessageRequest as SignalMessageRequest, MessageSender as SignalMessageSender,
-    MessageSlot as SignalSlot, MessageSubmission as SignalMessageSubmission,
-    SubmissionAcceptance as SignalSubmissionAcceptance,
+    MessageRequest as SignalMessageRequest, MessageRequestUnimplemented,
+    MessageSender as SignalMessageSender, MessageSlot as SignalSlot,
+    MessageSubmission as SignalMessageSubmission, MessageUnimplementedReason,
+    StampedMessageSubmission, SubmissionAcceptance as SignalSubmissionAcceptance,
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
 use signal_persona_mind::{
@@ -184,6 +186,13 @@ impl RouterIngressContext {
 
     pub fn origin(&self) -> &MessageOrigin {
         self.context.origin()
+    }
+
+    pub fn actor_id_for_origin(origin: &MessageOrigin) -> ActorId {
+        match origin {
+            MessageOrigin::Internal(component) => Self::component_actor_id(*component),
+            MessageOrigin::External(connection) => Self::connection_actor_id(connection),
+        }
     }
 
     fn component_actor_id(component: ComponentName) -> ActorId {
@@ -671,22 +680,12 @@ impl RouterRoot {
     }
 
     async fn apply_signal(&mut self, input: SignalMessageInput) -> Result<SignalMessageReply> {
-        let sender = input.sender.clone();
-        let origin = input.origin().clone();
         match input.request {
-            SignalMessageRequest::MessageSubmission(submission) => {
-                let slot = self.next_signal_message_slot();
-                let message = self.signal_message(sender, submission, slot);
-                self.pending
-                    .push(PendingRouterMessage::new(message.clone(), origin));
-                self.signal_slots
-                    .push(SignalMessageSlot::new(message.id.clone(), slot));
-                self.trace
-                    .record(message.id.clone(), RouterTraceStep::MessageCommitted);
-                let _delivered = self.retry_pending().await?;
-                Ok(SignalMessageReply::SubmissionAccepted(
-                    SignalSubmissionAcceptance { message_slot: slot },
-                ))
+            SignalMessageRequest::MessageSubmission(_) => Ok(Self::unimplemented_message_request(
+                MessageOperationKind::MessageSubmission,
+            )),
+            SignalMessageRequest::StampedMessageSubmission(stamped) => {
+                self.apply_stamped_message_submission(stamped).await
             }
             SignalMessageRequest::InboxQuery(query) => {
                 Ok(SignalMessageReply::InboxListing(SignalInboxListing {
@@ -694,6 +693,38 @@ impl RouterRoot {
                 }))
             }
         }
+    }
+
+    async fn apply_stamped_message_submission(
+        &mut self,
+        stamped: StampedMessageSubmission,
+    ) -> Result<SignalMessageReply> {
+        if stamped.submission.kind != MessageKind::Send {
+            return Ok(Self::unimplemented_message_request(
+                MessageOperationKind::StampedMessageSubmission,
+            ));
+        }
+        let sender = RouterIngressContext::actor_id_for_origin(&stamped.origin);
+        let origin = stamped.origin;
+        let slot = self.next_signal_message_slot();
+        let message = self.signal_message(sender, stamped.submission, slot);
+        self.pending
+            .push(PendingRouterMessage::new(message.clone(), origin));
+        self.signal_slots
+            .push(SignalMessageSlot::new(message.id.clone(), slot));
+        self.trace
+            .record(message.id.clone(), RouterTraceStep::MessageCommitted);
+        let _delivered = self.retry_pending().await?;
+        Ok(SignalMessageReply::SubmissionAccepted(
+            SignalSubmissionAcceptance { message_slot: slot },
+        ))
+    }
+
+    fn unimplemented_message_request(operation: MessageOperationKind) -> SignalMessageReply {
+        SignalMessageReply::MessageRequestUnimplemented(MessageRequestUnimplemented {
+            operation,
+            reason: MessageUnimplementedReason::NotInPrototypeScope,
+        })
     }
 
     fn next_signal_message_slot(&mut self) -> SignalSlot {
@@ -1137,21 +1168,10 @@ impl<'argument> CommandLineArgument<'argument> {
     }
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct MessageSubmission {
-    pub recipient: ActorId,
-    pub body: String,
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct InboxQuery {
-    pub recipient: ActorId,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterSignalInput {
-    MessageSubmission(MessageSubmission),
-    InboxQuery(InboxQuery),
+    StampedMessageSubmission(StampedMessageSubmission),
+    InboxQuery(SignalInboxQuery),
 }
 
 impl RouterSignalInput {
@@ -1173,17 +1193,10 @@ impl RouterSignalInput {
 
     fn request(self) -> SignalMessageRequest {
         match self {
-            Self::MessageSubmission(input) => {
-                SignalMessageRequest::MessageSubmission(SignalMessageSubmission {
-                    recipient: SignalMessageRecipient::new(input.recipient.as_str()),
-                    body: SignalMessageBody::new(input.body),
-                })
+            Self::StampedMessageSubmission(input) => {
+                SignalMessageRequest::StampedMessageSubmission(input)
             }
-            Self::InboxQuery(input) => {
-                SignalMessageRequest::InboxQuery(signal_persona_message::InboxQuery {
-                    recipient: SignalMessageRecipient::new(input.recipient.as_str()),
-                })
-            }
+            Self::InboxQuery(input) => SignalMessageRequest::InboxQuery(input),
         }
     }
 }
@@ -1191,8 +1204,10 @@ impl RouterSignalInput {
 impl NotaDecode for RouterSignalInput {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
         match decoder.peek_record_head()?.as_str() {
-            "MessageSubmission" => Ok(Self::MessageSubmission(MessageSubmission::decode(decoder)?)),
-            "InboxQuery" => Ok(Self::InboxQuery(InboxQuery::decode(decoder)?)),
+            "StampedMessageSubmission" => Ok(Self::StampedMessageSubmission(
+                StampedMessageSubmission::decode(decoder)?,
+            )),
+            "InboxQuery" => Ok(Self::InboxQuery(SignalInboxQuery::decode(decoder)?)),
             other => Err(nota_codec::Error::UnknownKindForVerb {
                 verb: "RouterSignalInput",
                 got: other.to_string(),
@@ -1262,6 +1277,7 @@ pub enum RouterSignalOutput {
     SubmissionAccepted(SubmissionAccepted),
     SubmissionRejected(SubmissionRejected),
     RouterInboxListing(RouterInboxListing),
+    MessageRequestUnimplemented(MessageRequestUnimplemented),
 }
 
 impl RouterSignalOutput {
@@ -1286,6 +1302,9 @@ impl RouterSignalOutput {
                         .collect(),
                 })
             }
+            SignalMessageReply::MessageRequestUnimplemented(reply) => {
+                Self::MessageRequestUnimplemented(reply)
+            }
         }
     }
 
@@ -1302,6 +1321,7 @@ impl NotaEncode for RouterSignalOutput {
             Self::SubmissionAccepted(output) => output.encode(encoder),
             Self::SubmissionRejected(output) => output.encode(encoder),
             Self::RouterInboxListing(output) => output.encode(encoder),
+            Self::MessageRequestUnimplemented(output) => output.encode(encoder),
         }
     }
 }

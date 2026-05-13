@@ -42,7 +42,7 @@ flowchart LR
   Signal traffic only. Frames arriving from in-engine
   components tag as `MessageOrigin::Internal(ComponentName)`.
   External engine-owner ingress arrives through
-  `persona-message-daemon`'s `message.sock` (mode 0660) and
+  `persona-message`'s `message.sock` (mode 0660) and
   is forwarded to router with `MessageOrigin::External(...)`
   already minted by the message daemon from SO_PEERCRED. See
   `~/primary/reports/designer/142-supervision-in-signal-persona-no-message-proxy-daemon.md`.
@@ -50,7 +50,7 @@ flowchart LR
   projection record, sends one Signal frame to the daemon, and prints one NOTA
   reply. The CLI does not mint the message sender;
 - a Signal-frame daemon ingress for `signal-persona-message`
-  `MessageSubmission` and `InboxQuery` frames;
+  `StampedMessageSubmission` and `InboxQuery` frames;
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
   tree as `ActorRef<RouterRuntime>`;
 - a Kameo `RouterRoot` that owns live routing state behind the runtime;
@@ -71,10 +71,10 @@ flowchart LR
 - typed delivery results for callers and observers.
 
 `persona-message` is not part of the router runtime graph. It is the
-message-ingress component: its CLI talks to `persona-message-daemon`, and that
-daemon forwards typed `signal-persona-message` requests into this daemon. The
-router owns the transitional in-memory message records until those records move
-behind router-owned Sema tables.
+message-ingress component: its CLI talks to the `persona-message` daemon, and
+that daemon forwards typed `signal-persona-message` requests into this daemon.
+The router owns the transitional in-memory message records until those records
+move behind router-owned Sema tables.
 
 ## 1.5 · Supervision-relation reception
 
@@ -227,8 +227,11 @@ This repo does not own:
   delivery.
 - `signal-persona-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
-- Message provenance comes from ingress context, not from `MessageSubmission`
-  payload text.
+- Message provenance for submissions comes from
+  `StampedMessageSubmission.origin`, minted by `persona-message`; router socket
+  ingress context identifies only the internal component connection.
+- Plain `MessageSubmission` is not a router-ingress payload; the router returns
+  typed `MessageRequestUnimplemented` instead of committing it.
 - Router frame decoding does not stamp hidden `operator` or `Owner` origin.
 - Owner/operator origin may appear only as explicit fixture ingress in tests or
   as an explicit external endpoint in channel records.
@@ -283,7 +286,8 @@ tests/                  router smoke and actor-density truth tests
 | Router does not depend on terminal crates directly. | `nix flake check .#router-runtime-cannot-depend-on-terminal-crates` |
 | Router runtime reacts to pushed events instead of timer polling. | `nix flake check .#router-runtime-cannot-poll` |
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix flake check .#router-runtime-cannot-reference-retired-terminal-brand` |
-| Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
+| Stamped Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
+| Unstamped Signal message submissions cannot commit on the router socket. | `nix flake check .#unstamped-message-submission-is-not-router-ingress-payload` |
 | A message without an active channel parks for adjudication and does not reach delivery. | `nix flake check .#router-unknown-channel-parks-for-adjudication` |
 | A message without an active channel emits a typed mind adjudication request. | `nix flake check .#router-unknown-channel-emits-typed-mind-adjudication-request` |
 | A one-shot channel cannot authorize a second message after use. | `nix flake check .#router-one-shot-channel-cannot-authorize-second-message` |

@@ -9,9 +9,10 @@ Rules for work here:
   slice, that means `signal-persona-message` and `signal-persona-system`.
 - Do not depend on `persona-message`. That repo is the message-ingress
   boundary into the router.
-- Accept `signal-persona-message` frames as the daemon message ingress. Do not
-  add a NOTA line socket protocol.
-- Resolve the signal sender from Signal auth. Do not add sender text to
+- Accept stamped `signal-persona-message` frames as the daemon message ingress.
+  Plain `MessageSubmission` belongs on the `persona-message` socket and must
+  not commit on `router.sock`. Do not add a NOTA line socket protocol.
+- Resolve the signal sender from typed Signal origin. Do not add sender text to
   `MessageSubmission`.
 - Depend on `persona-system` for OS/window/input runtime observation
   producers, not for the inter-component record types.

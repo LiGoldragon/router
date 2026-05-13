@@ -29,6 +29,9 @@ signal-persona-message = { git = "https://github.com/LiGoldragon/signal-persona-
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }
 
+[dev-dependencies]
+signal-persona = { git = "https://github.com/LiGoldragon/signal-persona.git" }
+
 [lints.rust]
 unsafe_code = "forbid"
 unused = "warn"

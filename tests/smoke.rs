@@ -4,9 +4,11 @@ use persona_router::{
     Message, MessageBody, MessageId, PendingDelivery, RouterConnection, RouterInput, RouterOutput,
 };
 use signal_core::{FrameBody, Request};
+use signal_persona::TimestampNanos;
 use signal_persona_auth::{ComponentName, MessageOrigin};
 use signal_persona_message::{
-    Frame, MessageBody as SignalMessageBody, MessageRecipient, MessageRequest, MessageSubmission,
+    Frame, MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageRequest,
+    MessageSubmission, StampedMessageSubmission,
 };
 
 #[test]
@@ -48,9 +50,14 @@ fn router_output_encodes_delivery_changed() {
 #[test]
 fn router_connection_decodes_signal_persona_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
-    let request = MessageRequest::MessageSubmission(MessageSubmission {
-        recipient: MessageRecipient::new("responder"),
-        body: SignalMessageBody::new("socket frame"),
+    let request = MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+        submission: MessageSubmission {
+            recipient: MessageRecipient::new("responder"),
+            kind: MessageKind::Send,
+            body: SignalMessageBody::new("socket frame"),
+        },
+        origin: MessageOrigin::Internal(ComponentName::Message),
+        stamped_at: TimestampNanos::new(1),
     });
     let frame = Frame::new(FrameBody::Request(Request::assert(request)));
     client
@@ -74,8 +81,10 @@ fn router_connection_decodes_signal_persona_message_frame() {
     );
     assert!(matches!(
         input.request(),
-        MessageRequest::MessageSubmission(submission)
-            if submission.recipient.as_str() == "responder"
-                && submission.body.as_str() == "socket frame"
+        MessageRequest::StampedMessageSubmission(stamped)
+            if stamped.submission.recipient.as_str() == "responder"
+                && stamped.submission.kind == MessageKind::Send
+                && stamped.submission.body.as_str() == "socket frame"
+                && stamped.origin == MessageOrigin::Internal(ComponentName::Message)
     ));
 }

@@ -15,9 +15,11 @@ use persona_router::{
     RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables, RouterTrace,
     RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
+use signal_persona::TimestampNanos;
 use signal_persona_auth::{ComponentName, ConnectionClass, MessageOrigin};
 use signal_persona_message::{
-    MessageBody, MessageRecipient, MessageReply, MessageRequest, MessageSubmission,
+    MessageBody, MessageKind, MessageOperationKind, MessageRecipient, MessageReply, MessageRequest,
+    MessageSubmission, MessageUnimplementedReason, StampedMessageSubmission,
 };
 use signal_persona_mind::{
     AdjudicationDeny, AdjudicationRequestId, ChannelDuration, ChannelEndpoint,
@@ -380,9 +382,14 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
         .apply_signal(SignalMessageInput::with_origin(
             operator,
             MessageOrigin::External(ConnectionClass::Owner),
-            MessageRequest::MessageSubmission(MessageSubmission {
-                recipient: MessageRecipient::new(responder.as_str()),
-                body: MessageBody::new("please answer"),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new(responder.as_str()),
+                    kind: MessageKind::Send,
+                    body: MessageBody::new("please answer"),
+                },
+                origin: MessageOrigin::External(ConnectionClass::Owner),
+                stamped_at: TimestampNanos::new(1),
             }),
         ))
         .await
@@ -999,9 +1006,14 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
-            MessageRequest::MessageSubmission(MessageSubmission {
-                recipient: MessageRecipient::new("responder"),
-                body: MessageBody::new("hello"),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new("responder"),
+                    kind: MessageKind::Send,
+                    body: MessageBody::new("hello"),
+                },
+                origin: MessageOrigin::External(ConnectionClass::Owner),
+                stamped_at: TimestampNanos::new(1),
             }),
         ))
         .await
@@ -1019,6 +1031,42 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
             .iter()
             .any(|event| event.step() == RouterTraceStep::MessageCommitted),
         "signal message submission must commit through RouterRoot before reply"
+    );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unstamped_message_submission_is_not_router_ingress_payload() {
+    let router = RouterFixture::start().await;
+    let reply = router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::message(),
+            MessageRequest::MessageSubmission(MessageSubmission {
+                recipient: MessageRecipient::new("responder"),
+                kind: MessageKind::Send,
+                body: MessageBody::new("hello"),
+            }),
+        ))
+        .await
+        .expect("signal message request passes through router actors");
+
+    let MessageReply::MessageRequestUnimplemented(unimplemented) = reply else {
+        panic!("expected unimplemented signal message reply");
+    };
+    assert_eq!(
+        unimplemented.operation,
+        MessageOperationKind::MessageSubmission
+    );
+    assert_eq!(
+        unimplemented.reason,
+        MessageUnimplementedReason::NotInPrototypeScope
+    );
+
+    let trace = router.trace().await.expect("router trace is readable");
+    assert!(
+        trace.events().is_empty(),
+        "unstamped submissions must not commit router trace events"
     );
 
     router.stop().await;
