@@ -38,6 +38,20 @@ flowchart LR
 
 - a library surface for delivery decisions;
 - a router daemon surface for isolated development;
+- **two sockets**:
+  - `router.sock` at mode 0600 — internal Signal traffic
+    from supervised components (mind, system, harness, ...).
+    Frames arriving here tag as
+    `MessageOrigin::Internal(ComponentName)`.
+  - `router-public.sock` at mode 0660 (group = engine
+    owner's group) — the engine's untrusted-ingress
+    boundary; the `message` CLI in `persona-message` connects
+    here to submit user-typed messages. Frames arriving here
+    tag as `MessageOrigin::External(ConnectionClass)` minted
+    from `SO_PEERCRED`. There is **no** separate
+    message-proxy daemon; the boundary translation is at the
+    CLI surface, not in an intermediate process. See
+    `~/primary/reports/designer/142-supervision-in-signal-persona-no-message-proxy-daemon.md`.
 - a daemon-client CLI surface that accepts one NOTA `signal-persona-message`
   projection record, sends one Signal frame to the daemon, and prints one NOTA
   reply. The CLI does not mint the message sender;
