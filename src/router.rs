@@ -41,6 +41,7 @@ use crate::harness_registry::{
     RegisterHarness,
 };
 use crate::message::expect_end;
+use crate::supervision::{SupervisionListener, SupervisionProfile};
 use crate::{Actor, ActorId, Error, Message, MessageId, Result, RouterTables, ThreadId};
 
 #[derive(Debug)]
@@ -90,6 +91,9 @@ impl RouterDaemon {
 
     pub fn run(self) -> Result<()> {
         let listener = self.bind_listener()?;
+        let _supervision = SupervisionListener::from_environment(SupervisionProfile::router())
+            .map(SupervisionListener::spawn)
+            .transpose()?;
         let runtime = tokio::runtime::Runtime::new()?;
         let router = runtime.block_on(RouterRuntime::start_with_optional_tables(self.tables));
         eprintln!("persona-router-daemon socket={}", self.socket.display());

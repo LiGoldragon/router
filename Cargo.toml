@@ -26,11 +26,9 @@ signal-core           = { git = "https://github.com/LiGoldragon/signal-core.git"
 signal-persona-auth   = { git = "https://github.com/LiGoldragon/signal-persona-auth.git" }
 signal-persona-mind   = { git = "https://github.com/LiGoldragon/signal-persona-mind.git" }
 signal-persona-message = { git = "https://github.com/LiGoldragon/signal-persona-message.git" }
+signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }
-
-[dev-dependencies]
-signal-persona = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 
 [lints.rust]
 unsafe_code = "forbid"

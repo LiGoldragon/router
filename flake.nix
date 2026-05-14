@@ -124,6 +124,13 @@
               cargoTestExtraArgs = "--test smoke constraint_router_daemon_applies_spawn_envelope_socket_mode -- --exact";
             }
           );
+          router-daemon-answers-component-supervision-relation = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test smoke constraint_router_daemon_answers_component_supervision_relation -- --exact";
+            }
+          );
           router-ingress-cannot-stamp-hidden-owner-origin = context.craneLib.cargoTest (
             context.commonArgs
             // {

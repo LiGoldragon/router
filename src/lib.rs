@@ -6,6 +6,7 @@ pub mod harness_delivery;
 pub mod harness_registry;
 pub mod message;
 pub mod router;
+pub mod supervision;
 pub mod tables;
 
 pub use adjudication::{
@@ -43,6 +44,9 @@ pub use router::{
     RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
     RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
     Status, StructuralChannelsInstalled,
+};
+pub use supervision::{
+    SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,

@@ -1,14 +1,20 @@
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use persona_router::{
     Message, MessageBody, MessageId, PendingDelivery, RouterConnection, RouterDaemon, RouterInput,
-    RouterOutput, SocketMode,
+    RouterOutput, SocketMode, SupervisionFrameCodec, SupervisionListener, SupervisionProfile,
+    SupervisionSocketMode,
 };
 use signal_core::{FrameBody, Request};
-use signal_persona::TimestampNanos;
+use signal_persona::{
+    ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind,
+    ComponentName as SupervisionComponentName, ComponentReadinessQuery, SupervisionFrame,
+    SupervisionProtocolVersion, SupervisionReply, SupervisionRequest, TimestampNanos,
+};
 use signal_persona_auth::{ComponentName, MessageOrigin};
 use signal_persona_message::{
     Frame, MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageRequest,
@@ -36,6 +42,10 @@ impl SocketFixture {
 
     fn socket(&self) -> &Path {
         &self.socket
+    }
+
+    fn supervision_socket(&self) -> PathBuf {
+        self.directory.join("router-supervision.sock")
     }
 }
 
@@ -138,4 +148,81 @@ fn router_connection_decodes_signal_persona_message_frame() {
                 && stamped.submission.body.as_str() == "socket frame"
                 && stamped.origin == MessageOrigin::Internal(ComponentName::Message)
     ));
+}
+
+#[test]
+fn constraint_router_daemon_answers_component_supervision_relation() {
+    let fixture = SocketFixture::new("supervision");
+    let supervision_socket = fixture.supervision_socket();
+    let _supervision = SupervisionListener::new(
+        SupervisionProfile::router(),
+        supervision_socket.clone(),
+        SupervisionSocketMode::from_octal(0o600),
+    )
+    .spawn()
+    .expect("router supervision listener starts");
+
+    let mode = std::fs::metadata(&supervision_socket)
+        .expect("supervision socket metadata is readable")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+
+    let mut stream = UnixStream::connect(&supervision_socket).expect("client connects");
+    let codec = SupervisionFrameCodec::new(1024 * 1024);
+
+    send_supervision_request(
+        &mut stream,
+        SupervisionRequest::ComponentHello(ComponentHello {
+            expected_component: SupervisionComponentName::new("persona-router"),
+            expected_kind: ComponentKind::Router,
+            supervision_protocol_version: SupervisionProtocolVersion::new(1),
+        }),
+    );
+    let identity = codec
+        .read_reply(&mut stream)
+        .expect("identity reply decodes");
+    assert!(matches!(
+        identity,
+        SupervisionReply::ComponentIdentity(identity)
+            if identity.name.as_str() == "persona-router"
+                && identity.kind == ComponentKind::Router
+    ));
+
+    send_supervision_request(
+        &mut stream,
+        SupervisionRequest::ComponentReadinessQuery(ComponentReadinessQuery {
+            component: SupervisionComponentName::new("persona-router"),
+        }),
+    );
+    let readiness = codec
+        .read_reply(&mut stream)
+        .expect("readiness reply decodes");
+    assert!(matches!(readiness, SupervisionReply::ComponentReady(_)));
+
+    send_supervision_request(
+        &mut stream,
+        SupervisionRequest::ComponentHealthQuery(ComponentHealthQuery {
+            component: SupervisionComponentName::new("persona-router"),
+        }),
+    );
+    let health = codec.read_reply(&mut stream).expect("health reply decodes");
+    assert!(matches!(
+        health,
+        SupervisionReply::ComponentHealthReport(report)
+            if report.health == ComponentHealth::Running
+    ));
+}
+
+fn send_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
+    let frame = SupervisionFrame::new(FrameBody::Request(Request::assert(request)));
+    stream
+        .write_all(
+            frame
+                .encode_length_prefixed()
+                .expect("supervision request encodes")
+                .as_slice(),
+        )
+        .expect("supervision request writes");
 }
