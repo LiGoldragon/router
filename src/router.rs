@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::io::{BufReader, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
@@ -47,6 +48,7 @@ pub struct RouterDaemon {
     socket: PathBuf,
     tables: Option<RouterTables>,
     ingress: RouterIngressContext,
+    socket_mode: Option<SocketMode>,
 }
 
 impl RouterDaemon {
@@ -55,6 +57,7 @@ impl RouterDaemon {
             socket: socket.into(),
             tables: None,
             ingress: RouterIngressContext::message(),
+            socket_mode: SocketMode::from_environment(),
         }
     }
 
@@ -65,6 +68,11 @@ impl RouterDaemon {
 
     pub fn with_ingress(mut self, ingress: RouterIngressContext) -> Self {
         self.ingress = ingress;
+        self
+    }
+
+    pub fn with_socket_mode(mut self, socket_mode: SocketMode) -> Self {
+        self.socket_mode = Some(socket_mode);
         self
     }
 
@@ -81,11 +89,7 @@ impl RouterDaemon {
     }
 
     pub fn run(self) -> Result<()> {
-        if let Some(parent) = self.socket.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let _ = std::fs::remove_file(&self.socket);
-        let listener = UnixListener::bind(&self.socket)?;
+        let listener = self.bind_listener()?;
         let runtime = tokio::runtime::Runtime::new()?;
         let router = runtime.block_on(RouterRuntime::start_with_optional_tables(self.tables));
         eprintln!("persona-router-daemon socket={}", self.socket.display());
@@ -94,6 +98,21 @@ impl RouterDaemon {
             Self::handle_connection(&runtime, &router, stream, self.ingress.clone())?;
         }
         Ok(())
+    }
+
+    pub fn bind_listener(&self) -> Result<UnixListener> {
+        if let Some(parent) = self.socket.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let _ = std::fs::remove_file(&self.socket);
+        let listener = UnixListener::bind(&self.socket)?;
+        if let Some(socket_mode) = self.socket_mode {
+            std::fs::set_permissions(
+                &self.socket,
+                std::fs::Permissions::from_mode(socket_mode.as_octal()),
+            )?;
+        }
+        Ok(listener)
     }
 
     fn handle_connection(
@@ -110,6 +129,26 @@ impl RouterDaemon {
             .into_result()?;
         connection.write_signal_reply(output)?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SocketMode(u32);
+
+impl SocketMode {
+    pub const fn from_octal(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub fn from_environment() -> Option<Self> {
+        std::env::var("PERSONA_SOCKET_MODE")
+            .ok()
+            .and_then(|value| u32::from_str_radix(value.as_str(), 8).ok())
+            .map(Self::from_octal)
+    }
+
+    pub const fn as_octal(self) -> u32 {
+        self.0
     }
 }
 

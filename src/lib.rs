@@ -41,8 +41,8 @@ pub use router::{
     RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection, RouterDaemon,
     RouterIngressContext, RouterInput, RouterMindAdjudicationOutboxOutcome, RouterOutput,
     RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
-    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, Status,
-    StructuralChannelsInstalled,
+    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
+    Status, StructuralChannelsInstalled,
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,

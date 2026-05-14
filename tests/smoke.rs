@@ -1,7 +1,11 @@
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use persona_router::{
-    Message, MessageBody, MessageId, PendingDelivery, RouterConnection, RouterInput, RouterOutput,
+    Message, MessageBody, MessageId, PendingDelivery, RouterConnection, RouterDaemon, RouterInput,
+    RouterOutput, SocketMode,
 };
 use signal_core::{FrameBody, Request};
 use signal_persona::TimestampNanos;
@@ -10,6 +14,36 @@ use signal_persona_message::{
     Frame, MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageRequest,
     MessageSubmission, StampedMessageSubmission,
 };
+
+struct SocketFixture {
+    directory: PathBuf,
+    socket: PathBuf,
+}
+
+impl SocketFixture {
+    fn new(name: &str) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "persona-router-{name}-{}-{now}",
+            std::process::id()
+        ));
+        let socket = directory.join("router.sock");
+        Self { directory, socket }
+    }
+
+    fn socket(&self) -> &Path {
+        &self.socket
+    }
+}
+
+impl Drop for SocketFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
 
 #[test]
 fn pending_delivery_keeps_recipient() {
@@ -45,6 +79,23 @@ fn router_output_encodes_delivery_changed() {
         output.to_nota().expect("output encodes"),
         "(DeliveryChanged 1 0)"
     );
+}
+
+#[test]
+fn constraint_router_daemon_applies_spawn_envelope_socket_mode() {
+    let fixture = SocketFixture::new("socket-mode");
+    let _listener = RouterDaemon::from_socket(fixture.socket().to_path_buf())
+        .with_socket_mode(SocketMode::from_octal(0o600))
+        .bind_listener()
+        .expect("router daemon binds listener with managed mode");
+
+    let mode = std::fs::metadata(fixture.socket())
+        .expect("router socket metadata is readable")
+        .permissions()
+        .mode()
+        & 0o777;
+
+    assert_eq!(mode, 0o600);
 }
 
 #[test]

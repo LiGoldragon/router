@@ -45,6 +45,8 @@ flowchart LR
   `persona-message`'s `message.sock` (mode 0660) and
   is forwarded to router with `MessageOrigin::External(...)`
   already minted by the message daemon from SO_PEERCRED.
+  The daemon applies the `PERSONA_SOCKET_MODE` value carried by the
+  Persona spawn envelope before the socket is reported usable.
 - a daemon-client CLI surface that accepts one NOTA `signal-persona-message`
   projection record, sends one Signal frame to the daemon, and prints one NOTA
   reply. The CLI does not mint the message sender;
@@ -213,6 +215,8 @@ This repo does not own:
   exactly one NOTA reply record.
 - Router daemon startup can attach a router-owned Sema database to
   `ChannelAuthority`.
+- Router daemon startup applies the managed socket mode from the Persona spawn
+  envelope to `router.sock`.
 - Router engine setup can install first-stack structural channels through the
   actor tree.
 - A typed mind channel grant can install a channel before a parked message is
