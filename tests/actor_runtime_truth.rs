@@ -1,5 +1,8 @@
 use std::fs;
+use std::io::{Read, Write};
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
@@ -206,6 +209,56 @@ impl TemporaryRouterStore {
 }
 
 impl Drop for TemporaryRouterStore {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+struct TerminalAcceptanceSocket {
+    path: PathBuf,
+}
+
+impl TerminalAcceptanceSocket {
+    fn new(name: &str) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "persona-router-terminal-{name}-{}-{now}.sock",
+            std::process::id()
+        ));
+        let listener = UnixListener::bind(&path).expect("terminal acceptance socket binds");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("terminal socket accepts input");
+            let mut request_kind = [0_u8; 1];
+            stream
+                .read_exact(&mut request_kind)
+                .expect("terminal socket reads request kind");
+            assert_eq!(request_kind[0], b'P');
+            let mut length = [0_u8; 8];
+            stream
+                .read_exact(&mut length)
+                .expect("terminal socket reads input length");
+            let byte_count = u64::from_be_bytes(length) as usize;
+            let mut bytes = vec![0_u8; byte_count];
+            stream
+                .read_exact(bytes.as_mut_slice())
+                .expect("terminal socket reads input bytes");
+            stream
+                .write_all(b"A")
+                .expect("terminal socket writes acceptance");
+            stream.flush().expect("terminal socket flushes acceptance");
+        });
+        Self { path }
+    }
+
+    fn target(&self) -> String {
+        self.path.to_string_lossy().into_owned()
+    }
+}
+
+impl Drop for TerminalAcceptanceSocket {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
     }
@@ -823,6 +876,7 @@ async fn router_installs_structural_channels_for_engine_setup() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
     let store = TemporaryRouterStore::new("mind-grant");
+    let terminal_socket = TerminalAcceptanceSocket::new("mind-grant");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let inspection = tables.clone();
     let router = RouterFixture::start_with_tables(tables).await;
@@ -834,8 +888,8 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
                 name: ActorId::new("harness"),
                 pid: 42,
                 endpoint: Some(EndpointTransport {
-                    kind: EndpointKind::Human,
-                    target: String::new(),
+                    kind: EndpointKind::PtySocket,
+                    target: terminal_socket.target(),
                     aux: None,
                 }),
             },

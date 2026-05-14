@@ -246,6 +246,7 @@ impl RouterIngressContext {
             ComponentName::Terminal => ActorId::new("terminal"),
             ComponentName::Harness => ActorId::new("harness"),
             ComponentName::System => ActorId::new("system"),
+            ComponentName::Introspect => ActorId::new("introspect"),
         }
     }
 
@@ -361,14 +362,19 @@ impl SignalMessageInput {
         frame: SignalMessageFrame,
         ingress: RouterIngressContext,
     ) -> Result<Self> {
-        let request = match frame.into_body() {
-            FrameBody::Request(Request::Operation { payload, .. }) => payload,
-            other => {
-                return Err(Error::UnexpectedSignalFrame {
-                    got: format!("{other:?}"),
-                });
-            }
-        };
+        let request =
+            match frame.into_body() {
+                FrameBody::Request(request) => request.into_payload_checked().map_err(|error| {
+                    Error::UnexpectedSignalFrame {
+                        got: error.to_string(),
+                    }
+                })?,
+                other => {
+                    return Err(Error::UnexpectedSignalFrame {
+                        got: format!("{other:?}"),
+                    });
+                }
+            };
         Ok(Self::with_ingress(ingress, request))
     }
 }
@@ -1275,7 +1281,7 @@ impl RouterSignalClient {
 
     fn submit(&self, request: SignalMessageRequest) -> Result<SignalMessageReply> {
         let mut stream = UnixStream::connect(&self.socket)?;
-        let frame = SignalMessageFrame::new(FrameBody::Request(Request::assert(request)));
+        let frame = SignalMessageFrame::new(FrameBody::Request(Request::from_payload(request)));
         self.codec.write_frame(&mut stream, &frame)?;
         let reply = self.codec.read_frame(&mut stream)?;
         match reply.into_body() {
@@ -1744,6 +1750,7 @@ impl ApplyMindChannelGrant {
             ComponentName::Terminal => ActorId::new("terminal"),
             ComponentName::Harness => ActorId::new("harness"),
             ComponentName::System => ActorId::new("system"),
+            ComponentName::Introspect => ActorId::new("introspect"),
         }
     }
 
@@ -1885,5 +1892,26 @@ impl NotaEncode for RouterOutput {
             Self::MindChannelGrantApplied(output) => output.encode(encoder),
             Self::MindAdjudicationDenyApplied(output) => output.encode(encoder),
         }
+    }
+}
+
+#[cfg(test)]
+mod receiver_validation_tests {
+    use super::*;
+
+    #[test]
+    fn router_input_rejects_mismatched_signal_verb() {
+        let frame = SignalMessageFrame::new(FrameBody::Request(Request::unchecked_operation(
+            signal_core::SignalVerb::Assert,
+            SignalMessageRequest::InboxQuery(SignalInboxQuery {
+                recipient: SignalMessageRecipient::new("operator"),
+            }),
+        )));
+
+        let error =
+            SignalMessageInput::from_frame_with_ingress(frame, RouterIngressContext::message())
+                .expect_err("mismatched verb is rejected");
+
+        assert!(error.to_string().contains("signal verb mismatch"));
     }
 }

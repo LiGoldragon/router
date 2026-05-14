@@ -120,7 +120,7 @@ fn router_connection_decodes_signal_persona_message_frame() {
         origin: MessageOrigin::Internal(ComponentName::Message),
         stamped_at: TimestampNanos::new(1),
     });
-    let frame = Frame::new(FrameBody::Request(Request::assert(request)));
+    let frame = Frame::new(FrameBody::Request(Request::from_payload(request)));
     client
         .write_all(
             frame
@@ -216,7 +216,7 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
 }
 
 fn send_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
-    let frame = SupervisionFrame::new(FrameBody::Request(Request::assert(request)));
+    let frame = SupervisionFrame::new(FrameBody::Request(Request::from_payload(request)));
     stream
         .write_all(
             frame

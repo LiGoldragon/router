@@ -35,10 +35,10 @@ impl HarnessDelivery {
 
     fn terminal_endpoint(endpoint: &EndpointTransport) -> Result<HarnessTerminalEndpoint> {
         match endpoint.kind {
-            EndpointKind::Human => Ok(HarnessTerminalEndpoint::Human),
-            EndpointKind::PtySocket => Ok(HarnessTerminalEndpoint::PtySocket {
-                path: endpoint.target.clone().into(),
-            }),
+            EndpointKind::Human => Ok(HarnessTerminalEndpoint::fixture_only_human()),
+            EndpointKind::PtySocket => {
+                Ok(HarnessTerminalEndpoint::pty_socket(endpoint.target.clone()))
+            }
         }
     }
 }
