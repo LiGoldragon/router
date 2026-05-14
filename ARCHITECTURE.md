@@ -44,8 +44,7 @@ flowchart LR
   External engine-owner ingress arrives through
   `persona-message`'s `message.sock` (mode 0660) and
   is forwarded to router with `MessageOrigin::External(...)`
-  already minted by the message daemon from SO_PEERCRED. See
-  `~/primary/reports/designer/142-supervision-in-signal-persona-no-message-proxy-daemon.md`.
+  already minted by the message daemon from SO_PEERCRED.
 - a daemon-client CLI surface that accepts one NOTA `signal-persona-message`
   projection record, sends one Signal frame to the daemon, and prints one NOTA
   reply. The CLI does not mint the message sender;
@@ -78,11 +77,7 @@ move behind router-owned Sema tables.
 
 ## 1.5 · Supervision-relation reception
 
-Per
-`~/primary/reports/designer/142-supervision-in-signal-persona-no-message-proxy-daemon.md` §2.2
-and
-`~/primary/reports/designer/143-prototype-readiness-gap-audit.md` §4.2:
-the router daemon answers `signal-persona::SupervisionRequest` from a
+The router daemon answers `signal-persona::SupervisionRequest` from a
 canonical `SupervisionPhase` Kameo actor alongside `RouterRoot`. The phase
 actor carries `component_name`, `component_kind`,
 `supervision_protocol_version`, and a cached `ComponentHealth` pushed from
@@ -91,10 +86,9 @@ startup, binds `router.sock` at mode 0600, and proceeds.
 
 The router's structural-channels install names a channel from
 `Internal(Message) → Internal(Router)` carrying
-`ChannelMessageKind::MessageIngressSubmission` (per
-`~/primary/reports/designer/143-prototype-readiness-gap-audit.md` §4.6) —
-not the generic `DirectMessage` kind. This distinguishes user-message
-ingress from internal component traffic at the channel level.
+`ChannelMessageKind::MessageIngressSubmission` — not the generic
+`DirectMessage` kind. This distinguishes user-message ingress from internal
+component traffic at the channel level.
 
 A schema-version guard runs at `RouterTables::open()` (per
 `~/primary/skills/rust/storage-and-wire.md` §"Schema discipline"): the
