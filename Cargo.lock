@@ -459,15 +459,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
 name = "persona-harness"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-harness.git?branch=main#46f92d40f3d6c33ebbaf0efe324a55bb7d1a0e69"
+source = "git+https://github.com/LiGoldragon/persona-harness.git?branch=main#2325aec8010a659f8f253c944b435712b6f2b0bf"
 dependencies = [
  "kameo",
  "persona-terminal",
@@ -500,7 +494,7 @@ dependencies = [
 [[package]]
 name = "persona-terminal"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/persona-terminal.git?branch=main#f54fe72dcd3cd134c67d83b0934374f4d5db7dfd"
+source = "git+https://github.com/LiGoldragon/persona-terminal.git?branch=main#83d28d3130e7c4fe0a31e644a8813ad67506911c"
 dependencies = [
  "crossterm",
  "kameo",
@@ -809,12 +803,22 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 [[package]]
 name = "signal-core"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#29006d41cf977c3db129e97e46fce3fc51b19cd4"
+source = "git+https://github.com/LiGoldragon/signal-core.git#dd12794276ce48cc41dcceb97416476e54421f50"
 dependencies = [
  "nota-codec",
- "paste",
  "rkyv",
+ "signal-core-macros",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "signal-core-macros"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-core.git#dd12794276ce48cc41dcceb97416476e54421f50"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -851,7 +855,7 @@ dependencies = [
 [[package]]
 name = "signal-persona"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git#29d4986dde2e368beda7bc6ba1cfb773a8239657"
+source = "git+https://github.com/LiGoldragon/signal-persona.git#e72aa75451ceecac4c2e92efa541cb0312428707"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -872,7 +876,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-harness"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-harness.git?branch=main#6fa74ab1634ea10e2b75c4ce835b0efa4ea9b2e9"
+source = "git+https://github.com/LiGoldragon/signal-persona-harness.git?branch=main#4a873504a6b3aa24b02d83f9ce0e355e51423663"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -883,7 +887,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-message.git#ddce17434406f7e167210cefa7127dbe66281fac"
+source = "git+https://github.com/LiGoldragon/signal-persona-message.git#7fb5000b57e7661e5e5ec61c1715c767d3c56508"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -896,7 +900,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-mind.git#5663917869da2683640b0e687ac3e6b649e3b39e"
+source = "git+https://github.com/LiGoldragon/signal-persona-mind.git#ec00cde0c288c3787eca7ee6b42526e86d8d0e76"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -908,7 +912,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-terminal"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#d5efed4fd7f1fa2d72f048d3e405f1ff267d734e"
+source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#0b142b46a1f30ba105b14515860a11dc91607601"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -948,7 +952,7 @@ dependencies = [
 [[package]]
 name = "terminal-cell"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/terminal-cell.git?branch=main#727ffccb6dfac9dba3404a6358edfffaea0430f8"
+source = "git+https://github.com/LiGoldragon/terminal-cell.git?branch=main#f87d1da3a2a4feb9453a2c1ba3c8463f26713412"
 dependencies = [
  "crossterm",
  "kameo",

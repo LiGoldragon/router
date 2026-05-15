@@ -9,18 +9,17 @@ use persona_router::{
     RouterOutput, SocketMode, SupervisionFrameCodec, SupervisionListener, SupervisionProfile,
     SupervisionSocketMode,
 };
-use signal_core::{
-    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody, Request, SessionEpoch,
-};
+use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
 use signal_persona::{
     ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind,
     ComponentName as SupervisionComponentName, ComponentReadinessQuery, SupervisionFrame,
-    SupervisionProtocolVersion, SupervisionReply, SupervisionRequest, TimestampNanos,
+    SupervisionFrameBody, SupervisionProtocolVersion, SupervisionReply, SupervisionRequest,
+    TimestampNanos,
 };
 use signal_persona_auth::{ComponentName, MessageOrigin};
 use signal_persona_message::{
-    Frame, MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageRequest,
-    MessageSubmission, StampedMessageSubmission,
+    Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
+    MessageRequest, MessageSubmission, StampedMessageSubmission,
 };
 
 struct SocketFixture {
@@ -221,7 +220,7 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
 }
 
 fn send_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
-    let frame = SupervisionFrame::new(FrameBody::Request {
+    let frame = SupervisionFrame::new(SupervisionFrameBody::Request {
         exchange: test_exchange(),
         request: Request::from_payload(request),
     });
@@ -239,6 +238,6 @@ fn test_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
         SessionEpoch::new(0),
         ExchangeLane::Connector,
-        ExchangeSequence::first(),
+        LaneSequence::first(),
     )
 }

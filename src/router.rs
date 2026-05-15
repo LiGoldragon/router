@@ -9,12 +9,12 @@ use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use signal_core::{
-    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody, NonEmpty, Reply, Request,
-    SessionEpoch, SignalVerb, SubReply,
+    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
+    SignalVerb, SubReply,
 };
 use signal_persona_auth::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
 use signal_persona_message::{
-    Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
+    Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
     MessageBody as SignalMessageBody, MessageKind, MessageOperationKind,
     MessageRecipient as SignalMessageRecipient, MessageReply as SignalMessageReply,
@@ -51,7 +51,7 @@ fn synthetic_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
         SessionEpoch::new(0),
         ExchangeLane::Connector,
-        ExchangeSequence::first(),
+        LaneSequence::first(),
     )
 }
 
