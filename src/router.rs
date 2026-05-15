@@ -34,9 +34,9 @@ use crate::adjudication::{
     RecordMindAdjudication,
 };
 use crate::channel::{
-    ChannelAuthority, ChannelDecision, ChannelPersistenceSnapshot, CheckChannel, GrantChannel,
-    InstallStructuralChannels, ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel,
-    UseChannel,
+    ChannelAuthority, ChannelDecision, ChannelLifetime, ChannelPersistenceSnapshot, CheckChannel,
+    EngineStructuralChannels, GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus,
+    ReadChannelPersistence, RetractChannel, UseChannel,
 };
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
@@ -61,6 +61,7 @@ pub struct RouterDaemon {
     tables: Option<RouterTables>,
     ingress: RouterIngressContext,
     socket_mode: Option<SocketMode>,
+    bootstrap: Option<RouterBootstrap>,
 }
 
 impl RouterDaemon {
@@ -70,6 +71,7 @@ impl RouterDaemon {
             tables: None,
             ingress: RouterIngressContext::message(),
             socket_mode: SocketMode::from_environment(),
+            bootstrap: None,
         }
     }
 
@@ -85,6 +87,11 @@ impl RouterDaemon {
 
     pub fn with_socket_mode(mut self, socket_mode: SocketMode) -> Self {
         self.socket_mode = Some(socket_mode);
+        self
+    }
+
+    pub fn with_bootstrap_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.bootstrap = Some(RouterBootstrap::from_path(path));
         self
     }
 
@@ -107,6 +114,9 @@ impl RouterDaemon {
             .transpose()?;
         let runtime = tokio::runtime::Runtime::new()?;
         let router = runtime.block_on(RouterRuntime::start_with_optional_tables(self.tables));
+        if let Some(bootstrap) = &self.bootstrap {
+            bootstrap.apply(&runtime, &router)?;
+        }
         eprintln!("persona-router-daemon socket={}", self.socket.display());
         for stream in listener.incoming() {
             let stream = stream?;
@@ -1060,6 +1070,124 @@ impl SignalMessageSlot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterBootstrap {
+    path: PathBuf,
+}
+
+impl RouterBootstrap {
+    pub fn from_path(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn operations(&self) -> Result<Vec<RouterBootstrapOperation>> {
+        let text = std::fs::read_to_string(&self.path)?;
+        RouterBootstrapText::new(text).operations()
+    }
+
+    pub fn apply(
+        &self,
+        runtime: &tokio::runtime::Runtime,
+        router: &ActorRef<RouterRuntime>,
+    ) -> Result<()> {
+        for operation in self.operations()? {
+            let input = operation.into_router_input();
+            runtime
+                .block_on(async { router.ask(ApplyRouterInput { input }).await })
+                .map_err(|error| Error::ActorCall(error.to_string()))?
+                .into_result()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouterBootstrapText {
+    text: String,
+}
+
+impl RouterBootstrapText {
+    fn new(text: String) -> Self {
+        Self { text }
+    }
+
+    fn operations(&self) -> Result<Vec<RouterBootstrapOperation>> {
+        let mut operations = Vec::new();
+        for line in self.text.lines().map(str::trim) {
+            if line.is_empty() {
+                continue;
+            }
+            operations.push(RouterBootstrapOperation::from_nota(line)?);
+        }
+        Ok(operations)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouterBootstrapOperation {
+    RegisterActor(RegisterActor),
+    GrantDirectMessage(GrantDirectMessage),
+    InstallStructuralChannels(InstallStructuralChannelsBootstrap),
+}
+
+impl RouterBootstrapOperation {
+    pub fn from_nota(text: &str) -> Result<Self> {
+        let mut decoder = Decoder::new(text);
+        let operation = Self::decode(&mut decoder)?;
+        expect_end(&mut decoder)?;
+        Ok(operation)
+    }
+
+    fn into_router_input(self) -> RouterInput {
+        match self {
+            Self::RegisterActor(operation) => RouterInput::RegisterActor(operation),
+            Self::GrantDirectMessage(operation) => RouterInput::GrantChannel(GrantRouteChannel {
+                channel: GrantChannel::direct_message(
+                    operation.from,
+                    operation.to,
+                    ChannelLifetime::Persistent,
+                ),
+            }),
+            Self::InstallStructuralChannels(_) => {
+                RouterInput::InstallStructuralChannels(InstallRouteStructuralChannels {
+                    channels: InstallStructuralChannels {
+                        channels: EngineStructuralChannels::first_stack(),
+                    },
+                })
+            }
+        }
+    }
+}
+
+impl NotaDecode for RouterBootstrapOperation {
+    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
+        match decoder.peek_record_head()?.as_str() {
+            "RegisterActor" => Ok(Self::RegisterActor(RegisterActor::decode(decoder)?)),
+            "GrantDirectMessage" => Ok(Self::GrantDirectMessage(GrantDirectMessage::decode(
+                decoder,
+            )?)),
+            "InstallStructuralChannels" => Ok(Self::InstallStructuralChannels(
+                InstallStructuralChannelsBootstrap::decode(decoder)?,
+            )),
+            other => Err(nota_codec::Error::UnknownKindForVerb {
+                verb: "RouterBootstrapOperation",
+                got: other.to_string(),
+            }),
+        }
+    }
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct GrantDirectMessage {
+    pub from: ActorId,
+    pub to: ActorId,
+}
+
+#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+pub struct InstallStructuralChannelsBootstrap {
+    pub requester: ActorId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterCommandLine {
     arguments: Vec<OsString>,
 }
@@ -1120,6 +1248,7 @@ struct RouterDaemonArguments<'arguments> {
     index: usize,
     socket: Option<PathBuf>,
     store: Option<PathBuf>,
+    bootstrap: Option<PathBuf>,
 }
 
 impl<'arguments> RouterDaemonArguments<'arguments> {
@@ -1129,6 +1258,7 @@ impl<'arguments> RouterDaemonArguments<'arguments> {
             index: 0,
             socket: None,
             store: None,
+            bootstrap: None,
         }
     }
 
@@ -1137,6 +1267,9 @@ impl<'arguments> RouterDaemonArguments<'arguments> {
             match argument.to_string_lossy().as_ref() {
                 "--socket" => self.socket = Some(PathBuf::from(self.required_value("--socket")?)),
                 "--store" => self.store = Some(PathBuf::from(self.required_value("--store")?)),
+                "--bootstrap" => {
+                    self.bootstrap = Some(PathBuf::from(self.required_value("--bootstrap")?))
+                }
                 _ if self.socket.is_none()
                     && !CommandLineArgument::new(argument).starts_option() =>
                 {
@@ -1149,7 +1282,10 @@ impl<'arguments> RouterDaemonArguments<'arguments> {
                 }
             }
         }
-        let daemon = RouterDaemon::from_socket(self.socket.take().ok_or(Error::MissingSocket)?);
+        let mut daemon = RouterDaemon::from_socket(self.socket.take().ok_or(Error::MissingSocket)?);
+        if let Some(bootstrap) = self.bootstrap.take() {
+            daemon = daemon.with_bootstrap_path(bootstrap);
+        }
         match self.store.take() {
             Some(store) => daemon.with_store_path(store),
             None => Ok(daemon),

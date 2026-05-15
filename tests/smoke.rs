@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use persona_router::{
-    Message, MessageBody, MessageId, PendingDelivery, RouterConnection, RouterDaemon, RouterInput,
-    RouterOutput, SocketMode, SupervisionFrameCodec, SupervisionListener, SupervisionProfile,
-    SupervisionSocketMode,
+    Message, MessageBody, MessageId, PendingDelivery, RouterBootstrapOperation, RouterConnection,
+    RouterDaemon, RouterInput, RouterOutput, SocketMode, SupervisionFrameCodec,
+    SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
 use signal_persona::{
@@ -90,6 +90,34 @@ fn router_output_encodes_delivery_changed() {
         output.to_nota().expect("output encodes"),
         "(DeliveryChanged 1 0)"
     );
+}
+
+#[test]
+fn router_bootstrap_decodes_direct_message_channel_grant() {
+    let operation = RouterBootstrapOperation::from_nota("(GrantDirectMessage owner responder)")
+        .expect("bootstrap channel grant decodes");
+
+    assert!(matches!(
+        operation,
+        RouterBootstrapOperation::GrantDirectMessage(grant)
+            if grant.from.as_str() == "owner" && grant.to.as_str() == "responder"
+    ));
+}
+
+#[test]
+fn router_bootstrap_decodes_registered_pty_endpoint() {
+    let operation = RouterBootstrapOperation::from_nota(
+        r#"(RegisterActor (Actor responder 42 (EndpointTransport PtySocket "/tmp/responder.terminal.sock" None)))"#,
+    )
+    .expect("bootstrap actor registration decodes");
+
+    assert!(matches!(
+        operation,
+        RouterBootstrapOperation::RegisterActor(registration)
+            if registration.actor.name.as_str() == "responder"
+                && registration.actor.pid == 42
+                && registration.actor.endpoint.is_some()
+    ));
 }
 
 #[test]

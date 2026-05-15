@@ -35,15 +35,16 @@ pub use message::{
 };
 pub use router::{
     ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput, ApplySignalMessage,
-    ChannelGranted, ChannelRetracted, DeliveryChanged, GrantRouteChannel,
-    InstallRouteStructuralChannels, MindAdjudicationDenyApplied, MindChannelGrantApplied,
-    ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor,
-    Registered, RetractRouteChannel, RouteMessage, RouterApplyOutcome,
-    RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection, RouterDaemon,
-    RouterIngressContext, RouterInput, RouterMindAdjudicationOutboxOutcome, RouterOutput,
-    RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
-    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
-    Status, StructuralChannelsInstalled,
+    ChannelGranted, ChannelRetracted, DeliveryChanged, GrantDirectMessage, GrantRouteChannel,
+    InstallRouteStructuralChannels, InstallStructuralChannelsBootstrap,
+    MindAdjudicationDenyApplied, MindChannelGrantApplied, ReadRouterChannelPersistence,
+    ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor, Registered,
+    RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterBootstrap,
+    RouterBootstrapOperation, RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection,
+    RouterDaemon, RouterIngressContext, RouterInput, RouterMindAdjudicationOutboxOutcome,
+    RouterOutput, RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent,
+    RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput,
+    SignalMessageOutcome, SocketMode, Status, StructuralChannelsInstalled,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
