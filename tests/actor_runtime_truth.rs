@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,8 +19,12 @@ use persona_router::{
     RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables, RouterTrace,
     RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
+use signal_core::{NonEmpty, Reply, SubReply};
 use signal_persona::TimestampNanos;
 use signal_persona_auth::{ComponentName, ConnectionClass, MessageOrigin};
+use signal_persona_harness::{
+    DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
+};
 use signal_persona_message::{
     MessageBody, MessageKind, MessageOperationKind, MessageRecipient, MessageReply, MessageRequest,
     MessageSubmission, MessageUnimplementedReason, StampedMessageSubmission,
@@ -262,6 +267,107 @@ impl Drop for TerminalAcceptanceSocket {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
     }
+}
+
+struct HarnessAcceptedDelivery {
+    harness: String,
+    sender: String,
+    body: String,
+    slot: u64,
+}
+
+struct HarnessAcceptanceSocket {
+    path: PathBuf,
+    received: Receiver<HarnessAcceptedDelivery>,
+}
+
+impl HarnessAcceptanceSocket {
+    fn new(name: &str) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "persona-router-harness-{name}-{}-{now}.sock",
+            std::process::id()
+        ));
+        let listener = UnixListener::bind(&path).expect("harness acceptance socket binds");
+        let (sender, received) = channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("harness socket accepts input");
+            let frame = read_harness_frame(&mut stream);
+            let HarnessFrameBody::Request { exchange, request } = frame.into_body() else {
+                panic!("expected harness request frame");
+            };
+            let operation = request
+                .into_checked()
+                .expect("harness request passes structural checks")
+                .operations
+                .into_head();
+            let HarnessRequest::MessageDelivery(delivery) = operation.payload else {
+                panic!("expected message delivery request");
+            };
+            sender
+                .send(HarnessAcceptedDelivery {
+                    harness: delivery.harness.as_str().to_string(),
+                    sender: delivery.sender.as_str().to_string(),
+                    body: delivery.body.as_str().to_string(),
+                    slot: delivery.message_slot.into_u64(),
+                })
+                .expect("harness socket reports delivery");
+            let reply = HarnessFrame::new(HarnessFrameBody::Reply {
+                exchange,
+                reply: Reply::completed(NonEmpty::single(SubReply::Ok {
+                    verb: operation.verb,
+                    payload: HarnessEvent::DeliveryCompleted(DeliveryCompleted {
+                        harness: HarnessName::new(delivery.harness.as_str()),
+                        message_slot: delivery.message_slot,
+                    }),
+                })),
+            });
+            stream
+                .write_all(
+                    reply
+                        .encode_length_prefixed()
+                        .expect("harness reply encodes")
+                        .as_slice(),
+                )
+                .expect("harness socket writes reply");
+            stream.flush().expect("harness socket flushes reply");
+        });
+        Self { path, received }
+    }
+
+    fn target(&self) -> String {
+        self.path.to_string_lossy().into_owned()
+    }
+
+    fn received(&self) -> HarnessAcceptedDelivery {
+        self.received
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("harness socket receives delivery")
+    }
+}
+
+impl Drop for HarnessAcceptanceSocket {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn read_harness_frame(stream: &mut impl Read) -> HarnessFrame {
+    let mut prefix = [0_u8; 4];
+    stream
+        .read_exact(&mut prefix)
+        .expect("harness socket reads frame prefix");
+    let length = u32::from_be_bytes(prefix) as usize;
+    let mut bytes = Vec::with_capacity(4 + length);
+    bytes.extend_from_slice(&prefix);
+    bytes.resize(4 + length, 0);
+    stream
+        .read_exact(&mut bytes[4..])
+        .expect("harness socket reads frame body");
+    HarnessFrame::decode_length_prefixed(bytes.as_slice()).expect("harness frame decodes")
 }
 
 #[test]
@@ -976,6 +1082,59 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
         adjudication_index < delivery_index,
         "delivery cannot happen before mind grant unblocks adjudication: {message_steps:?}"
     );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_delivers_to_harness_daemon_socket_through_signal_contract() {
+    let harness_socket = HarnessAcceptanceSocket::new("signal-delivery");
+    let router = RouterFixture::start().await;
+    let sender = ActorId::new("operator");
+    let recipient = ActorId::new("responder");
+    let message_id = MessageId::new("m-harness-socket");
+
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: recipient.clone(),
+                pid: 42,
+                endpoint: Some(EndpointTransport {
+                    kind: EndpointKind::HarnessSocket,
+                    target: harness_socket.target(),
+                    aux: None,
+                }),
+            },
+        }))
+        .await
+        .expect("harness socket registration passes through router actors");
+    router.grant_direct(&sender, &recipient).await;
+
+    let output = router
+        .apply(RouterInput::RouteMessage(RouteMessage {
+            message: Message {
+                id: message_id,
+                thread: ThreadId::new("direct-operator-responder"),
+                from: sender,
+                to: recipient,
+                body: "deliver through harness signal".to_string(),
+                attachments: Vec::new(),
+            },
+        }))
+        .await
+        .expect("router delivers through harness socket");
+
+    let RouterOutput::DeliveryChanged(delivery) = output else {
+        panic!("expected delivery output");
+    };
+    assert_eq!(delivery.delivered, 1);
+    assert_eq!(delivery.pending, 0);
+
+    let received = harness_socket.received();
+    assert_eq!(received.harness, "responder");
+    assert_eq!(received.sender, "operator");
+    assert_eq!(received.body, "deliver through harness signal");
+    assert_eq!(received.slot, 1);
 
     router.stop().await;
 }

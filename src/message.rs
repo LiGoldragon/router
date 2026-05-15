@@ -79,6 +79,7 @@ pub struct EndpointTransport {
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EndpointKind {
     Human,
+    HarnessSocket,
     PtySocket,
 }
 

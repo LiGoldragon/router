@@ -1,3 +1,7 @@
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
+use std::path::Path;
+
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
@@ -5,6 +9,13 @@ use kameo::reply::DelegatedReply;
 use persona_harness::{
     HarnessId, HarnessTerminalBinding, HarnessTerminalDelivery as TerminalDelivery,
     HarnessTerminalEndpoint,
+};
+use signal_core::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
+};
+use signal_persona_harness::{
+    HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest, MessageBody,
+    MessageDelivery, MessageSender, MessageSlot,
 };
 
 use crate::{Actor, EndpointKind, EndpointTransport, Error, Message, Result};
@@ -23,10 +34,13 @@ impl HarnessDelivery {
         }
     }
 
-    fn deliver(actor: &Actor, message: &Message) -> Result<bool> {
+    fn deliver(actor: &Actor, message: &Message, message_slot: u64) -> Result<bool> {
         let Some(endpoint) = &actor.endpoint else {
             return Ok(false);
         };
+        if endpoint.kind == EndpointKind::HarnessSocket {
+            return Self::deliver_to_harness_socket(actor, message, message_slot, &endpoint.target);
+        }
         let text = message.to_nota()?;
         let terminal = HarnessTerminalBinding::for_harness(HarnessId::new(actor.name.as_str()));
         let mut delivery = TerminalDelivery::new(Self::terminal_endpoint(endpoint)?);
@@ -36,9 +50,71 @@ impl HarnessDelivery {
     fn terminal_endpoint(endpoint: &EndpointTransport) -> Result<HarnessTerminalEndpoint> {
         match endpoint.kind {
             EndpointKind::Human => Ok(HarnessTerminalEndpoint::fixture_only_human()),
+            EndpointKind::HarnessSocket => Err(Error::UnexpectedSignalFrame {
+                got: "harness socket endpoint cannot be treated as terminal transport".to_string(),
+            }),
             EndpointKind::PtySocket => {
                 Ok(HarnessTerminalEndpoint::pty_socket(endpoint.target.clone()))
             }
+        }
+    }
+
+    fn deliver_to_harness_socket(
+        actor: &Actor,
+        message: &Message,
+        message_slot: u64,
+        path: &str,
+    ) -> Result<bool> {
+        let mut stream = UnixStream::connect(Path::new(path))?;
+        let request = HarnessRequest::MessageDelivery(MessageDelivery {
+            harness: HarnessName::new(actor.name.as_str()),
+            sender: MessageSender::new(message.from.as_str()),
+            body: MessageBody::new(message.body.as_str()),
+            message_slot: MessageSlot::new(message_slot),
+        });
+        let exchange = ExchangeIdentifier::new(
+            SessionEpoch::new(0),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        );
+        let frame = HarnessFrame::new(HarnessFrameBody::Request {
+            exchange,
+            request: Request::from_payload(request),
+        });
+        stream.write_all(frame.encode_length_prefixed()?.as_slice())?;
+        stream.flush()?;
+        match Self::read_harness_event(&mut stream)? {
+            HarnessEvent::DeliveryCompleted(event) => {
+                Ok(event.harness.as_str() == actor.name.as_str())
+            }
+            HarnessEvent::DeliveryFailed(_) => Ok(false),
+            _ => Ok(false),
+        }
+    }
+
+    fn read_harness_event(stream: &mut impl Read) -> Result<HarnessEvent> {
+        let mut prefix = [0_u8; 4];
+        stream.read_exact(&mut prefix)?;
+        let length = u32::from_be_bytes(prefix) as usize;
+        let mut bytes = Vec::with_capacity(4 + length);
+        bytes.extend_from_slice(&prefix);
+        bytes.resize(4 + length, 0);
+        stream.read_exact(&mut bytes[4..])?;
+        match HarnessFrame::decode_length_prefixed(bytes.as_slice())?.into_body() {
+            HarnessFrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok { payload, .. } => Ok(payload),
+                    other => Err(Error::UnexpectedSignalFrame {
+                        got: format!("unexpected harness sub-reply: {other:?}"),
+                    }),
+                },
+                Reply::Rejected { reason } => Err(Error::UnexpectedSignalFrame {
+                    got: format!("harness delivery rejected: {reason:?}"),
+                }),
+            },
+            other => Err(Error::UnexpectedSignalFrame {
+                got: format!("unexpected harness frame: {other:?}"),
+            }),
         }
     }
 }
@@ -53,6 +129,7 @@ impl Default for HarnessDelivery {
 pub struct DeliverHarness {
     pub actor: Actor,
     pub message: Message,
+    pub message_slot: u64,
 }
 
 #[derive(Debug, kameo::Reply)]
@@ -94,7 +171,7 @@ impl kameo::message::Message<DeliverHarness> for HarnessDelivery {
         self.delegated_delivery_count = self.delegated_delivery_count.saturating_add(1);
         context.spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
-                HarnessDelivery::deliver(&message.actor, &message.message)
+                HarnessDelivery::deliver(&message.actor, &message.message, message.message_slot)
             })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))

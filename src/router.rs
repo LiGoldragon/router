@@ -940,11 +940,16 @@ impl RouterRoot {
             }
             self.trace
                 .record(message.id.clone(), RouterTraceStep::DeliveryAttempted);
+            let message_slot = self
+                .signal_slot_for(&message.id)
+                .map(|slot| slot.into_u64())
+                .unwrap_or(delivery_sequence);
             let delivery_reply = match self
                 .delivery
                 .ask(DeliverHarness {
                     actor: target.actor,
                     message: message.clone(),
+                    message_slot,
                 })
                 .await
             {

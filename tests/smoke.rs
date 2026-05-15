@@ -121,6 +121,22 @@ fn router_bootstrap_decodes_registered_pty_endpoint() {
 }
 
 #[test]
+fn router_bootstrap_decodes_registered_harness_socket_endpoint() {
+    let operation = RouterBootstrapOperation::from_nota(
+        r#"(RegisterActor (Actor responder 42 (EndpointTransport HarnessSocket "/tmp/responder.harness.sock" None)))"#,
+    )
+    .expect("bootstrap harness socket registration decodes");
+
+    assert!(matches!(
+        operation,
+        RouterBootstrapOperation::RegisterActor(registration)
+            if registration.actor.name.as_str() == "responder"
+                && registration.actor.pid == 42
+                && registration.actor.endpoint.is_some()
+    ));
+}
+
+#[test]
 fn constraint_router_daemon_applies_spawn_envelope_socket_mode() {
     let fixture = SocketFixture::new("socket-mode");
     let _listener = RouterDaemon::from_socket(fixture.socket().to_path_buf())
