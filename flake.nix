@@ -201,6 +201,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth router_root_persists_delivery_attempt_and_result_records -- --exact";
             }
           );
+          router-root-persists-accepted-signal-message-before-delivery-attempt = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth router_root_persists_accepted_signal_message_before_delivery_attempt -- --exact";
+            }
+          );
           router-installs-structural-channels-for-engine-setup = context.craneLib.cargoTest (
             context.commonArgs
             // {

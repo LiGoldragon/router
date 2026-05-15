@@ -1250,6 +1250,55 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_root_persists_accepted_signal_message_before_delivery_attempt() {
+    let store = TemporaryRouterStore::new("message-tables");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+
+    let reply = router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new("responder"),
+                    kind: MessageKind::Send,
+                    body: MessageBody::new("durable router message"),
+                },
+                origin: MessageOrigin::External(ConnectionClass::Owner),
+                stamped_at: TimestampNanos::new(1),
+            }),
+        ))
+        .await
+        .expect("signal message request passes through router actors");
+
+    let MessageReply::SubmissionAccepted(acceptance) = reply else {
+        panic!("expected accepted signal message reply");
+    };
+    assert_eq!(acceptance.message_slot.into_u64(), 1);
+
+    let messages = inspection.message_records().expect("message records read");
+    let attempts = inspection
+        .delivery_attempt_records()
+        .expect("delivery attempts read");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].sender, "owner");
+    assert_eq!(messages[0].recipient, "responder");
+    assert_eq!(messages[0].body, "durable router message");
+    assert_eq!(messages[0].signal_slot, Some(1));
+    assert_eq!(
+        messages[0].origin,
+        MessageOrigin::External(ConnectionClass::Owner)
+    );
+    assert!(
+        attempts.is_empty(),
+        "message row must persist even when no harness target exists yet"
+    );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unstamped_message_submission_is_not_router_ingress_payload() {
     let router = RouterFixture::start().await;
     let reply = router

@@ -119,13 +119,14 @@ Stored router records are typed contract records from the relation-specific
 through router-owned typed Sema tables, and emits follow-up frames only after
 the database commit succeeds.
 
-Current MVP code still uses in-memory pending state. Channel grants and
-adjudication requests now have a router-owned Sema table layer, and
-`ChannelAuthority` can be constructed with that table layer so grants and
-adjudication requests are persisted through the actor path. `RouterRuntime` and
-the daemon can receive a `RouterTables` handle at startup, so the root actor
-tree can route channel work to a durable channel authority. The first witnesses
-tree can route channel work to a durable channel authority. The router can also
+Current MVP code still keeps the live pending queue in memory. Accepted
+messages, channel grants, adjudication requests, delivery attempts, and
+delivery results have a router-owned Sema table layer. `ChannelAuthority` can
+be constructed with that table layer so grants and adjudication requests are
+persisted through the actor path, and `RouterRoot` writes accepted message rows
+before retrying delivery. `RouterRuntime` and the daemon can receive a
+`RouterTables` handle at startup, so the root actor tree can route channel work
+to a durable channel authority. The router can also
 install the current first-stack structural channels through the actor tree, so
 Persona engine setup does not need to bypass `RouterRoot` or
 `ChannelAuthority`. Those structural channels are currently an `ActorId`
@@ -153,10 +154,11 @@ trace witnesses graduate into chained artifact witnesses where one step writes
 the router redb and another step reads committed message, channel,
 adjudication, and delivery state through the authoritative table layer.
 
-Current router-owned durable table names are `channels`, `channels_by_triple`,
-`adjudication_pending`, `delivery_attempts`, `delivery_results`, and `meta`.
-Channel grants, adjudication requests, delivery attempts, and delivery results
-are written through the current runtime actor path. Pending delivery and
+Current router-owned durable table names are `messages`, `channels`,
+`channels_by_triple`, `adjudication_pending`, `delivery_attempts`,
+`delivery_results`, and `meta`. Message acceptance, channel grants,
+adjudication requests, delivery attempts, and delivery results are written
+through the current runtime actor path. Pending delivery and
 delivered/failed/deferred status records still need to be wired into
 `RouterRoot`. Successful delivery is another router state transition: after
 `persona-harness` reports the terminal effect, the router commits the delivery
@@ -238,6 +240,7 @@ This repo does not own:
 - A message with no active channel does not reach `HarnessDelivery`.
 - A message with no active channel emits a typed `signal-persona-mind`
   adjudication request.
+- Accepted Signal messages persist to router-owned Sema before delivery retry.
 - One-shot and retracted channels cannot keep authorizing messages.
 - Expired time-bound channels cannot authorize messages.
 - Channel grants and adjudication requests can be persisted through
@@ -268,7 +271,7 @@ src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/delivery.rs         pending-delivery records
 src/message.rs          transitional router message records
-src/tables.rs           router-owned Sema schema and channel/adjudication tables
+src/tables.rs           router-owned Sema schema and message/channel/adjudication/delivery tables
 src/main.rs             daemon entry and daemon-client CLI entry
 tests/                  router smoke and actor-density truth tests
 ```
@@ -293,6 +296,7 @@ tests/                  router smoke and actor-density truth tests
 | An expired time-bound channel cannot authorize messages. | `nix flake check .#router-expired-channel-cannot-authorize-message` |
 | Router-owned Sema tables persist channel and adjudication records. | `nix flake check .#router-sema-tables-persist-channel-and-adjudication-records` |
 | Router runtime can wire channel authority to router-owned Sema tables. | `nix flake check .#router-runtime-wires-channel-authority-to-router-tables` |
+| RouterRoot persists accepted Signal messages before delivery retry. | `nix flake check .#router-root-persists-accepted-signal-message-before-delivery-attempt` |
 | RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix flake check .#router-root-persists-delivery-attempt-and-result-records` |
 | Router engine setup can install first-stack structural channels through the actor tree. | `nix flake check .#router-installs-structural-channels-for-engine-setup` |
 | A typed mind channel grant installs a row before a parked message is retried for delivery. | `nix flake check .#mind-channel-grant-installs-row-before-parked-message-delivers` |

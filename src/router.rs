@@ -682,9 +682,10 @@ impl RouterRoot {
                 Ok(RouterOutput::Registered(Registered { actors }))
             }
             RouterInput::RouteMessage(input) => {
-                let message_id = input.message.id.clone();
-                self.pending
-                    .push(PendingRouterMessage::internal_router(input.message));
+                let pending = PendingRouterMessage::internal_router(input.message);
+                let message_id = pending.message.id.clone();
+                self.persist_message(&pending.message, &pending.origin, None)?;
+                self.pending.push(pending);
                 self.trace
                     .record(message_id, RouterTraceStep::MessageCommitted);
                 let delivered = self.retry_pending().await?;
@@ -808,6 +809,7 @@ impl RouterRoot {
         let origin = stamped.origin;
         let slot = self.next_signal_message_slot();
         let message = self.signal_message(sender, stamped.submission, slot);
+        self.persist_message(&message, &origin, Some(slot))?;
         self.pending
             .push(PendingRouterMessage::new(message.clone(), origin));
         self.signal_slots
@@ -856,6 +858,18 @@ impl RouterRoot {
             body,
             attachments: Vec::new(),
         }
+    }
+
+    fn persist_message(
+        &self,
+        message: &Message,
+        origin: &MessageOrigin,
+        signal_slot: Option<SignalSlot>,
+    ) -> Result<()> {
+        if let Some(tables) = &self.tables {
+            tables.insert_message(message, origin, signal_slot)?;
+        }
+        Ok(())
     }
 
     fn signal_inbox(&self, recipient: &SignalMessageRecipient) -> Vec<SignalInboxEntry> {

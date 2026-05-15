@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema::{Schema, SchemaVersion, Sema, Table};
-use signal_persona_auth::ChannelId;
+use signal_persona_auth::{ChannelId, MessageOrigin};
+use signal_persona_message::MessageSlot;
 
 use crate::{
-    AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, MessageId,
-    Result,
+    AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
+    MessageId, Result,
 };
 
 const ROUTER_SCHEMA: Schema = Schema {
@@ -19,6 +20,7 @@ const CHANNELS_BY_TRIPLE: Table<&'static str, StoredChannelIndex> =
     Table::new("channels_by_triple");
 const ADJUDICATION_PENDING: Table<&'static str, StoredAdjudicationRequest> =
     Table::new("adjudication_pending");
+const MESSAGES: Table<&'static str, StoredMessageRecord> = Table::new("messages");
 const DELIVERY_ATTEMPTS: Table<u64, StoredDeliveryAttempt> = Table::new("delivery_attempts");
 const DELIVERY_RESULTS: Table<u64, StoredDeliveryResult> = Table::new("delivery_results");
 const META: Table<&'static str, u64> = Table::new("meta");
@@ -43,6 +45,7 @@ impl RouterTables {
             CHANNELS.ensure(transaction)?;
             CHANNELS_BY_TRIPLE.ensure(transaction)?;
             ADJUDICATION_PENDING.ensure(transaction)?;
+            MESSAGES.ensure(transaction)?;
             DELIVERY_ATTEMPTS.ensure(transaction)?;
             DELIVERY_RESULTS.ensure(transaction)?;
             META.ensure(transaction)?;
@@ -76,6 +79,31 @@ impl RouterTables {
             Ok(())
         })?;
         Ok(())
+    }
+
+    pub fn insert_message(
+        &self,
+        message: &Message,
+        origin: &MessageOrigin,
+        signal_slot: Option<MessageSlot>,
+    ) -> Result<()> {
+        let stored = StoredMessageRecord::from_message(message, origin, signal_slot);
+        let key = stored.id.clone();
+        self.database.write(|transaction| {
+            MESSAGES.insert(transaction, key.as_str(), &stored)?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    pub fn message_records(&self) -> Result<Vec<StoredMessageRecord>> {
+        Ok(self.database.read(|transaction| {
+            Ok(MESSAGES
+                .iter(transaction)?
+                .into_iter()
+                .map(|(_key, message)| message)
+                .collect())
+        })?)
     }
 
     pub fn channel_records(&self) -> Result<Vec<StoredChannelRecord>> {
@@ -139,6 +167,36 @@ impl RouterTables {
                 .map(|(_key, result)| result)
                 .collect())
         })?)
+    }
+}
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+#[rkyv(derive(Debug))]
+pub struct StoredMessageRecord {
+    pub id: String,
+    pub thread: String,
+    pub sender: String,
+    pub recipient: String,
+    pub body: String,
+    pub origin: MessageOrigin,
+    pub signal_slot: Option<u64>,
+}
+
+impl StoredMessageRecord {
+    fn from_message(
+        message: &Message,
+        origin: &MessageOrigin,
+        signal_slot: Option<MessageSlot>,
+    ) -> Self {
+        Self {
+            id: message.id.as_str().to_string(),
+            thread: message.thread.as_str().to_string(),
+            sender: message.from.as_str().to_string(),
+            recipient: message.to.as_str().to_string(),
+            body: message.body.clone(),
+            origin: origin.clone(),
+            signal_slot: signal_slot.map(MessageSlot::into_u64),
+        }
     }
 }
 

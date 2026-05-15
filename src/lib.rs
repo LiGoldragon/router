@@ -51,5 +51,5 @@ pub use supervision::{
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,
-    StoredDeliveryAttempt, StoredDeliveryResult,
+    StoredDeliveryAttempt, StoredDeliveryResult, StoredMessageRecord,
 };
