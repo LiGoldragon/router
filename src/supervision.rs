@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use kameo::actor::{Actor, ActorRef, Spawn};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_core::{FrameBody, Reply};
+use signal_core::{ExchangeIdentifier, FrameBody, NonEmpty, Reply, SignalVerb, SubReply};
 use signal_persona::{
     ComponentHealth, ComponentHealthQuery, ComponentHealthReport, ComponentHello,
     ComponentIdentity, ComponentKind, ComponentName, ComponentReadinessQuery, ComponentReady,
@@ -216,9 +216,16 @@ impl SupervisionServer {
     ) -> std::io::Result<()> {
         while let Ok(request) = self.codec.read_request(stream) {
             let reply = runtime
-                .block_on(phase.ask(HandleSupervisionRequest { request }).send())
+                .block_on(
+                    phase
+                        .ask(HandleSupervisionRequest {
+                            request: request.request,
+                        })
+                        .send(),
+                )
                 .map_err(io_error)?;
-            self.codec.write_reply(stream, reply.reply)?;
+            self.codec
+                .write_reply(stream, request.exchange, request.verb, reply.reply)?;
         }
         Ok(())
     }
@@ -236,7 +243,10 @@ impl SupervisionFrameCodec {
         }
     }
 
-    pub fn read_request(&self, reader: &mut impl Read) -> std::io::Result<SupervisionRequest> {
+    pub fn read_request(
+        &self,
+        reader: &mut impl Read,
+    ) -> std::io::Result<ReceivedSupervisionRequest> {
         let mut prefix = [0_u8; 4];
         reader.read_exact(&mut prefix)?;
         let length = u32::from_be_bytes(prefix) as usize;
@@ -252,7 +262,17 @@ impl SupervisionFrameCodec {
         reader.read_exact(&mut bytes[4..])?;
         let frame = SupervisionFrame::decode_length_prefixed(bytes.as_slice()).map_err(io_error)?;
         match frame.into_body() {
-            FrameBody::Request(request) => request.into_payload_checked().map_err(io_error),
+            FrameBody::Request { exchange, request } => {
+                let checked = request
+                    .into_checked()
+                    .map_err(|(reason, _)| io_error(reason))?;
+                let operation = checked.operations.into_head();
+                Ok(ReceivedSupervisionRequest {
+                    exchange,
+                    verb: operation.verb,
+                    request: operation.payload,
+                })
+            }
             other => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("unexpected supervision frame body: {other:?}"),
@@ -276,7 +296,15 @@ impl SupervisionFrameCodec {
         reader.read_exact(&mut bytes[4..])?;
         let frame = SupervisionFrame::decode_length_prefixed(bytes.as_slice()).map_err(io_error)?;
         match frame.into_body() {
-            FrameBody::Reply(Reply::Operation(reply)) => Ok(reply),
+            FrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok { payload, .. } => Ok(payload),
+                    other => Err(io_error(format!(
+                        "expected ok supervision sub-reply, got {other:?}"
+                    ))),
+                },
+                Reply::Rejected { reason } => Err(io_error(reason)),
+            },
             other => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("unexpected supervision frame body: {other:?}"),
@@ -287,13 +315,28 @@ impl SupervisionFrameCodec {
     pub fn write_reply(
         &self,
         writer: &mut impl Write,
+        exchange: ExchangeIdentifier,
+        verb: SignalVerb,
         reply: SupervisionReply,
     ) -> std::io::Result<()> {
-        let frame = SupervisionFrame::new(FrameBody::Reply(Reply::operation(reply)));
+        let frame = SupervisionFrame::new(FrameBody::Reply {
+            exchange,
+            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
+                verb,
+                payload: reply,
+            })),
+        });
         let bytes = frame.encode_length_prefixed().map_err(io_error)?;
         writer.write_all(bytes.as_slice())?;
         writer.flush()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceivedSupervisionRequest {
+    exchange: ExchangeIdentifier,
+    verb: SignalVerb,
+    request: SupervisionRequest,
 }
 
 fn io_error(error: impl std::fmt::Display) -> std::io::Error {

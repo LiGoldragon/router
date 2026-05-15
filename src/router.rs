@@ -8,7 +8,10 @@ use kameo::actor::{ActorRef, Spawn};
 use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
-use signal_core::{FrameBody, Reply, Request};
+use signal_core::{
+    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody, NonEmpty, Reply, Request,
+    SessionEpoch, SignalVerb, SubReply,
+};
 use signal_persona_auth::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
 use signal_persona_message::{
     Frame as SignalMessageFrame, InboxEntry as SignalInboxEntry,
@@ -43,6 +46,14 @@ use crate::harness_registry::{
 use crate::message::expect_end;
 use crate::supervision::{SupervisionListener, SupervisionProfile};
 use crate::{Actor, ActorId, Error, Message, MessageId, Result, RouterTables, ThreadId};
+
+fn synthetic_exchange() -> ExchangeIdentifier {
+    ExchangeIdentifier::new(
+        SessionEpoch::new(0),
+        ExchangeLane::Connector,
+        ExchangeSequence::first(),
+    )
+}
 
 #[derive(Debug)]
 pub struct RouterDaemon {
@@ -160,6 +171,7 @@ pub struct RouterConnection {
     stream: BufReader<UnixStream>,
     signal: SignalMessageFrameCodec,
     ingress: RouterIngressContext,
+    pending_reply: Option<(ExchangeIdentifier, SignalVerb)>,
 }
 
 impl RouterConnection {
@@ -172,17 +184,25 @@ impl RouterConnection {
             stream: BufReader::new(stream),
             signal: SignalMessageFrameCodec::default(),
             ingress,
+            pending_reply: None,
         }
     }
 
     pub fn read_signal_input(&mut self) -> Result<SignalMessageInput> {
         let frame = self.signal.read_frame(&mut self.stream)?;
-        SignalMessageInput::from_frame_with_ingress(frame, self.ingress.clone())
+        let received = SignalMessageInput::from_frame_with_ingress(frame, self.ingress.clone())?;
+        self.pending_reply = Some((received.exchange, received.verb));
+        Ok(received.input)
     }
 
     pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> Result<()> {
         let stream = self.stream.get_mut();
-        self.signal.write_reply(stream, reply)
+        let Some((exchange, verb)) = self.pending_reply.take() else {
+            return Err(Error::UnexpectedSignalFrame {
+                got: "cannot write signal reply before reading a request".to_string(),
+            });
+        };
+        self.signal.write_reply(stream, exchange, verb, reply)
     }
 }
 
@@ -302,8 +322,20 @@ impl SignalMessageFrameCodec {
         Ok(())
     }
 
-    pub fn write_reply(&self, stream: &mut UnixStream, reply: SignalMessageReply) -> Result<()> {
-        let frame = SignalMessageFrame::new(FrameBody::Reply(Reply::operation(reply)));
+    pub fn write_reply(
+        &self,
+        stream: &mut UnixStream,
+        exchange: ExchangeIdentifier,
+        verb: SignalVerb,
+        reply: SignalMessageReply,
+    ) -> Result<()> {
+        let frame = SignalMessageFrame::new(FrameBody::Reply {
+            exchange,
+            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
+                verb,
+                payload: reply,
+            })),
+        });
         self.write_frame(stream, &frame)
     }
 }
@@ -361,22 +393,31 @@ impl SignalMessageInput {
     fn from_frame_with_ingress(
         frame: SignalMessageFrame,
         ingress: RouterIngressContext,
-    ) -> Result<Self> {
-        let request =
-            match frame.into_body() {
-                FrameBody::Request(request) => request.into_payload_checked().map_err(|error| {
-                    Error::UnexpectedSignalFrame {
-                        got: error.to_string(),
-                    }
-                })?,
-                other => {
-                    return Err(Error::UnexpectedSignalFrame {
-                        got: format!("{other:?}"),
-                    });
-                }
-            };
-        Ok(Self::with_ingress(ingress, request))
+    ) -> Result<ReceivedSignalMessageInput> {
+        match frame.into_body() {
+            FrameBody::Request { exchange, request } => {
+                let checked = request
+                    .into_checked()
+                    .map_err(|(reason, _)| Error::InvalidSignalRequest { reason })?;
+                let operation = checked.operations.into_head();
+                Ok(ReceivedSignalMessageInput {
+                    exchange,
+                    verb: operation.verb,
+                    input: Self::with_ingress(ingress, operation.payload),
+                })
+            }
+            other => Err(Error::UnexpectedSignalFrame {
+                got: format!("{other:?}"),
+            }),
+        }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReceivedSignalMessageInput {
+    exchange: ExchangeIdentifier,
+    verb: SignalVerb,
+    input: SignalMessageInput,
 }
 
 #[derive(Debug)]
@@ -1281,11 +1322,24 @@ impl RouterSignalClient {
 
     fn submit(&self, request: SignalMessageRequest) -> Result<SignalMessageReply> {
         let mut stream = UnixStream::connect(&self.socket)?;
-        let frame = SignalMessageFrame::new(FrameBody::Request(Request::from_payload(request)));
+        let frame = SignalMessageFrame::new(FrameBody::Request {
+            exchange: synthetic_exchange(),
+            request: Request::from_payload(request),
+        });
         self.codec.write_frame(&mut stream, &frame)?;
         let reply = self.codec.read_frame(&mut stream)?;
         match reply.into_body() {
-            FrameBody::Reply(Reply::Operation(reply)) => Ok(reply),
+            FrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok { payload, .. } => Ok(payload),
+                    other => Err(Error::UnexpectedSignalFrame {
+                        got: format!("{other:?}"),
+                    }),
+                },
+                Reply::Rejected { reason } => Err(Error::UnexpectedSignalFrame {
+                    got: format!("{reason:?}"),
+                }),
+            },
             other => Err(Error::UnexpectedSignalFrame {
                 got: format!("{other:?}"),
             }),
@@ -1898,20 +1952,32 @@ impl NotaEncode for RouterOutput {
 #[cfg(test)]
 mod receiver_validation_tests {
     use super::*;
+    use signal_core::{Operation, RequestRejectionReason};
 
     #[test]
     fn router_input_rejects_mismatched_signal_verb() {
-        let frame = SignalMessageFrame::new(FrameBody::Request(Request::unchecked_operation(
-            signal_core::SignalVerb::Assert,
-            SignalMessageRequest::InboxQuery(SignalInboxQuery {
-                recipient: SignalMessageRecipient::new("operator"),
-            }),
-        )));
+        let frame = SignalMessageFrame::new(FrameBody::Request {
+            exchange: synthetic_exchange(),
+            request: Request::from_operations(NonEmpty::single(Operation::new(
+                SignalVerb::Assert,
+                SignalMessageRequest::InboxQuery(SignalInboxQuery {
+                    recipient: SignalMessageRecipient::new("operator"),
+                }),
+            ))),
+        });
 
         let error =
             SignalMessageInput::from_frame_with_ingress(frame, RouterIngressContext::message())
                 .expect_err("mismatched verb is rejected");
 
-        assert!(error.to_string().contains("signal verb mismatch"));
+        match error {
+            Error::InvalidSignalRequest { reason } => {
+                assert_eq!(
+                    reason,
+                    RequestRejectionReason::VerbPayloadMismatch { index: 0 }
+                );
+            }
+            other => panic!("expected typed signal request rejection, got {other:?}"),
+        }
     }
 }

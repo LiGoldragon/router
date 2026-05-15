@@ -9,7 +9,9 @@ use persona_router::{
     RouterOutput, SocketMode, SupervisionFrameCodec, SupervisionListener, SupervisionProfile,
     SupervisionSocketMode,
 };
-use signal_core::{FrameBody, Request};
+use signal_core::{
+    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody, Request, SessionEpoch,
+};
 use signal_persona::{
     ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind,
     ComponentName as SupervisionComponentName, ComponentReadinessQuery, SupervisionFrame,
@@ -120,7 +122,10 @@ fn router_connection_decodes_signal_persona_message_frame() {
         origin: MessageOrigin::Internal(ComponentName::Message),
         stamped_at: TimestampNanos::new(1),
     });
-    let frame = Frame::new(FrameBody::Request(Request::from_payload(request)));
+    let frame = Frame::new(FrameBody::Request {
+        exchange: test_exchange(),
+        request: Request::from_payload(request),
+    });
     client
         .write_all(
             frame
@@ -216,7 +221,10 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
 }
 
 fn send_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
-    let frame = SupervisionFrame::new(FrameBody::Request(Request::from_payload(request)));
+    let frame = SupervisionFrame::new(FrameBody::Request {
+        exchange: test_exchange(),
+        request: Request::from_payload(request),
+    });
     stream
         .write_all(
             frame
@@ -225,4 +233,12 @@ fn send_supervision_request(stream: &mut UnixStream, request: SupervisionRequest
                 .as_slice(),
         )
         .expect("supervision request writes");
+}
+
+fn test_exchange() -> ExchangeIdentifier {
+    ExchangeIdentifier::new(
+        SessionEpoch::new(0),
+        ExchangeLane::Connector,
+        ExchangeSequence::first(),
+    )
 }

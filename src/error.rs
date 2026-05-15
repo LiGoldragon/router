@@ -51,6 +51,11 @@ pub enum Error {
 
     #[error("unexpected signal frame: {got}")]
     UnexpectedSignalFrame { got: String },
+
+    #[error("signal request failed structural checks: {reason}")]
+    InvalidSignalRequest {
+        reason: signal_core::RequestRejectionReason,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
