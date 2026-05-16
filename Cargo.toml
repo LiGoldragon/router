@@ -27,6 +27,7 @@ signal-persona-auth   = { git = "https://github.com/LiGoldragon/signal-persona-a
 signal-persona-harness = { git = "https://github.com/LiGoldragon/signal-persona-harness.git" }
 signal-persona-mind   = { git = "https://github.com/LiGoldragon/signal-persona-mind.git" }
 signal-persona-message = { git = "https://github.com/LiGoldragon/signal-persona-message.git" }
+signal-persona-router = { git = "https://github.com/LiGoldragon/signal-persona-router.git" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }

@@ -488,6 +488,7 @@ dependencies = [
  "signal-persona-harness 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-harness.git)",
  "signal-persona-message",
  "signal-persona-mind",
+ "signal-persona-router",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -918,6 +919,19 @@ dependencies = [
  "rkyv",
  "signal-core",
  "signal-persona-auth",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "signal-persona-router"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-persona-router.git#e2f9033f1fa4bc1360ba59dce094e07202dfd60c"
+dependencies = [
+ "nota-codec",
+ "rkyv",
+ "signal-core",
+ "signal-persona-auth",
+ "signal-persona-message",
  "thiserror 2.0.18",
 ]
 

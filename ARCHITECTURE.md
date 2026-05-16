@@ -22,7 +22,11 @@ terminal byte transport, or contract definitions.
 ```mermaid
 flowchart LR
     "signal-persona-message" -->|"message request frame"| "RouterRuntime"
+    "signal-persona-router" -->|"observation query frame"| "RouterRuntime"
     "RouterRuntime" -->|"apply input"| "RouterRoot"
+    "RouterRuntime" -->|"apply observation"| "RouterObservationPlane"
+    "RouterObservationPlane" -->|"read facts"| "RouterRoot"
+    "RouterObservationPlane" -->|"read channel records"| "router Sema"
     "RouterRoot" -->|"registered delivery targets"| "HarnessRegistry"
     "RouterRoot" -->|"channel check / adjudication"| "ChannelAuthority"
     "RouterRoot" -->|"typed adjudication request"| "MindAdjudicationOutbox"
@@ -67,6 +71,10 @@ flowchart LR
   wired;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
+- a Kameo `RouterObservationPlane` that answers `signal-persona-router`
+  observation queries (`RouterSummaryQuery`, `RouterMessageTraceQuery`,
+  `RouterChannelStateQuery`) by reading `RouterRoot` facts and
+  `RouterTables` channel records; replies are typed `RouterReply` records;
 - pending-delivery state;
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
@@ -237,6 +245,12 @@ This repo does not own:
   as an explicit external endpoint in channel records.
 - Router authorization is channel-table authorization plus persona-mind
   adjudication for misses.
+- Router observation queries (`signal-persona-router::RouterRequest`)
+  are answered by `RouterObservationPlane`, which reads `RouterRoot`
+  observation facts through its mailbox and reads channel records from
+  router-owned Sema tables when present.
+- Router observation replies are typed `RouterReply` records; no caller
+  reads `router.redb` directly to assemble an observation answer.
 - A message with no active channel does not reach `HarnessDelivery`.
 - A message with no active channel emits a typed `signal-persona-mind`
   adjudication request.
@@ -269,6 +283,7 @@ src/adjudication.rs     Kameo mind-adjudication outbox for parked messages
 src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
+src/observation.rs      Kameo router observation plane (signal-persona-router queries)
 src/delivery.rs         pending-delivery records
 src/message.rs          transitional router message records
 src/tables.rs           router-owned Sema schema and message/channel/adjudication/delivery tables
@@ -302,9 +317,16 @@ tests/                  router smoke and actor-density truth tests
 | A typed mind channel grant installs a row before a parked message is retried for delivery. | `nix flake check .#mind-channel-grant-installs-row-before-parked-message-delivers` |
 | A typed mind adjudication deny removes a parked message without delivery. | `nix flake check .#mind-adjudication-deny-removes-parked-message-without-delivery` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
+| Router daemon answers `signal-persona-router::RouterSummaryQuery` from the observation plane actor. | `nix flake check .#router-daemon-answers-router-summary-query` |
+| Router summary counts derive from RouterRoot's accepted/pending/failed facts. | `nix flake check .#router-summary-query-counts-accepted-pending-and-failed-messages` |
+| Router message trace replies report `Deferred` for parked messages and `MessageTraceMissing` for unknown slots — no `Unknown` sentinel. | `nix flake check .#router-message-trace-query-reports-deferred-status-for-parked-message` |
+| Router channel state replies read installed-vs-missing-vs-disabled from router-owned Sema tables. | `nix flake check .#router-channel-state-query-reads-router-tables` |
+| Router channel state without tables surfaces `RouterStoreUnavailable` instead of fabricating an answer. | `nix flake check .#router-channel-state-query-without-tables-reports-router-store-unavailable` |
+| Router observation plane query counts increment in lockstep with mailbox calls — proves observation does not bypass `RouterRoot`. | `nix flake check .#router-observation-path-cannot-bypass-router-root-facts` |
 
 ## See Also
 
 - `../signal-persona-message/ARCHITECTURE.md`
+- `../signal-persona-router/ARCHITECTURE.md`
 - `../persona-harness/ARCHITECTURE.md`
 - `../sema/ARCHITECTURE.md`

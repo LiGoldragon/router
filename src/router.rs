@@ -44,6 +44,10 @@ use crate::harness_registry::{
     RegisterHarness,
 };
 use crate::message::expect_end;
+use crate::observation::{
+    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
+    RouterObservationPlane, RouterObservationPlaneStatus,
+};
 use crate::supervision::{SupervisionListener, SupervisionProfile};
 use crate::{Actor, ActorId, Error, Message, MessageId, Result, RouterTables, ThreadId};
 
@@ -437,6 +441,7 @@ pub struct RouterRuntime {
     delivery: Option<ActorRef<HarnessDelivery>>,
     channels: Option<ActorRef<ChannelAuthority>>,
     mind_adjudication: Option<ActorRef<MindAdjudicationOutbox>>,
+    observation: Option<ActorRef<RouterObservationPlane>>,
     tables: Option<RouterTables>,
     started_child_count: u64,
     applied_input_count: u64,
@@ -466,6 +471,7 @@ impl RouterRuntime {
             delivery: None,
             channels: None,
             mind_adjudication: None,
+            observation: None,
             tables,
             started_child_count: 0,
             applied_input_count: 0,
@@ -493,12 +499,18 @@ impl RouterRuntime {
             self.tables.clone(),
         ));
         root.wait_for_startup().await;
+        let observation = RouterObservationPlane::spawn(RouterObservationPlane::new(
+            root.clone(),
+            self.tables.clone(),
+        ));
+        observation.wait_for_startup().await;
         self.root = Some(root);
         self.registry = Some(registry);
         self.delivery = Some(delivery);
         self.channels = Some(channels);
         self.mind_adjudication = Some(mind_adjudication);
-        self.started_child_count = 5;
+        self.observation = Some(observation);
+        self.started_child_count = 6;
     }
 
     fn root(&self) -> Result<&ActorRef<RouterRoot>> {
@@ -507,7 +519,19 @@ impl RouterRuntime {
         })
     }
 
+    fn observation(&self) -> Result<&ActorRef<RouterObservationPlane>> {
+        self.observation
+            .as_ref()
+            .ok_or(Error::RuntimeChildNotStarted {
+                child: "RouterObservationPlane",
+            })
+    }
+
     async fn stop_children(&mut self) {
+        if let Some(observation) = self.observation.take() {
+            let _ = observation.stop_gracefully().await;
+            observation.wait_for_shutdown().await;
+        }
         if let Some(root) = self.root.take() {
             let _ = root.stop_gracefully().await;
             root.wait_for_shutdown().await;
@@ -632,6 +656,53 @@ impl kameo::message::Message<ApplySignalMessage> for RouterRuntime {
             Err(error) => Err(error),
         };
         SignalMessageOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ApplyRouterObservation> for RouterRuntime {
+    type Reply = RouterObservationOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyRouterObservation,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.applied_input_count = self.applied_input_count.saturating_add(1);
+        let result = match self.observation() {
+            Ok(observation) => observation
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(RouterObservationOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        RouterObservationOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ReadRouterObservationPlaneStatus> for RouterRuntime {
+    type Reply = RouterObservationPlaneStatus;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterObservationPlaneStatus,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self.observation() {
+            Ok(observation) => observation
+                .ask(message)
+                .await
+                .unwrap_or(RouterObservationPlaneStatus {
+                    summary_query_count: 0,
+                    message_trace_query_count: 0,
+                    channel_state_query_count: 0,
+                }),
+            Err(_) => RouterObservationPlaneStatus {
+                summary_query_count: 0,
+                message_trace_query_count: 0,
+                channel_state_query_count: 0,
+            },
+        }
     }
 }
 
@@ -1828,6 +1899,81 @@ impl kameo::message::Message<ReadRouterTrace> for RouterRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.trace.from(message.since)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadRouterObservationFacts;
+
+#[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
+pub struct RouterObservationFacts {
+    pub accepted_messages: u64,
+    pub delivered_messages: u64,
+    pub pending_messages: u64,
+    pub failed_messages: u64,
+    pub signal_slots: Vec<RouterObservationSlot>,
+    pub trace_events: Vec<RouterObservationTraceEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterObservationSlot {
+    pub message_id: MessageId,
+    pub slot: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterObservationTraceEvent {
+    pub message_id: MessageId,
+    pub step: RouterTraceStep,
+}
+
+impl kameo::message::Message<ReadRouterObservationFacts> for RouterRoot {
+    type Reply = RouterObservationFacts;
+
+    async fn handle(
+        &mut self,
+        _message: ReadRouterObservationFacts,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let accepted_messages = self.signal_message_sequence;
+        let pending_messages = self.pending.len() as u64;
+        let delivered_messages = self
+            .trace
+            .events()
+            .iter()
+            .filter(|event| event.step() == RouterTraceStep::DeliveryMarked)
+            .count() as u64;
+        let failed_messages = self
+            .trace
+            .events()
+            .iter()
+            .filter(|event| event.step() == RouterTraceStep::AdjudicationDenied)
+            .count() as u64;
+        let signal_slots = self
+            .signal_slots
+            .iter()
+            .map(|record| RouterObservationSlot {
+                message_id: record.message.clone(),
+                slot: record.slot.into_u64(),
+            })
+            .collect();
+        let trace_events = self
+            .trace
+            .events()
+            .iter()
+            .map(|event| RouterObservationTraceEvent {
+                message_id: event.message().clone(),
+                step: event.step(),
+            })
+            .collect();
+        RouterObservationFacts {
+            accepted_messages,
+            delivered_messages,
+            pending_messages,
+            failed_messages,
+            signal_slots,
+            trace_events,
+        }
     }
 }
 

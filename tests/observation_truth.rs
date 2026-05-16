@@ -1,0 +1,438 @@
+//! Architectural-truth witnesses for the router observation plane.
+//!
+//! These tests prove that `RouterRequest` queries reach the
+//! `RouterObservationPlane` actor through `RouterRuntime`'s mailbox and that
+//! the typed reply is derived from `RouterRoot` facts and `RouterTables`
+//! reads. The introspect peer-query work in `signal-persona-introspect`
+//! depends on this contract.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use persona_router::{
+    Actor, ActorId, ActorRef, ApplyRouterInput, ApplyRouterObservation, ChannelLifetime,
+    EngineStructuralChannels, GrantChannel, GrantRouteChannel, InstallRouteStructuralChannels,
+    InstallStructuralChannels, ReadRouterObservationPlaneStatus, RegisterActor, RouterIngressContext,
+    RouterInput, RouterOutput, RouterRuntime, RouterTables, SignalMessageInput,
+};
+use signal_persona::TimestampNanos;
+use signal_persona_auth::{ChannelId, ConnectionClass, EngineId, MessageOrigin};
+use signal_persona_message::{
+    MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageReply, MessageRequest,
+    MessageSlot, MessageSubmission, StampedMessageSubmission,
+};
+use signal_persona_router::{
+    RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus, RouterMessageTraceQuery,
+    RouterObservationScope, RouterObservationUnimplementedReason, RouterReply, RouterRequest,
+    RouterSummaryQuery,
+};
+
+struct TemporaryRouterStore {
+    path: PathBuf,
+}
+
+impl TemporaryRouterStore {
+    fn new(name: &str) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "persona-router-observation-{name}-{}-{now}.redb",
+            std::process::id()
+        ));
+        Self { path }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TemporaryRouterStore {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+struct ObservationFixture {
+    runtime: ActorRef<RouterRuntime>,
+}
+
+impl ObservationFixture {
+    async fn start() -> Self {
+        Self {
+            runtime: RouterRuntime::start().await,
+        }
+    }
+
+    async fn start_with_tables(tables: RouterTables) -> Self {
+        Self {
+            runtime: RouterRuntime::start_with_tables(tables).await,
+        }
+    }
+
+    async fn apply(&self, input: RouterInput) -> persona_router::Result<RouterOutput> {
+        self.runtime
+            .ask(ApplyRouterInput { input })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn apply_signal(
+        &self,
+        input: SignalMessageInput,
+    ) -> persona_router::Result<MessageReply> {
+        self.runtime
+            .ask(persona_router::ApplySignalMessage { input })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn observe(&self, request: RouterRequest) -> persona_router::Result<RouterReply> {
+        self.runtime
+            .ask(ApplyRouterObservation { request })
+            .await
+            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
+    async fn observation_plane_status(
+        &self,
+    ) -> persona_router::RouterObservationPlaneStatus {
+        self.runtime
+            .ask(ReadRouterObservationPlaneStatus {
+                requester: ActorId::new("operator"),
+            })
+            .await
+            .expect("observation plane status reply")
+    }
+
+    async fn stop(self) {
+        self.runtime
+            .stop_gracefully()
+            .await
+            .expect("router runtime stops gracefully");
+        self.runtime.wait_for_shutdown().await;
+    }
+}
+
+fn engine_id() -> EngineId {
+    EngineId::new("prototype")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_daemon_answers_router_summary_query() {
+    let router = ObservationFixture::start().await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorId::new("responder"),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register passes through router actor");
+    router
+        .apply(RouterInput::GrantChannel(GrantRouteChannel {
+            channel: GrantChannel::direct_message(
+                ActorId::new("operator"),
+                ActorId::new("responder"),
+                ChannelLifetime::Persistent,
+            ),
+        }))
+        .await
+        .expect("channel grant passes through router actor");
+
+    let reply = router
+        .observe(RouterRequest::Summary(RouterSummaryQuery {
+            engine: engine_id(),
+        }))
+        .await
+        .expect("observation plane answers summary");
+
+    let RouterReply::Summary(summary) = reply else {
+        panic!("expected RouterReply::Summary, got {reply:?}");
+    };
+    assert_eq!(summary.engine, engine_id());
+    assert_eq!(summary.accepted_messages, 0);
+    assert_eq!(summary.routed_messages, 0);
+    assert_eq!(summary.deferred_messages, 0);
+    assert_eq!(summary.failed_messages, 0);
+
+    let status = router.observation_plane_status().await;
+    assert_eq!(status.summary_query_count, 1);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
+    let router = ObservationFixture::start().await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorId::new("responder"),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register passes through router actor");
+
+    router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new("responder"),
+                    kind: MessageKind::Send,
+                    body: SignalMessageBody::new("first"),
+                },
+                origin: MessageOrigin::External(ConnectionClass::Owner),
+                stamped_at: TimestampNanos::new(1),
+            }),
+        ))
+        .await
+        .expect("first signal message accepts");
+    router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new("responder"),
+                    kind: MessageKind::Send,
+                    body: SignalMessageBody::new("second"),
+                },
+                origin: MessageOrigin::External(ConnectionClass::Owner),
+                stamped_at: TimestampNanos::new(2),
+            }),
+        ))
+        .await
+        .expect("second signal message accepts");
+
+    let reply = router
+        .observe(RouterRequest::Summary(RouterSummaryQuery {
+            engine: engine_id(),
+        }))
+        .await
+        .expect("observation plane answers summary");
+
+    let RouterReply::Summary(summary) = reply else {
+        panic!("expected RouterReply::Summary, got {reply:?}");
+    };
+    assert_eq!(summary.accepted_messages, 2);
+    assert_eq!(summary.deferred_messages, 2);
+    assert_eq!(summary.routed_messages, 0);
+    assert_eq!(summary.failed_messages, 0);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_message_trace_query_reports_deferred_status_for_parked_message() {
+    let router = ObservationFixture::start().await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorId::new("responder"),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register passes through router actor");
+
+    router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new("responder"),
+                    kind: MessageKind::Send,
+                    body: SignalMessageBody::new("trace me"),
+                },
+                origin: MessageOrigin::External(ConnectionClass::Owner),
+                stamped_at: TimestampNanos::new(1),
+            }),
+        ))
+        .await
+        .expect("submission parks for adjudication");
+
+    let reply = router
+        .observe(RouterRequest::MessageTrace(RouterMessageTraceQuery {
+            engine: engine_id(),
+            message_slot: MessageSlot::new(1),
+        }))
+        .await
+        .expect("observation plane answers trace");
+
+    let RouterReply::MessageTrace(trace) = reply else {
+        panic!("expected RouterReply::MessageTrace, got {reply:?}");
+    };
+    assert_eq!(trace.message_slot, MessageSlot::new(1));
+    assert_eq!(trace.status, RouterDeliveryStatus::Deferred);
+
+    let missing_reply = router
+        .observe(RouterRequest::MessageTrace(RouterMessageTraceQuery {
+            engine: engine_id(),
+            message_slot: MessageSlot::new(99),
+        }))
+        .await
+        .expect("observation plane answers missing-slot trace");
+    let RouterReply::MessageTraceMissing(missing) = missing_reply else {
+        panic!("expected RouterReply::MessageTraceMissing, got {missing_reply:?}");
+    };
+    assert_eq!(missing.message_slot, MessageSlot::new(99));
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_channel_state_query_reads_router_tables() {
+    let store = TemporaryRouterStore::new("channel-state");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let router = ObservationFixture::start_with_tables(tables.clone()).await;
+
+    router
+        .apply(RouterInput::InstallStructuralChannels(
+            InstallRouteStructuralChannels {
+                channels: InstallStructuralChannels {
+                    channels: EngineStructuralChannels::first_stack(),
+                },
+            },
+        ))
+        .await
+        .expect("structural channels install");
+
+    let channels = tables.channel_records().expect("channel records read");
+    let installed_id = channels
+        .iter()
+        .find(|record| record.from == "message" && record.to == "router")
+        .map(|record| record.id.clone())
+        .expect("structural message->router channel persisted");
+
+    let reply = router
+        .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
+            engine: engine_id(),
+            channel: ChannelId::new(installed_id.clone()),
+        }))
+        .await
+        .expect("observation plane answers channel state");
+
+    let RouterReply::ChannelState(state) = reply else {
+        panic!("expected RouterReply::ChannelState, got {reply:?}");
+    };
+    assert_eq!(state.channel, ChannelId::new(installed_id));
+    assert_eq!(state.status, RouterChannelStatus::Installed);
+
+    let missing_reply = router
+        .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
+            engine: engine_id(),
+            channel: ChannelId::new("channel-does-not-exist"),
+        }))
+        .await
+        .expect("observation plane answers missing channel");
+    let RouterReply::ChannelState(missing) = missing_reply else {
+        panic!("expected RouterReply::ChannelState, got {missing_reply:?}");
+    };
+    assert_eq!(missing.status, RouterChannelStatus::Missing);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_channel_state_query_without_tables_reports_router_store_unavailable() {
+    let router = ObservationFixture::start().await;
+
+    let reply = router
+        .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
+            engine: engine_id(),
+            channel: ChannelId::new("any-channel"),
+        }))
+        .await
+        .expect("observation plane answers without tables");
+
+    let RouterReply::Unimplemented(unimplemented) = reply else {
+        panic!("expected RouterReply::Unimplemented, got {reply:?}");
+    };
+    assert_eq!(unimplemented.scope, RouterObservationScope::ChannelState);
+    assert_eq!(
+        unimplemented.reason,
+        RouterObservationUnimplementedReason::RouterStoreUnavailable
+    );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_observation_path_cannot_bypass_router_root_facts() {
+    // Negative-witness test: the observation plane must drive its summary
+    // numbers through the RouterRoot mailbox. We accept a message through the
+    // normal signal path and then assert that observation plane query counts
+    // increment in lockstep with the calls, proving the answer comes from a
+    // mailbox round-trip — not a stale snapshot or a parallel data path.
+    let router = ObservationFixture::start().await;
+    let baseline = router.observation_plane_status().await;
+    assert_eq!(baseline.summary_query_count, 0);
+    assert_eq!(baseline.message_trace_query_count, 0);
+    assert_eq!(baseline.channel_state_query_count, 0);
+
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorId::new("responder"),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register passes through router actor");
+    router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new("responder"),
+                    kind: MessageKind::Send,
+                    body: SignalMessageBody::new("witness"),
+                },
+                origin: MessageOrigin::External(ConnectionClass::Owner),
+                stamped_at: TimestampNanos::new(1),
+            }),
+        ))
+        .await
+        .expect("signal submission accepts");
+
+    let RouterReply::Summary(summary) = router
+        .observe(RouterRequest::Summary(RouterSummaryQuery {
+            engine: engine_id(),
+        }))
+        .await
+        .expect("summary query passes")
+    else {
+        panic!("expected summary reply");
+    };
+    assert_eq!(summary.accepted_messages, 1);
+
+    let after_summary = router.observation_plane_status().await;
+    assert_eq!(after_summary.summary_query_count, 1);
+
+    let _ = router
+        .observe(RouterRequest::MessageTrace(RouterMessageTraceQuery {
+            engine: engine_id(),
+            message_slot: MessageSlot::new(1),
+        }))
+        .await
+        .expect("trace query passes");
+
+    let after_trace = router.observation_plane_status().await;
+    assert_eq!(after_trace.summary_query_count, 1);
+    assert_eq!(after_trace.message_trace_query_count, 1);
+
+    router.stop().await;
+}

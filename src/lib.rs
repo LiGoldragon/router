@@ -5,6 +5,7 @@ pub mod error;
 pub mod harness_delivery;
 pub mod harness_registry;
 pub mod message;
+pub mod observation;
 pub mod router;
 pub mod supervision;
 pub mod tables;
@@ -33,18 +34,23 @@ pub use kameo::actor::ActorRef;
 pub use message::{
     Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageBody, MessageId, ThreadId,
 };
+pub use observation::{
+    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
+    RouterObservationPlane, RouterObservationPlaneStatus,
+};
 pub use router::{
     ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput, ApplySignalMessage,
     ChannelGranted, ChannelRetracted, DeliveryChanged, GrantDirectMessage, GrantRouteChannel,
     InstallRouteStructuralChannels, InstallStructuralChannelsBootstrap,
     MindAdjudicationDenyApplied, MindChannelGrantApplied, ReadRouterChannelPersistence,
-    ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor, Registered,
-    RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterBootstrap,
+    ReadRouterMindAdjudicationOutbox, ReadRouterObservationFacts, ReadRouterTrace, RegisterActor,
+    Registered, RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterBootstrap,
     RouterBootstrapOperation, RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection,
     RouterDaemon, RouterIngressContext, RouterInput, RouterMindAdjudicationOutboxOutcome,
-    RouterOutput, RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent,
-    RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput,
-    SignalMessageOutcome, SocketMode, Status, StructuralChannelsInstalled,
+    RouterObservationFacts, RouterObservationSlot, RouterObservationTraceEvent, RouterOutput,
+    RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
+    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
+    Status, StructuralChannelsInstalled,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,

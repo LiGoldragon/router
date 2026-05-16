@@ -229,6 +229,48 @@
               cargoTestExtraArgs = "--test actor_runtime_truth mind_adjudication_deny_removes_parked_message_without_delivery -- --exact";
             }
           );
+          router-daemon-answers-router-summary-query = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test observation_truth router_daemon_answers_router_summary_query -- --exact";
+            }
+          );
+          router-summary-query-counts-accepted-pending-and-failed-messages = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test observation_truth router_summary_query_counts_accepted_pending_and_failed_messages -- --exact";
+            }
+          );
+          router-message-trace-query-reports-deferred-status-for-parked-message = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test observation_truth router_message_trace_query_reports_deferred_status_for_parked_message -- --exact";
+            }
+          );
+          router-channel-state-query-reads-router-tables = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test observation_truth router_channel_state_query_reads_router_tables -- --exact";
+            }
+          );
+          router-channel-state-query-without-tables-reports-router-store-unavailable = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test observation_truth router_channel_state_query_without_tables_reports_router_store_unavailable -- --exact";
+            }
+          );
+          router-observation-path-cannot-bypass-router-root-facts = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test observation_truth router_observation_path_cannot_bypass_router_root_facts -- --exact";
+            }
+          );
         }
       );
 
