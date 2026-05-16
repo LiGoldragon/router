@@ -565,6 +565,31 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
     );
     assert_eq!(outbox.requests[0].kind, ChannelMessageKind::MessageDelivery);
     assert_eq!(outbox.requests[0].body_summary.as_str(), "please answer");
+    // Counter-field witnesses per actor-systems.md §"Counter-only state":
+    // recorded_count, read_count, and last_reader are part of
+    // MindAdjudicationOutbox's state; at least one test must read them
+    // so the fields stay load-bearing rather than dead. recorded_count = 1
+    // (one parked message reached the outbox); read_count = 1 (this
+    // snapshot read); last_reader names the requester of the most recent
+    // snapshot.
+    assert_eq!(outbox.recorded_count, 1);
+    assert_eq!(outbox.read_count, 1);
+    assert_eq!(outbox.last_reader, Some(ActorId::new("operator")));
+
+    // A second read increments read_count without touching recorded_count,
+    // and updates last_reader.
+    let second_snapshot = router
+        .runtime
+        .ask(ReadRouterMindAdjudicationOutbox {
+            requester: ActorId::new("reviewer"),
+        })
+        .await
+        .expect("second mind adjudication outbox read")
+        .into_result()
+        .expect("second outbox snapshot");
+    assert_eq!(second_snapshot.recorded_count, 1);
+    assert_eq!(second_snapshot.read_count, 2);
+    assert_eq!(second_snapshot.last_reader, Some(ActorId::new("reviewer")));
 
     router.stop().await;
 }
@@ -1616,6 +1641,83 @@ fn router_root_cannot_hold_terminal_blocking_work() {
     assert!(delivery_source.contains("tokio::task::spawn_blocking"));
     assert!(delivery_source.contains("HarnessTerminalDelivery"));
     assert!(delivery_source.contains("HarnessTerminalEndpoint"));
+}
+
+#[test]
+fn harness_delivery_handler_cannot_drop_spawn_blocking_detach() {
+    // Witness for `skills/kameo.md` Template 1: HarnessDelivery's
+    // `DeliverHarness` handler must (a) return `DelegatedReply` so the
+    // mailbox doesn't stall on the sync work, and (b) run the sync
+    // `deliver()` body inside `tokio::task::spawn_blocking`. A future
+    // refactor that flips the handler to async-without-detach (e.g.
+    // `.await`ing the sync `deliver` inline) would silently re-create the
+    // hidden-lock failure mode `skills/actor-systems.md` warns against,
+    // and this regression test would fail.
+    let delivery_source = SourceFile::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("harness_delivery.rs"),
+    );
+
+    let handler_marker = "impl kameo::message::Message<DeliverHarness> for HarnessDelivery";
+    let handler_start = delivery_source
+        .content
+        .find(handler_marker)
+        .expect("HarnessDelivery DeliverHarness handler impl block exists");
+    let handler_body = &delivery_source.content[handler_start..];
+
+    assert!(
+        handler_body.contains("type Reply = DelegatedReply<HarnessDeliveryOutcome>"),
+        "HarnessDelivery::Message<DeliverHarness>::Reply must remain `DelegatedReply<HarnessDeliveryOutcome>`"
+    );
+    assert!(
+        handler_body.contains("context.spawn("),
+        "DeliverHarness handler must spawn a detached task via Context::spawn"
+    );
+    assert!(
+        handler_body.contains("tokio::task::spawn_blocking"),
+        "DeliverHarness handler must wrap the sync deliver() body in tokio::task::spawn_blocking"
+    );
+    assert!(
+        handler_body.contains("HarnessDelivery::deliver("),
+        "the spawn_blocking body must call the sync HarnessDelivery::deliver inherent fn"
+    );
+
+    // Negative-witness: the inline-blocking anti-template would put the
+    // sync `HarnessDelivery::deliver(...)` call *before* `spawn_blocking`
+    // wrapping (or skip the wrapper entirely), making the handler block
+    // its mailbox. By asserting that the first reference to `deliver(` in
+    // the handler body appears *after* `spawn_blocking`, we catch any
+    // refactor that moves the call outside the detach.
+    let post_marker = handler_body
+        .find("async fn handle(")
+        .expect("DeliverHarness handler exists");
+    let handle_body = &handler_body[post_marker..];
+    let spawn_blocking_position = handle_body
+        .find("tokio::task::spawn_blocking")
+        .expect("spawn_blocking call exists");
+    let deliver_position = handle_body
+        .find("HarnessDelivery::deliver(")
+        .expect("inherent deliver call exists");
+    assert!(
+        spawn_blocking_position < deliver_position,
+        "tokio::task::spawn_blocking must wrap HarnessDelivery::deliver(...) — \
+         spawn_blocking position {spawn_blocking_position} must precede deliver call \
+         position {deliver_position}"
+    );
+
+    // The context.spawn(...) wrapper must also precede the deliver call —
+    // any refactor that hoists deliver() into the handler's outer async
+    // body (before context.spawn) would re-create the hidden lock.
+    let context_spawn_position = handle_body
+        .find("context.spawn(")
+        .expect("context.spawn call exists");
+    assert!(
+        context_spawn_position < deliver_position,
+        "context.spawn(...) must wrap HarnessDelivery::deliver(...) — \
+         context.spawn at {context_spawn_position} must precede deliver call \
+         at {deliver_position}"
+    );
 }
 
 #[test]

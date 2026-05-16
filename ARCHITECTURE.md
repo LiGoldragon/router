@@ -67,14 +67,19 @@ flowchart LR
 - a router actor operation for applying typed `signal-persona-mind` channel
   grants and retrying parked messages through the normal delivery path;
 - a Kameo `MindAdjudicationOutbox` that owns typed
-  `signal-persona-mind` adjudication requests until the live mind transport is
-  wired;
+  `signal-persona-mind` adjudication requests. Transitional: this in-memory
+  outbox plus the typed `signal-persona-mind::AdjudicationRequest` projection
+  is the current shape; the destination is router→mind via Signal frames on
+  the live mind socket once the mind daemon's transport lands;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
 - a Kameo `RouterObservationPlane` that answers `signal-persona-router`
   observation queries (`RouterSummaryQuery`, `RouterMessageTraceQuery`,
   `RouterChannelStateQuery`) by reading `RouterRoot` facts and
-  `RouterTables` channel records; replies are typed `RouterReply` records;
+  `RouterTables` channel records; replies are typed `RouterReply` records.
+  The `signal-persona-router::RouterRequest` contract scaffold is in place;
+  the destination is the router daemon handler answering those queries and
+  exposing subscription push for channel-state and delivery deltas;
 - pending-delivery state;
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
@@ -151,9 +156,11 @@ The current router can consume a typed `signal-persona-mind::ChannelGrant` and
 project it into the temporary `ActorId` channel table. The grant is installed
 through `RouterRoot -> ChannelAuthority`; only then does `RouterRoot` retry
 parked messages. This is the first live feedback-loop witness for the mind
-choreography path. The projection still collapses `ChannelMessageKind` into the
-router's current `DirectMessage` kind and must be replaced by the full
-`ChannelEndpoint` + `ChannelMessageKind` table key as the channel table matures.
+choreography path. Transitional: the channel table is keyed by `ChannelTriple`
+using `ActorId` plus a `ChannelKind::DirectMessage` projection, so the grant
+collapses `ChannelMessageKind` into the router's current `DirectMessage` kind.
+Destination: the full `ChannelEndpoint` + `ChannelMessageKind` typed key per
+the `signal-persona-mind` contract.
 The router can also consume `signal-persona-mind::AdjudicationDeny` for a
 parked message and remove that message without touching the delivery actor.
 
@@ -323,6 +330,7 @@ tests/                  router smoke and actor-density truth tests
 | Router channel state replies read installed-vs-missing-vs-disabled from router-owned Sema tables. | `nix flake check .#router-channel-state-query-reads-router-tables` |
 | Router channel state without tables surfaces `RouterStoreUnavailable` instead of fabricating an answer. | `nix flake check .#router-channel-state-query-without-tables-reports-router-store-unavailable` |
 | Router observation plane query counts increment in lockstep with mailbox calls — proves observation does not bypass `RouterRoot`. | `nix flake check .#router-observation-path-cannot-bypass-router-root-facts` |
+| `HarnessDelivery::DeliverHarness` handler keeps `DelegatedReply` + `context.spawn` + `tokio::task::spawn_blocking` around the sync deliver body. Future async-without-detach refactors fail this regression witness. | `nix flake check .#harness-delivery-handler-cannot-drop-spawn-blocking-detach` |
 
 ## See Also
 

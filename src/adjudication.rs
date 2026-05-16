@@ -44,11 +44,12 @@ impl MindAdjudicationOutbox {
 
     fn snapshot(&mut self, request: ReadMindAdjudicationOutbox) -> MindAdjudicationOutboxSnapshot {
         self.read_count = self.read_count.saturating_add(1);
-        self.last_reader = Some(request.requester);
+        self.last_reader = Some(request.requester.clone());
         MindAdjudicationOutboxSnapshot {
             requests: self.requests.clone(),
             recorded_count: self.recorded_count,
             read_count: self.read_count,
+            last_reader: self.last_reader.clone(),
         }
     }
 }
@@ -80,6 +81,7 @@ pub struct MindAdjudicationOutboxSnapshot {
     pub requests: Vec<MindAdjudicationRequest>,
     pub recorded_count: u64,
     pub read_count: u64,
+    pub last_reader: Option<ActorId>,
 }
 
 impl kameo::actor::Actor for MindAdjudicationOutbox {

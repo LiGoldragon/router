@@ -271,6 +271,13 @@
               cargoTestExtraArgs = "--test observation_truth router_observation_path_cannot_bypass_router_root_facts -- --exact";
             }
           );
+          harness-delivery-handler-cannot-drop-spawn-blocking-detach = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth harness_delivery_handler_cannot_drop_spawn_blocking_detach -- --exact";
+            }
+          );
         }
       );
 
