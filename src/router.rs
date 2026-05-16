@@ -13,6 +13,7 @@ use signal_core::{
     SignalVerb, SubReply,
 };
 use signal_persona_auth::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
+use signal_persona_router::RouterDaemonConfiguration;
 use signal_persona_message::{
     Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
@@ -48,7 +49,7 @@ use crate::observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
     RouterObservationPlane, RouterObservationPlaneStatus,
 };
-use crate::supervision::{SupervisionListener, SupervisionProfile};
+use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{Actor, ActorId, Error, Message, MessageId, Result, RouterTables, ThreadId};
 
 fn synthetic_exchange() -> ExchangeIdentifier {
@@ -66,16 +67,45 @@ pub struct RouterDaemon {
     ingress: RouterIngressContext,
     socket_mode: Option<SocketMode>,
     bootstrap: Option<RouterBootstrap>,
+    supervision: Option<SupervisionListener>,
 }
 
 impl RouterDaemon {
+    /// Canonical constructor — every production launch reads typed
+    /// `RouterDaemonConfiguration` from argv via `nota-config` and
+    /// hands the record here.
+    pub fn from_configuration(configuration: RouterDaemonConfiguration) -> Result<Self> {
+        let tables = RouterTables::open(PathBuf::from(configuration.store_path.as_str()))?;
+        let bootstrap = configuration
+            .bootstrap_path
+            .map(|path| RouterBootstrap::from_path(path.as_str()));
+        let supervision = SupervisionListener::new(
+            SupervisionProfile::router(),
+            PathBuf::from(configuration.supervision_socket_path.as_str()),
+            SupervisionSocketMode::from_octal(
+                configuration.supervision_socket_mode.into_u32(),
+            ),
+        );
+        Ok(Self {
+            socket: PathBuf::from(configuration.router_socket_path.as_str()),
+            tables: Some(tables),
+            ingress: RouterIngressContext::message(),
+            socket_mode: Some(SocketMode::from_octal(
+                configuration.router_socket_mode.into_u32(),
+            )),
+            bootstrap,
+            supervision: Some(supervision),
+        })
+    }
+
     pub fn from_socket(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),
             tables: None,
             ingress: RouterIngressContext::message(),
-            socket_mode: SocketMode::from_environment(),
+            socket_mode: None,
             bootstrap: None,
+            supervision: None,
         }
     }
 
@@ -103,19 +133,10 @@ impl RouterDaemon {
         Ok(self.with_tables(RouterTables::open(path.into())?))
     }
 
-    pub fn from_environment() -> Result<Self> {
-        let socket = std::env::args_os()
-            .nth(1)
-            .map(PathBuf::from)
-            .ok_or(Error::MissingSocket)?;
-        Ok(Self::from_socket(socket))
-    }
-
     pub fn run(self) -> Result<()> {
+        let supervision = self.supervision.clone();
         let listener = self.bind_listener()?;
-        let _supervision = SupervisionListener::from_environment(SupervisionProfile::router())
-            .map(SupervisionListener::spawn)
-            .transpose()?;
+        let _supervision = supervision.map(SupervisionListener::spawn).transpose()?;
         let runtime = tokio::runtime::Runtime::new()?;
         let router = runtime.block_on(RouterRuntime::start_with_optional_tables(self.tables));
         if let Some(bootstrap) = &self.bootstrap {
@@ -167,13 +188,6 @@ pub struct SocketMode(u32);
 impl SocketMode {
     pub const fn from_octal(value: u32) -> Self {
         Self(value)
-    }
-
-    pub fn from_environment() -> Option<Self> {
-        std::env::var("PERSONA_SOCKET_MODE")
-            .ok()
-            .and_then(|value| u32::from_str_radix(value.as_str(), 8).ok())
-            .map(Self::from_octal)
     }
 
     pub const fn as_octal(self) -> u32 {

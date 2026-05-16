@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
+nota-config           = { git = "https://github.com/LiGoldragon/nota-config.git", branch = "main" }
 persona-harness       = { git = "https://github.com/LiGoldragon/persona-harness.git", branch = "main" }
 rkyv                  = "0.8"
 sema                  = { git = "https://github.com/LiGoldragon/sema.git" }

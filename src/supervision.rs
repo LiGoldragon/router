@@ -65,16 +65,6 @@ impl SupervisionListener {
         }
     }
 
-    pub fn from_environment(profile: SupervisionProfile) -> Option<Self> {
-        let socket = std::env::var_os("PERSONA_SUPERVISION_SOCKET_PATH")?;
-        let mode = std::env::var("PERSONA_SUPERVISION_SOCKET_MODE")
-            .ok()
-            .and_then(|value| u32::from_str_radix(value.as_str(), 8).ok())
-            .map(SupervisionSocketMode::from_octal)
-            .unwrap_or_else(|| SupervisionSocketMode::from_octal(0o600));
-        Some(Self::new(profile, PathBuf::from(socket), mode))
-    }
-
     pub fn spawn(self) -> std::io::Result<SupervisionHandle> {
         if let Some(parent) = self.socket.parent() {
             std::fs::create_dir_all(parent)?;
