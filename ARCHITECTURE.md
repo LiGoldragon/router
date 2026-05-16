@@ -78,8 +78,11 @@ flowchart LR
   `RouterChannelStateQuery`) by reading `RouterRoot` facts and
   `RouterTables` channel records; replies are typed `RouterReply` records.
   The `signal-persona-router::RouterRequest` contract scaffold is in place;
-  the destination is the router daemon handler answering those queries and
-  exposing subscription push for channel-state and delivery deltas;
+  the destination is the router daemon connection path accepting
+  `RouterFrame` requests alongside the message-ingress frames and the
+  observation plane answering them. Subscription push for channel-state
+  and delivery deltas follows the canonical five-state lifecycle named
+  in `~/primary/skills/subscription-lifecycle.md`;
 - pending-delivery state;
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
@@ -281,6 +284,12 @@ This repo does not own:
   emitted.
 - Durable effects commit before externally visible delivery or subscription
   events.
+- Future router-side push subscriptions (channel-state, delivery deltas)
+  follow the canonical lifecycle: typed Subscribe request returning a
+  typed snapshot reply; typed delta events; typed Retract close request;
+  final typed `SubscriptionRetracted` reply carrying the same token;
+  stream end. Per-subscription `StreamingReplyHandler` actors own each
+  open subscription; a slow subscriber cannot block siblings.
 
 ## Code Map
 
@@ -334,6 +343,8 @@ tests/                  router smoke and actor-density truth tests
 
 ## See Also
 
+- `~/primary/skills/subscription-lifecycle.md` — canonical
+  five-state FSM future router-side subscriptions implement.
 - `../signal-persona-message/ARCHITECTURE.md`
 - `../signal-persona-router/ARCHITECTURE.md`
 - `../persona-harness/ARCHITECTURE.md`
