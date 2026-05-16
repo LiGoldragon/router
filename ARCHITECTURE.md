@@ -290,6 +290,18 @@ This repo does not own:
   final typed `SubscriptionRetracted` reply carrying the same token;
   stream end. Per-subscription `StreamingReplyHandler` actors own each
   open subscription; a slow subscriber cannot block siblings.
+- `ChannelAuthority` persists `adjudication_pending` records to
+  `router.redb` through `RouterTables` when the daemon launches with a
+  `--store` argument. The `MindAdjudicationOutbox` in-memory projection
+  is a derived view, not the durable record.
+- Router daemon restart with the same `--store` path observes the same
+  pending-adjudication state through `RouterChannelStateQuery` and
+  `RouterMessageTraceQuery` that the pre-restart daemon answered. Pending
+  state survives the process boundary; the post-restart observation
+  surface returns typed Signal replies, not in-memory coincidence.
+- Channel and adjudication records persisted under one router schema
+  version do not deserialise under a different version. `RouterTables::open`
+  hard-fails on schema mismatch.
 
 ## Code Map
 
@@ -340,6 +352,7 @@ tests/                  router smoke and actor-density truth tests
 | Router channel state without tables surfaces `RouterStoreUnavailable` instead of fabricating an answer. | `nix flake check .#router-channel-state-query-without-tables-reports-router-store-unavailable` |
 | Router observation plane query counts increment in lockstep with mailbox calls — proves observation does not bypass `RouterRoot`. | `nix flake check .#router-observation-path-cannot-bypass-router-root-facts` |
 | `HarnessDelivery::DeliverHarness` handler keeps `DelegatedReply` + `context.spawn` + `tokio::task::spawn_blocking` around the sync deliver body. Future async-without-detach refactors fail this regression witness. | `nix flake check .#harness-delivery-handler-cannot-drop-spawn-blocking-detach` |
+| Router daemon restart with the same `--store` path surfaces the pre-restart pending-adjudication state through the typed observation plane. | `nix flake check .#router-daemon-restart-surfaces-persisted-adjudication-through-observation-plane` |
 
 ## See Also
 
