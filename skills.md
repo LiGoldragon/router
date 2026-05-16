@@ -30,3 +30,16 @@ Rules for work here:
 - Treat unknown focus and unknown prompt-buffer state as blocked delivery.
 - Keep terminal byte transport out of this repo; that belongs in
   `persona-terminal`. The router does not depend on terminal crates directly.
+- Router-side push subscriptions follow the canonical five-state
+  lifecycle (subscribe → snapshot reply → deltas → retract → final ack
+  → end). See this workspace's `skills/subscription-lifecycle.md`.
+- Per-subscription `StreamingReplyHandler` actors own each open
+  router subscription; the `RouterObservationPlane` fans out by
+  in-process mailbox sends. Never use shared locks for fanout.
+
+## See also
+
+- this workspace's `skills/subscription-lifecycle.md` — canonical
+  five-state FSM for future router-side subscriptions.
+- this workspace's `skills/push-not-pull.md` — push-not-poll discipline.
+- this workspace's `skills/actor-systems.md` — actor-density rules.
