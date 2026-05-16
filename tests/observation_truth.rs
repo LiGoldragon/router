@@ -436,3 +436,97 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 
     router.stop().await;
 }
+
+
+/// Architectural-truth witness per `/git/.../persona-router/ARCHITECTURE.md`
+/// §"Constraint Tests" — `Router daemon restart with the same --store
+/// path surfaces the pre-restart pending-adjudication state through the
+/// typed observation plane.`
+///
+/// The shape: open `RouterTables` synchronously at a fresh path,
+/// persist a channel by writing directly through the table handle, drop
+/// the handle so the redb flock releases synchronously, reopen
+/// `RouterTables` at the same path, wire the reopened handle into a
+/// runtime, and observe the channel state through the typed observation
+/// plane. The second `RouterTables::open` cannot share memory with the
+/// first; the only path between them is the redb file.
+///
+/// `RouterTables` is a synchronous handle on `Arc<Sema>`; dropping it
+/// is the canonical flock release for the in-process witness. The
+/// stronger cross-process witness (writer derivation outputs
+/// `router.redb`; reader derivation opens it from a separate process)
+/// is the destination shape — see `~/primary/skills/architectural-
+/// truth-tests.md` §"Nix-chained tests — the strongest witness". This
+/// in-process witness is sufficient for the per-table-handle boundary
+/// because the actor runtime never touches the redb file directly; only
+/// `RouterTables` does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_daemon_restart_surfaces_persisted_adjudication_through_observation_plane() {
+    let store = TemporaryRouterStore::new("restart-adjudication");
+    let channel_id = ChannelId::new("restart-witness-channel");
+
+    // First "daemon": persist a channel through `RouterTables`
+    // synchronously, then drop the handle.
+    {
+        let tables_first = RouterTables::open(store.path()).expect("router tables open");
+        let grant = GrantChannel::direct_message(
+            ActorId::new("message"),
+            ActorId::new("router"),
+            ChannelLifetime::Persistent,
+        );
+        tables_first
+            .insert_channel(&channel_id, &grant)
+            .expect("structural channel persisted before restart");
+
+        let channels_persisted = tables_first
+            .channel_records()
+            .expect("first-handle channel records read");
+        assert!(
+            channels_persisted
+                .iter()
+                .any(|record| record.id == channel_id.as_str()),
+            "channel persisted before first-handle drop"
+        );
+        // Scope ends: `tables_first` drops; the redb flock releases.
+    }
+
+    // Second "daemon": open fresh `RouterTables` against the same redb
+    // file the prior handle wrote. The second handle cannot share
+    // in-process state with the first — it can only observe what was
+    // committed to disk by the prior daemon.
+    let tables_second = RouterTables::open(store.path()).expect("router tables reopen");
+    let restored_channels = tables_second
+        .channel_records()
+        .expect("second-handle channel records read");
+    assert!(
+        restored_channels
+            .iter()
+            .any(|record| record.id == channel_id.as_str()),
+        "prior-daemon channel survives the redb reopen"
+    );
+
+    // Wire the reopened tables into an observation-plane runtime and
+    // query through the typed Signal contract.
+    let router = ObservationFixture::start_with_tables(tables_second).await;
+    let reply = router
+        .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
+            engine: engine_id(),
+            channel: channel_id.clone(),
+        }))
+        .await
+        .expect("observation plane answers post-restart channel state");
+
+    let RouterReply::ChannelState(state) = reply else {
+        panic!(
+            "expected RouterReply::ChannelState across the reopen, got {reply:?}"
+        );
+    };
+    assert_eq!(state.channel, channel_id);
+    assert_eq!(
+        state.status,
+        RouterChannelStatus::Installed,
+        "post-restart observation plane reads typed Installed status"
+    );
+
+    router.stop().await;
+}
