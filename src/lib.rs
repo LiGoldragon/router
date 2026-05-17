@@ -40,18 +40,21 @@ pub use observation::{
 };
 pub use router::{
     ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput, ApplySignalMessage,
-    ChannelGranted, ChannelRetracted, DeliveryChanged, GrantDirectMessage, GrantRouteChannel,
-    InstallRouteStructuralChannels, InstallStructuralChannelsBootstrap,
-    MindAdjudicationDenyApplied, MindChannelGrantApplied, ReadRouterChannelPersistence,
-    ReadRouterMindAdjudicationOutbox, ReadRouterObservationFacts, ReadRouterTrace, RegisterActor,
-    Registered, RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterBootstrap,
-    RouterBootstrapOperation, RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection,
-    RouterDaemon, RouterDaemonInput, RouterIngressContext, RouterInput,
+    ChannelGranted, ChannelRetracted, DeliveryChanged, GrantRouteChannel,
+    InstallRouteStructuralChannels, MindAdjudicationDenyApplied, MindChannelGrantApplied,
+    ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox, ReadRouterObservationFacts,
+    ReadRouterTrace, RegisterActor, Registered, RetractRouteChannel, RouteMessage,
+    RouterApplyOutcome, RouterBootstrap, RouterChannelPersistenceOutcome, RouterCommandLine,
+    RouterConnection, RouterDaemon, RouterDaemonInput, RouterIngressContext, RouterInput,
     RouterMindAdjudicationOutboxOutcome, RouterObservationFacts, RouterObservationFrameCodec,
     RouterObservationSlot, RouterObservationTraceEvent, RouterOutput, RouterRoot, RouterRuntime,
     RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep,
     SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode, Status,
     StructuralChannelsInstalled,
+};
+pub use signal_persona_router::{
+    GrantDirectMessage, InstallStructuralChannels as InstallStructuralChannelsBootstrap,
+    RouterBootstrapOperation,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,

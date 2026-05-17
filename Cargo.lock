@@ -911,7 +911,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-message.git#2a6f500e9a3c5327cbca45c6962cb5ecb3eb82e7"
+source = "git+https://github.com/LiGoldragon/signal-persona-message.git#3ad4c81e03d7a5d67e8780b9ab8833177422e367"
 dependencies = [
  "nota-codec",
  "nota-config",
@@ -937,7 +937,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-router.git#226366f471365103acdc984706eff07e48ab6513"
+source = "git+https://github.com/LiGoldragon/signal-persona-router.git#35c53902532c09e14326c73f8f5570ca76caa6db"
 dependencies = [
  "nota-codec",
  "nota-config",

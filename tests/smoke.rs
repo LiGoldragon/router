@@ -115,7 +115,7 @@ fn router_bootstrap_decodes_registered_pty_endpoint() {
         operation,
         RouterBootstrapOperation::RegisterActor(registration)
             if registration.actor.name.as_str() == "responder"
-                && registration.actor.pid == 42
+                && registration.actor.process == 42
                 && registration.actor.endpoint.is_some()
     ));
 }
@@ -131,7 +131,7 @@ fn router_bootstrap_decodes_registered_harness_socket_endpoint() {
         operation,
         RouterBootstrapOperation::RegisterActor(registration)
             if registration.actor.name.as_str() == "responder"
-                && registration.actor.pid == 42
+                && registration.actor.process == 42
                 && registration.actor.endpoint.is_some()
     ));
 }

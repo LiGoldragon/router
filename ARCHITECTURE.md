@@ -56,6 +56,11 @@ flowchart LR
   reply. The CLI does not mint the message sender;
 - a Signal-frame daemon ingress for `signal-persona-message`
   `StampedMessageSubmission` and `InboxQuery` frames;
+- a startup bootstrap reader for manager-written
+  `signal-persona-router::RouterBootstrapDocument` line projections. The
+  router no longer owns a private duplicate of the bootstrap record
+  vocabulary; it converts the contract records into internal
+  `RouterInput` values at the daemon boundary;
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
   tree as `ActorRef<RouterRuntime>`;
 - a Kameo `RouterRoot` that owns live routing state behind the runtime;
@@ -302,6 +307,10 @@ This repo does not own:
 - Channel and adjudication records persisted under one router schema
   version do not deserialise under a different version. `RouterTables::open`
   hard-fails on schema mismatch.
+- Router bootstrap records come from `signal-persona-router`; the router
+  accepts the current line-oriented startup file only by decoding contract
+  `RouterBootstrapOperation` values and converting them into internal actor
+  inputs.
 
 ## Code Map
 
@@ -342,6 +351,7 @@ tests/                  router smoke and actor-density truth tests
 | RouterRoot persists accepted Signal messages before delivery retry. | `nix flake check .#router-root-persists-accepted-signal-message-before-delivery-attempt` |
 | RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix flake check .#router-root-persists-delivery-attempt-and-result-records` |
 | Router engine setup can install first-stack structural channels through the actor tree. | `nix flake check .#router-installs-structural-channels-for-engine-setup` |
+| Router bootstrap startup vocabulary is owned by `signal-persona-router`, not by private local parser records. | `cargo test --test smoke router_bootstrap_decodes_registered_harness_socket_endpoint` and `signal-persona-router`'s `bootstrap_document_owns_line_vocabulary_for_manager_and_router` witness. |
 | A typed mind channel grant installs a row before a parked message is retried for delivery. | `nix flake check .#mind-channel-grant-installs-row-before-parked-message-delivers` |
 | A typed mind adjudication deny removes a parked message without delivery. | `nix flake check .#mind-adjudication-deny-removes-parked-message-without-delivery` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |

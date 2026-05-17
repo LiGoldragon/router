@@ -29,7 +29,9 @@ use signal_persona_mind::{
     ChannelEndpoint as MindChannelEndpoint, ChannelGrant as MindChannelGrant,
 };
 use signal_persona_router::{
-    RouterDaemonConfiguration, RouterFrame as SignalRouterFrame,
+    Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
+    EndpointTransport as BootstrapEndpointTransport, RouterBootstrapDocument,
+    RouterBootstrapOperation, RouterDaemonConfiguration, RouterFrame as SignalRouterFrame,
     RouterFrameBody as SignalRouterFrameBody, RouterReply as SignalRouterReply,
     RouterRequest as SignalRouterRequest,
 };
@@ -54,7 +56,10 @@ use crate::observation::{
     RouterObservationPlane, RouterObservationPlaneStatus,
 };
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
-use crate::{Actor, ActorId, Error, Message, MessageId, Result, RouterTables, ThreadId};
+use crate::{
+    Actor, ActorId, EndpointKind, EndpointTransport, Error, Message, MessageId, Result,
+    RouterTables, ThreadId,
+};
 
 fn synthetic_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
@@ -1374,7 +1379,7 @@ impl RouterBootstrap {
 
     pub fn operations(&self) -> Result<Vec<RouterBootstrapOperation>> {
         let text = std::fs::read_to_string(&self.path)?;
-        RouterBootstrapText::new(text).operations()
+        Ok(RouterBootstrapDocument::from_nota_lines(&text)?.into_operations())
     }
 
     pub fn apply(
@@ -1383,7 +1388,7 @@ impl RouterBootstrap {
         router: &ActorRef<RouterRuntime>,
     ) -> Result<()> {
         for operation in self.operations()? {
-            let input = operation.into_router_input();
+            let input = RouterInput::from_bootstrap_operation(operation);
             runtime
                 .block_on(async { router.ask(ApplyRouterInput { input }).await })
                 .map_err(|error| Error::ActorCall(error.to_string()))?
@@ -1391,93 +1396,6 @@ impl RouterBootstrap {
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RouterBootstrapText {
-    text: String,
-}
-
-impl RouterBootstrapText {
-    fn new(text: String) -> Self {
-        Self { text }
-    }
-
-    fn operations(&self) -> Result<Vec<RouterBootstrapOperation>> {
-        let mut operations = Vec::new();
-        for line in self.text.lines().map(str::trim) {
-            if line.is_empty() {
-                continue;
-            }
-            operations.push(RouterBootstrapOperation::from_nota(line)?);
-        }
-        Ok(operations)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RouterBootstrapOperation {
-    RegisterActor(RegisterActor),
-    GrantDirectMessage(GrantDirectMessage),
-    InstallStructuralChannels(InstallStructuralChannelsBootstrap),
-}
-
-impl RouterBootstrapOperation {
-    pub fn from_nota(text: &str) -> Result<Self> {
-        let mut decoder = Decoder::new(text);
-        let operation = Self::decode(&mut decoder)?;
-        expect_end(&mut decoder)?;
-        Ok(operation)
-    }
-
-    fn into_router_input(self) -> RouterInput {
-        match self {
-            Self::RegisterActor(operation) => RouterInput::RegisterActor(operation),
-            Self::GrantDirectMessage(operation) => RouterInput::GrantChannel(GrantRouteChannel {
-                channel: GrantChannel::direct_message(
-                    operation.from,
-                    operation.to,
-                    ChannelLifetime::Persistent,
-                ),
-            }),
-            Self::InstallStructuralChannels(_) => {
-                RouterInput::InstallStructuralChannels(InstallRouteStructuralChannels {
-                    channels: InstallStructuralChannels {
-                        channels: EngineStructuralChannels::first_stack(),
-                    },
-                })
-            }
-        }
-    }
-}
-
-impl NotaDecode for RouterBootstrapOperation {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
-            "RegisterActor" => Ok(Self::RegisterActor(RegisterActor::decode(decoder)?)),
-            "GrantDirectMessage" => Ok(Self::GrantDirectMessage(GrantDirectMessage::decode(
-                decoder,
-            )?)),
-            "InstallStructuralChannels" => Ok(Self::InstallStructuralChannels(
-                InstallStructuralChannelsBootstrap::decode(decoder)?,
-            )),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "RouterBootstrapOperation",
-                got: other.to_string(),
-            }),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct GrantDirectMessage {
-    pub from: ActorId,
-    pub to: ActorId,
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct InstallStructuralChannelsBootstrap {
-    pub requester: ActorId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2349,6 +2267,56 @@ pub enum RouterInput {
 }
 
 impl RouterInput {
+    fn from_bootstrap_operation(operation: RouterBootstrapOperation) -> Self {
+        match operation {
+            RouterBootstrapOperation::RegisterActor(operation) => {
+                Self::RegisterActor(RegisterActor {
+                    actor: Self::actor_from_bootstrap(operation.actor),
+                })
+            }
+            RouterBootstrapOperation::GrantDirectMessage(operation) => {
+                Self::GrantChannel(GrantRouteChannel {
+                    channel: GrantChannel::direct_message(
+                        Self::actor_id_from_bootstrap(operation.from),
+                        Self::actor_id_from_bootstrap(operation.to),
+                        ChannelLifetime::Persistent,
+                    ),
+                })
+            }
+            RouterBootstrapOperation::InstallStructuralChannels(_) => {
+                Self::InstallStructuralChannels(InstallRouteStructuralChannels {
+                    channels: InstallStructuralChannels {
+                        channels: EngineStructuralChannels::first_stack(),
+                    },
+                })
+            }
+        }
+    }
+
+    fn actor_from_bootstrap(actor: BootstrapActor) -> Actor {
+        Actor {
+            name: Self::actor_id_from_bootstrap(actor.name),
+            pid: actor.process,
+            endpoint: actor.endpoint.map(Self::endpoint_from_bootstrap),
+        }
+    }
+
+    fn endpoint_from_bootstrap(endpoint: BootstrapEndpointTransport) -> EndpointTransport {
+        EndpointTransport {
+            kind: match endpoint.kind {
+                BootstrapEndpointKind::Human => EndpointKind::Human,
+                BootstrapEndpointKind::HarnessSocket => EndpointKind::HarnessSocket,
+                BootstrapEndpointKind::PtySocket => EndpointKind::PtySocket,
+            },
+            target: endpoint.target,
+            aux: endpoint.auxiliary,
+        }
+    }
+
+    fn actor_id_from_bootstrap(actor: signal_persona_router::ActorId) -> ActorId {
+        ActorId::new(actor.as_str())
+    }
+
     pub fn from_nota(text: &str) -> Result<Self> {
         let mut decoder = Decoder::new(text);
         let input = Self::decode(&mut decoder)?;
