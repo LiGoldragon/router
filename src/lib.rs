@@ -46,11 +46,12 @@ pub use router::{
     ReadRouterMindAdjudicationOutbox, ReadRouterObservationFacts, ReadRouterTrace, RegisterActor,
     Registered, RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterBootstrap,
     RouterBootstrapOperation, RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection,
-    RouterDaemon, RouterIngressContext, RouterInput, RouterMindAdjudicationOutboxOutcome,
-    RouterObservationFacts, RouterObservationSlot, RouterObservationTraceEvent, RouterOutput,
-    RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
-    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
-    Status, StructuralChannelsInstalled,
+    RouterDaemon, RouterDaemonInput, RouterIngressContext, RouterInput,
+    RouterMindAdjudicationOutboxOutcome, RouterObservationFacts, RouterObservationFrameCodec,
+    RouterObservationSlot, RouterObservationTraceEvent, RouterOutput, RouterRoot, RouterRuntime,
+    RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep,
+    SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode, Status,
+    StructuralChannelsInstalled,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,

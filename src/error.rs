@@ -55,8 +55,24 @@ pub enum Error {
     #[error("unexpected signal frame: {got}")]
     UnexpectedSignalFrame { got: String },
 
+    #[error("unexpected router observation frame: {got}")]
+    UnexpectedRouterObservationFrame { got: String },
+
+    #[error(
+        "daemon frame was neither message ingress nor router observation: signal={signal_error}; router={router_error}"
+    )]
+    UnexpectedDaemonFrame {
+        signal_error: String,
+        router_error: String,
+    },
+
     #[error("signal request failed structural checks: {reason}")]
     InvalidSignalRequest {
+        reason: signal_core::RequestRejectionReason,
+    },
+
+    #[error("router observation request failed structural checks: {reason}")]
+    InvalidRouterObservationRequest {
         reason: signal_core::RequestRejectionReason,
     },
 }

@@ -7,14 +7,21 @@
 //! depends on this contract.
 
 use std::fs;
+use std::io::Write;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use persona_router::{
     Actor, ActorId, ActorRef, ApplyRouterInput, ApplyRouterObservation, ChannelLifetime,
     EngineStructuralChannels, GrantChannel, GrantRouteChannel, InstallRouteStructuralChannels,
-    InstallStructuralChannels, ReadRouterObservationPlaneStatus, RegisterActor, RouterIngressContext,
-    RouterInput, RouterOutput, RouterRuntime, RouterTables, SignalMessageInput,
+    InstallStructuralChannels, ReadRouterObservationPlaneStatus, RegisterActor, RouterConnection,
+    RouterDaemonInput, RouterIngressContext, RouterInput, RouterObservationFrameCodec,
+    RouterOutput, RouterRuntime, RouterTables, SignalMessageInput,
+};
+use signal_core::{
+    AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
+    SessionEpoch, SignalVerb, SubReply,
 };
 use signal_persona::TimestampNanos;
 use signal_persona_auth::{ChannelId, ConnectionClass, EngineId, MessageOrigin};
@@ -23,9 +30,9 @@ use signal_persona_message::{
     MessageSlot, MessageSubmission, StampedMessageSubmission,
 };
 use signal_persona_router::{
-    RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus, RouterMessageTraceQuery,
-    RouterObservationScope, RouterObservationUnimplementedReason, RouterReply, RouterRequest,
-    RouterSummaryQuery,
+    RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus, RouterFrame,
+    RouterFrameBody, RouterMessageTraceQuery, RouterObservationScope,
+    RouterObservationUnimplementedReason, RouterReply, RouterRequest, RouterSummaryQuery,
 };
 
 struct TemporaryRouterStore {
@@ -100,9 +107,7 @@ impl ObservationFixture {
             .into_result()
     }
 
-    async fn observation_plane_status(
-        &self,
-    ) -> persona_router::RouterObservationPlaneStatus {
+    async fn observation_plane_status(&self) -> persona_router::RouterObservationPlaneStatus {
         self.runtime
             .ask(ReadRouterObservationPlaneStatus {
                 requester: ActorId::new("operator"),
@@ -122,6 +127,81 @@ impl ObservationFixture {
 
 fn engine_id() -> EngineId {
     EngineId::new("prototype")
+}
+
+fn router_exchange() -> ExchangeIdentifier {
+    ExchangeIdentifier::new(
+        SessionEpoch::new(1),
+        ExchangeLane::Connector,
+        LaneSequence::first(),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_daemon_connection_routes_router_frame_to_observation_plane() {
+    let router = ObservationFixture::start().await;
+    let (mut client, server) = UnixStream::pair().expect("socket pair");
+    let request = RouterRequest::Summary(RouterSummaryQuery {
+        engine: engine_id(),
+    });
+    let frame = RouterFrame::new(RouterFrameBody::Request {
+        exchange: router_exchange(),
+        request: request.clone().into_request(),
+    });
+    client
+        .write_all(
+            frame
+                .encode_length_prefixed()
+                .expect("router frame encodes")
+                .as_slice(),
+        )
+        .expect("client writes router frame");
+
+    let mut connection = RouterConnection::from_stream(server);
+    let input = connection.read_input().expect("daemon reads router frame");
+    let RouterDaemonInput::RouterObservation(observed) = input else {
+        panic!("expected router observation input, got {input:?}");
+    };
+    assert_eq!(observed, request);
+
+    let reply = router
+        .runtime
+        .ask(ApplyRouterObservation { request: observed })
+        .await
+        .expect("router runtime accepts observation request")
+        .into_result()
+        .expect("observation plane answers");
+    connection
+        .write_router_observation_reply(reply)
+        .expect("daemon writes router observation reply");
+
+    let decoded = RouterObservationFrameCodec::default()
+        .read_frame(&mut client)
+        .expect("client decodes router observation reply");
+    match decoded.into_body() {
+        RouterFrameBody::Reply { reply, .. } => match reply {
+            Reply::Accepted {
+                outcome: AcceptedOutcome::Completed,
+                per_operation,
+            } => match per_operation.into_head() {
+                SubReply::Ok {
+                    verb: SignalVerb::Match,
+                    payload: RouterReply::Summary(summary),
+                } => {
+                    assert_eq!(summary.engine, engine_id());
+                    assert_eq!(summary.accepted_messages, 0);
+                    assert_eq!(summary.routed_messages, 0);
+                    assert_eq!(summary.deferred_messages, 0);
+                    assert_eq!(summary.failed_messages, 0);
+                }
+                other => panic!("expected router summary subreply, got {other:?}"),
+            },
+            other => panic!("expected completed accepted reply, got {other:?}"),
+        },
+        other => panic!("expected router reply frame, got {other:?}"),
+    }
+
+    router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -437,7 +517,6 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
     router.stop().await;
 }
 
-
 /// Architectural-truth witness per `/git/.../persona-router/ARCHITECTURE.md`
 /// §"Constraint Tests" — `Router daemon restart with the same --store
 /// path surfaces the pre-restart pending-adjudication state through the
@@ -517,9 +596,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
         .expect("observation plane answers post-restart channel state");
 
     let RouterReply::ChannelState(state) = reply else {
-        panic!(
-            "expected RouterReply::ChannelState across the reopen, got {reply:?}"
-        );
+        panic!("expected RouterReply::ChannelState across the reopen, got {reply:?}");
     };
     assert_eq!(state.channel, channel_id);
     assert_eq!(

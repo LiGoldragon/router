@@ -77,12 +77,12 @@ flowchart LR
   observation queries (`RouterSummaryQuery`, `RouterMessageTraceQuery`,
   `RouterChannelStateQuery`) by reading `RouterRoot` facts and
   `RouterTables` channel records; replies are typed `RouterReply` records.
-  The `signal-persona-router::RouterRequest` contract scaffold is in place;
-  the destination is the router daemon connection path accepting
-  `RouterFrame` requests alongside the message-ingress frames and the
-  observation plane answering them. Subscription push for channel-state
-  and delivery deltas follows the canonical five-state lifecycle named
-  in `~/primary/skills/subscription-lifecycle.md`;
+  The daemon connection path accepts `RouterFrame` Match requests on
+  `router.sock` alongside the existing stamped `signal-persona-message`
+  ingress frames, then dispatches observation requests through
+  `RouterRuntime` to `RouterObservationPlane`. Subscription push for
+  channel-state and delivery deltas follows the canonical five-state
+  lifecycle named in `~/primary/skills/subscription-lifecycle.md`;
 - pending-delivery state;
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
@@ -346,6 +346,7 @@ tests/                  router smoke and actor-density truth tests
 | A typed mind adjudication deny removes a parked message without delivery. | `nix flake check .#mind-adjudication-deny-removes-parked-message-without-delivery` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 | Router daemon answers `signal-persona-router::RouterSummaryQuery` from the observation plane actor. | `nix flake check .#router-daemon-answers-router-summary-query` |
+| Router daemon connection path accepts length-prefixed `signal-persona-router::RouterFrame` Match requests and writes typed Router replies without bypassing `RouterObservationPlane`. | `nix flake check .#router-daemon-accepts-router-observation-frames` |
 | Router summary counts derive from RouterRoot's accepted/pending/failed facts. | `nix flake check .#router-summary-query-counts-accepted-pending-and-failed-messages` |
 | Router message trace replies report `Deferred` for parked messages and `MessageTraceMissing` for unknown slots — no `Unknown` sentinel. | `nix flake check .#router-message-trace-query-reports-deferred-status-for-parked-message` |
 | Router channel state replies read installed-vs-missing-vs-disabled from router-owned Sema tables. | `nix flake check .#router-channel-state-query-reads-router-tables` |

@@ -21,7 +21,10 @@ use persona_router::{
 };
 use signal_core::{NonEmpty, Reply, SubReply};
 use signal_persona::TimestampNanos;
-use signal_persona_auth::{ComponentName, ConnectionClass, MessageOrigin};
+use signal_persona_auth::{
+    ComponentInstanceName, ComponentName, ConnectionClass, InternalComponentInstanceOrigin,
+    MessageOrigin,
+};
 use signal_persona_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
 };
@@ -1319,6 +1322,46 @@ async fn router_root_persists_accepted_signal_message_before_delivery_attempt() 
         attempts.is_empty(),
         "message row must persist even when no harness target exists yet"
     );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stamped_component_instance_origin_becomes_message_sender_actor() {
+    let store = TemporaryRouterStore::new("component-instance-origin");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+    let origin = MessageOrigin::InternalComponentInstance(InternalComponentInstanceOrigin::new(
+        ComponentName::Harness,
+        ComponentInstanceName::new("initiator"),
+    ));
+
+    let reply = router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::message(),
+            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+                submission: MessageSubmission {
+                    recipient: MessageRecipient::new("responder"),
+                    kind: MessageKind::Send,
+                    body: MessageBody::new("from component instance"),
+                },
+                origin: origin.clone(),
+                stamped_at: TimestampNanos::new(1),
+            }),
+        ))
+        .await
+        .expect("signal message request passes through router actors");
+
+    let MessageReply::SubmissionAccepted(acceptance) = reply else {
+        panic!("expected accepted signal message reply");
+    };
+    assert_eq!(acceptance.message_slot.into_u64(), 1);
+
+    let messages = inspection.message_records().expect("message records read");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].sender, "initiator");
+    assert_eq!(messages[0].origin, origin);
 
     router.stop().await;
 }

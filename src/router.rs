@@ -13,7 +13,6 @@ use signal_core::{
     SignalVerb, SubReply,
 };
 use signal_persona_auth::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
-use signal_persona_router::RouterDaemonConfiguration;
 use signal_persona_message::{
     Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
@@ -28,6 +27,11 @@ use signal_persona_message::{
 use signal_persona_mind::{
     AdjudicationDeny as MindAdjudicationDeny, ChannelDuration as MindChannelDuration,
     ChannelEndpoint as MindChannelEndpoint, ChannelGrant as MindChannelGrant,
+};
+use signal_persona_router::{
+    RouterDaemonConfiguration, RouterFrame as SignalRouterFrame,
+    RouterFrameBody as SignalRouterFrameBody, RouterReply as SignalRouterReply,
+    RouterRequest as SignalRouterRequest,
 };
 
 use crate::adjudication::{
@@ -82,9 +86,7 @@ impl RouterDaemon {
         let supervision = SupervisionListener::new(
             SupervisionProfile::router(),
             PathBuf::from(configuration.supervision_socket_path.as_str()),
-            SupervisionSocketMode::from_octal(
-                configuration.supervision_socket_mode.into_u32(),
-            ),
+            SupervisionSocketMode::from_octal(configuration.supervision_socket_mode.into_u32()),
         );
         Ok(Self {
             socket: PathBuf::from(configuration.router_socket_path.as_str()),
@@ -172,12 +174,22 @@ impl RouterDaemon {
         ingress: RouterIngressContext,
     ) -> Result<()> {
         let mut connection = RouterConnection::from_stream_with_ingress(stream, ingress);
-        let input = connection.read_signal_input()?;
-        let output = runtime
-            .block_on(async { router.ask(ApplySignalMessage { input }).await })
-            .map_err(|error| Error::ActorCall(error.to_string()))?
-            .into_result()?;
-        connection.write_signal_reply(output)?;
+        match connection.read_input()? {
+            RouterDaemonInput::SignalMessage(input) => {
+                let output = runtime
+                    .block_on(async { router.ask(ApplySignalMessage { input }).await })
+                    .map_err(|error| Error::ActorCall(error.to_string()))?
+                    .into_result()?;
+                connection.write_signal_reply(output)?;
+            }
+            RouterDaemonInput::RouterObservation(request) => {
+                let output = runtime
+                    .block_on(async { router.ask(ApplyRouterObservation { request }).await })
+                    .map_err(|error| Error::ActorCall(error.to_string()))?
+                    .into_result()?;
+                connection.write_router_observation_reply(output)?;
+            }
+        }
         Ok(())
     }
 }
@@ -198,8 +210,9 @@ impl SocketMode {
 pub struct RouterConnection {
     stream: BufReader<UnixStream>,
     signal: SignalMessageFrameCodec,
+    router_observation: RouterObservationFrameCodec,
     ingress: RouterIngressContext,
-    pending_reply: Option<(ExchangeIdentifier, SignalVerb)>,
+    pending_reply: Option<PendingRouterDaemonReply>,
 }
 
 impl RouterConnection {
@@ -211,27 +224,108 @@ impl RouterConnection {
         Self {
             stream: BufReader::new(stream),
             signal: SignalMessageFrameCodec::default(),
+            router_observation: RouterObservationFrameCodec::default(),
             ingress,
             pending_reply: None,
         }
     }
 
+    pub fn read_input(&mut self) -> Result<RouterDaemonInput> {
+        let bytes = self.signal.read_frame_bytes(&mut self.stream)?;
+        match self.try_signal_message_input(&bytes) {
+            Ok(received) => {
+                self.pending_reply = Some(PendingRouterDaemonReply::SignalMessage {
+                    exchange: received.exchange,
+                    verb: received.verb,
+                });
+                return Ok(RouterDaemonInput::SignalMessage(received.input));
+            }
+            Err(signal_error) => match self.try_router_observation_input(&bytes) {
+                Ok(received) => {
+                    self.pending_reply = Some(PendingRouterDaemonReply::RouterObservation {
+                        exchange: received.exchange,
+                        verb: received.verb,
+                    });
+                    Ok(RouterDaemonInput::RouterObservation(received.request))
+                }
+                Err(router_error) => Err(Error::UnexpectedDaemonFrame {
+                    signal_error,
+                    router_error,
+                }),
+            },
+        }
+    }
+
     pub fn read_signal_input(&mut self) -> Result<SignalMessageInput> {
-        let frame = self.signal.read_frame(&mut self.stream)?;
-        let received = SignalMessageInput::from_frame_with_ingress(frame, self.ingress.clone())?;
-        self.pending_reply = Some((received.exchange, received.verb));
-        Ok(received.input)
+        match self.read_input()? {
+            RouterDaemonInput::SignalMessage(input) => Ok(input),
+            RouterDaemonInput::RouterObservation(request) => Err(Error::UnexpectedSignalFrame {
+                got: format!("router observation request: {request:?}"),
+            }),
+        }
     }
 
     pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> Result<()> {
         let stream = self.stream.get_mut();
-        let Some((exchange, verb)) = self.pending_reply.take() else {
+        let Some(PendingRouterDaemonReply::SignalMessage { exchange, verb }) =
+            self.pending_reply.take()
+        else {
             return Err(Error::UnexpectedSignalFrame {
                 got: "cannot write signal reply before reading a request".to_string(),
             });
         };
         self.signal.write_reply(stream, exchange, verb, reply)
     }
+
+    pub fn write_router_observation_reply(&mut self, reply: SignalRouterReply) -> Result<()> {
+        let stream = self.stream.get_mut();
+        let Some(PendingRouterDaemonReply::RouterObservation { exchange, verb }) =
+            self.pending_reply.take()
+        else {
+            return Err(Error::UnexpectedRouterObservationFrame {
+                got: "cannot write router observation reply before reading a request".to_string(),
+            });
+        };
+        self.router_observation
+            .write_reply(stream, exchange, verb, reply)
+    }
+
+    fn try_signal_message_input(
+        &self,
+        bytes: &[u8],
+    ) -> std::result::Result<ReceivedSignalMessageInput, String> {
+        let frame =
+            SignalMessageFrame::decode_length_prefixed(bytes).map_err(|error| error.to_string())?;
+        SignalMessageInput::from_frame_with_ingress(frame, self.ingress.clone())
+            .map_err(|error| error.to_string())
+    }
+
+    fn try_router_observation_input(
+        &self,
+        bytes: &[u8],
+    ) -> std::result::Result<ReceivedRouterObservationInput, String> {
+        let frame =
+            SignalRouterFrame::decode_length_prefixed(bytes).map_err(|error| error.to_string())?;
+        received_router_observation_from_frame(frame).map_err(|error| error.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouterDaemonInput {
+    SignalMessage(SignalMessageInput),
+    RouterObservation(SignalRouterRequest),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingRouterDaemonReply {
+    SignalMessage {
+        exchange: ExchangeIdentifier,
+        verb: SignalVerb,
+    },
+    RouterObservation {
+        exchange: ExchangeIdentifier,
+        verb: SignalVerb,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,6 +376,9 @@ impl RouterIngressContext {
     pub fn actor_id_for_origin(origin: &MessageOrigin) -> ActorId {
         match origin {
             MessageOrigin::Internal(component) => Self::component_actor_id(*component),
+            MessageOrigin::InternalComponentInstance(origin) => {
+                ActorId::new(origin.instance().as_str())
+            }
             MessageOrigin::External(connection) => Self::connection_actor_id(connection),
         }
     }
@@ -329,7 +426,7 @@ impl SignalMessageFrameCodec {
         }
     }
 
-    pub fn read_frame(&self, reader: &mut impl Read) -> Result<SignalMessageFrame> {
+    pub fn read_frame_bytes(&self, reader: &mut impl Read) -> Result<Vec<u8>> {
         let mut prefix = [0_u8; 4];
         reader.read_exact(&mut prefix)?;
         let length = u32::from_be_bytes(prefix) as usize;
@@ -340,6 +437,11 @@ impl SignalMessageFrameCodec {
         bytes.extend_from_slice(&prefix);
         bytes.resize(4 + length, 0);
         reader.read_exact(&mut bytes[4..])?;
+        Ok(bytes)
+    }
+
+    pub fn read_frame(&self, reader: &mut impl Read) -> Result<SignalMessageFrame> {
+        let bytes = self.read_frame_bytes(reader)?;
         Ok(SignalMessageFrame::decode_length_prefixed(&bytes)?)
     }
 
@@ -369,6 +471,63 @@ impl SignalMessageFrameCodec {
 }
 
 impl Default for SignalMessageFrameCodec {
+    fn default() -> Self {
+        Self::new(1024 * 1024)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RouterObservationFrameCodec {
+    maximum_frame_bytes: usize,
+}
+
+impl RouterObservationFrameCodec {
+    pub const fn new(maximum_frame_bytes: usize) -> Self {
+        Self {
+            maximum_frame_bytes,
+        }
+    }
+
+    pub fn read_frame(&self, reader: &mut impl Read) -> Result<SignalRouterFrame> {
+        let mut prefix = [0_u8; 4];
+        reader.read_exact(&mut prefix)?;
+        let length = u32::from_be_bytes(prefix) as usize;
+        if length > self.maximum_frame_bytes {
+            return Err(Error::SignalFrameTooLarge { bytes: length });
+        }
+        let mut bytes = Vec::with_capacity(4 + length);
+        bytes.extend_from_slice(&prefix);
+        bytes.resize(4 + length, 0);
+        reader.read_exact(&mut bytes[4..])?;
+        Ok(SignalRouterFrame::decode_length_prefixed(&bytes)?)
+    }
+
+    pub fn write_frame(&self, writer: &mut impl Write, frame: &SignalRouterFrame) -> Result<()> {
+        let bytes = frame.encode_length_prefixed()?;
+        writer.write_all(&bytes)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    pub fn write_reply(
+        &self,
+        stream: &mut UnixStream,
+        exchange: ExchangeIdentifier,
+        verb: SignalVerb,
+        reply: SignalRouterReply,
+    ) -> Result<()> {
+        let frame = SignalRouterFrame::new(SignalRouterFrameBody::Reply {
+            exchange,
+            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
+                verb,
+                payload: reply,
+            })),
+        });
+        self.write_frame(stream, &frame)
+    }
+}
+
+impl Default for RouterObservationFrameCodec {
     fn default() -> Self {
         Self::new(1024 * 1024)
     }
@@ -446,6 +605,34 @@ struct ReceivedSignalMessageInput {
     exchange: ExchangeIdentifier,
     verb: SignalVerb,
     input: SignalMessageInput,
+}
+
+fn received_router_observation_from_frame(
+    frame: SignalRouterFrame,
+) -> Result<ReceivedRouterObservationInput> {
+    match frame.into_body() {
+        SignalRouterFrameBody::Request { exchange, request } => {
+            let checked = request
+                .into_checked()
+                .map_err(|(reason, _)| Error::InvalidRouterObservationRequest { reason })?;
+            let operation = checked.operations.into_head();
+            Ok(ReceivedRouterObservationInput {
+                exchange,
+                verb: operation.verb,
+                request: operation.payload,
+            })
+        }
+        other => Err(Error::UnexpectedRouterObservationFrame {
+            got: format!("{other:?}"),
+        }),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReceivedRouterObservationInput {
+    exchange: ExchangeIdentifier,
+    verb: SignalVerb,
+    request: SignalRouterRequest,
 }
 
 #[derive(Debug)]
@@ -703,14 +890,16 @@ impl kameo::message::Message<ReadRouterObservationPlaneStatus> for RouterRuntime
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         match self.observation() {
-            Ok(observation) => observation
-                .ask(message)
-                .await
-                .unwrap_or(RouterObservationPlaneStatus {
-                    summary_query_count: 0,
-                    message_trace_query_count: 0,
-                    channel_state_query_count: 0,
-                }),
+            Ok(observation) => {
+                observation
+                    .ask(message)
+                    .await
+                    .unwrap_or(RouterObservationPlaneStatus {
+                        summary_query_count: 0,
+                        message_trace_query_count: 0,
+                        channel_state_query_count: 0,
+                    })
+            }
             Err(_) => RouterObservationPlaneStatus {
                 summary_query_count: 0,
                 message_trace_query_count: 0,

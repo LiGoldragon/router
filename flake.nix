@@ -236,6 +236,13 @@
               cargoTestExtraArgs = "--test observation_truth router_daemon_answers_router_summary_query -- --exact";
             }
           );
+          router-daemon-accepts-router-observation-frames = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test observation_truth router_daemon_connection_routes_router_frame_to_observation_plane -- --exact";
+            }
+          );
           router-summary-query-counts-accepted-pending-and-failed-messages = context.craneLib.cargoTest (
             context.commonArgs
             // {
