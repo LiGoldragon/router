@@ -204,6 +204,52 @@ record first, and only then removes or compacts live entries. A separate archive
 retention component may later garbage-collect archive files, but it does not own
 the router's live delivery truth.
 
+## 2.5 · Authority direction — channel grants are inbound `Mutate` orders
+
+Channel-state changes in the router are not the router's decision.
+They are **`Mutate` orders received from a higher authority** — today
+from `persona-mind` (`ChannelGrant`, `ChannelExtend`, `ChannelRetract`,
+`AdjudicationDeny`); when `persona-orchestrate` lands (per
+`reports/second-designer-assistant/4-persona-orchestrate-control-plane-2026-05-17.md`
+and bead `primary-699g`), routed through orchestrate's spawn /
+permission pipeline before reaching the router.
+
+The router's discipline on receipt:
+
+1. **Obey, then confirm.** The router does not adjudicate the grant —
+   that authority lives upstream. It commits the channel-table change
+   through `ChannelAuthority` and replies with a typed confirmation.
+2. **Hold *possibly-mutated* state until the commit lands.** The
+   issuer's `Mutate` reply is the synchronization point; the issuer
+   advances its own state only on the typed confirmation. The router
+   does not emit "ack" speculatively.
+3. **Retract is symmetric.** A `ChannelRetract` order tombstones the
+   channel through the same path; the router replies once the
+   tombstone is durable.
+
+The verb on the *outbound* path (router → mind) is different:
+
+- `AdjudicationRequest` (router → mind for a missed channel) is a
+  *request to adjudicate*, not an order — `Assert`/`Match`-shaped, not
+  `Mutate`.
+- `RouterSummaryQuery` / `RouterMessageTraceQuery` /
+  `RouterChannelStateQuery` from `persona-introspect` are `Match`
+  (one-shot reads). Future subscriptions for channel-state and
+  delivery deltas are `Subscribe`.
+
+The shape mirrors the universal pattern (per
+`~/primary/skills/component-triad.md` §"The six verbs"): the router
+*observes up-tree* via Subscribe/AdjudicationRequest and *obeys
+down-tree* via Mutate-received-from-authority. The router never issues
+`Mutate` orders to peers; it is downstream of the authority chain, not
+in it.
+
+`signal-persona-message`-shaped `StampedMessageSubmission` arriving on
+`router.sock` is `Assert` (a new typed message fact entered the
+system) — a peer-direction write, not an authority order. Routing /
+delivery is the router's decision; that's why message ingress is
+`Assert` and channel changes are `Mutate`.
+
 ## 3 · Boundaries
 
 This repo owns:
