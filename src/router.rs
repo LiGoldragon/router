@@ -397,6 +397,7 @@ impl RouterIngressContext {
             ComponentName::Harness => ActorId::new("harness"),
             ComponentName::System => ActorId::new("system"),
             ComponentName::Introspect => ActorId::new("introspect"),
+            ComponentName::Orchestrate => ActorId::new("orchestrate"),
         }
     }
 
@@ -2227,6 +2228,7 @@ impl ApplyMindChannelGrant {
             ComponentName::Harness => ActorId::new("harness"),
             ComponentName::System => ActorId::new("system"),
             ComponentName::Introspect => ActorId::new("introspect"),
+            ComponentName::Orchestrate => ActorId::new("orchestrate"),
         }
     }
 
