@@ -16,9 +16,6 @@ pub enum Error {
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_core::FrameError),
 
-    #[error("harness terminal: {0}")]
-    Terminal(#[from] persona_harness::Error),
-
     #[error("router sema: {0}")]
     Sema(#[from] sema::Error),
 

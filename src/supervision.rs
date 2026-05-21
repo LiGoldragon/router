@@ -7,12 +7,14 @@ use std::thread::JoinHandle;
 use kameo::actor::{Actor, ActorRef, Spawn};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_core::{ExchangeIdentifier, NonEmpty, Reply, SignalVerb, SubReply};
+use signal_frame::{ExchangeIdentifier, NonEmpty, Reply, SubReply};
+use signal_persona::engine_management::{
+    Frame as SupervisionFrame, FrameBody, Operation as SupervisionRequest,
+    Query as SupervisionQuery, Reply as SupervisionReply,
+};
 use signal_persona::{
-    ComponentHealth, ComponentHealthQuery, ComponentHealthReport, ComponentHello,
-    ComponentIdentity, ComponentKind, ComponentName, ComponentReadinessQuery, ComponentReady,
-    GracefulStopAcknowledgement, SupervisionFrame, SupervisionFrameBody as FrameBody,
-    SupervisionProtocolVersion, SupervisionReply, SupervisionRequest,
+    ComponentHealth, ComponentHealthReport, ComponentIdentity, ComponentKind, ComponentName,
+    ComponentReady, EngineManagementProtocolVersion, Presence, StopAcknowledgement,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,26 +111,26 @@ impl SupervisionPhase {
     fn reply(&mut self, request: SupervisionRequest) -> SupervisionReply {
         self.request_count = self.request_count.saturating_add(1);
         match request {
-            SupervisionRequest::ComponentHello(ComponentHello { .. }) => {
-                SupervisionReply::ComponentIdentity(ComponentIdentity {
+            SupervisionRequest::Announce(Presence { .. }) => {
+                SupervisionReply::Identified(ComponentIdentity {
                     name: self.profile.name.clone(),
                     kind: self.profile.kind,
-                    supervision_protocol_version: SupervisionProtocolVersion::new(1),
+                    engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
                     last_fatal_startup_error: None,
                 })
             }
-            SupervisionRequest::ComponentReadinessQuery(ComponentReadinessQuery { .. }) => {
-                SupervisionReply::ComponentReady(ComponentReady {
+            SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(_)) => {
+                SupervisionReply::Ready(ComponentReady {
                     component_started_at: None,
                 })
             }
-            SupervisionRequest::ComponentHealthQuery(ComponentHealthQuery { .. }) => {
-                SupervisionReply::ComponentHealthReport(ComponentHealthReport {
+            SupervisionRequest::Query(SupervisionQuery::HealthStatus(_)) => {
+                SupervisionReply::HealthReport(ComponentHealthReport {
                     health: self.profile.health,
                 })
             }
-            SupervisionRequest::GracefulStopRequest(_) => {
-                SupervisionReply::GracefulStopAcknowledgement(GracefulStopAcknowledgement {
+            SupervisionRequest::Stop(_) => {
+                SupervisionReply::StopAcknowledged(StopAcknowledgement {
                     drain_completed_at: None,
                 })
             }
@@ -215,7 +217,7 @@ impl SupervisionServer {
                 )
                 .map_err(io_error)?;
             self.codec
-                .write_reply(stream, request.exchange, request.verb, reply.reply)?;
+                .write_reply(stream, request.exchange, reply.reply)?;
         }
         Ok(())
     }
@@ -253,14 +255,16 @@ impl SupervisionFrameCodec {
         let frame = SupervisionFrame::decode_length_prefixed(bytes.as_slice()).map_err(io_error)?;
         match frame.into_body() {
             FrameBody::Request { exchange, request } => {
-                let checked = request
-                    .into_checked()
-                    .map_err(|(reason, _)| io_error(reason))?;
-                let operation = checked.operations.into_head();
+                let mut operations = request.payloads.into_vec();
+                if operations.len() != 1 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "expected one supervision operation",
+                    ));
+                }
                 Ok(ReceivedSupervisionRequest {
                     exchange,
-                    verb: operation.verb,
-                    request: operation.payload,
+                    request: operations.remove(0),
                 })
             }
             other => Err(std::io::Error::new(
@@ -288,7 +292,7 @@ impl SupervisionFrameCodec {
         match frame.into_body() {
             FrameBody::Reply { reply, .. } => match reply {
                 Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                    SubReply::Ok { payload, .. } => Ok(payload),
+                    SubReply::Ok(payload) => Ok(payload),
                     other => Err(io_error(format!(
                         "expected ok supervision sub-reply, got {other:?}"
                     ))),
@@ -306,15 +310,11 @@ impl SupervisionFrameCodec {
         &self,
         writer: &mut impl Write,
         exchange: ExchangeIdentifier,
-        verb: SignalVerb,
         reply: SupervisionReply,
     ) -> std::io::Result<()> {
         let frame = SupervisionFrame::new(FrameBody::Reply {
             exchange,
-            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
-                verb,
-                payload: reply,
-            })),
+            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
         });
         let bytes = frame.encode_length_prefixed().map_err(io_error)?;
         writer.write_all(bytes.as_slice())?;
@@ -325,7 +325,6 @@ impl SupervisionFrameCodec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceivedSupervisionRequest {
     exchange: ExchangeIdentifier,
-    verb: SignalVerb,
     request: SupervisionRequest,
 }
 

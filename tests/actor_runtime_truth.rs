@@ -13,11 +13,11 @@ use persona_router::{
     ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, EngineStructuralChannels,
     GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry,
     InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageId,
-    ObserveChannelTime, ReadChannelAuthorityStatus, ReadChannelPersistence,
-    ReadHarnessRegistryStatus, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
-    ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage, RouterIngressContext,
-    RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables, RouterTrace,
-    RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
+    MindAdjudicationDeny, MindChannelGrant, ObserveChannelTime, ReadChannelAuthorityStatus,
+    ReadChannelPersistence, ReadHarnessRegistryStatus, ReadRouterChannelPersistence,
+    ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage,
+    RouterIngressContext, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables,
+    RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
 };
 use signal_core::{NonEmpty, Reply, SubReply};
 use signal_persona::TimestampNanos;
@@ -33,8 +33,7 @@ use signal_persona_message::{
     MessageSubmission, MessageUnimplementedReason, StampedMessageSubmission,
 };
 use signal_persona_mind::{
-    AdjudicationDeny, AdjudicationRequestId, ChannelDuration, ChannelEndpoint,
-    ChannelGrant as MindChannelGrant, ChannelMessageKind, TextBody,
+    AdjudicationRequestId, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
 
 struct SourceFile {
@@ -1207,7 +1206,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
     let denied = router
         .apply(RouterInput::ApplyMindAdjudicationDeny(
             ApplyMindAdjudicationDeny {
-                deny: AdjudicationDeny {
+                deny: MindAdjudicationDeny {
                     request: AdjudicationRequestId::new(message_id.as_str()),
                     reason: TextBody::new("denied by mind"),
                 },
@@ -1682,8 +1681,8 @@ fn router_root_cannot_hold_terminal_blocking_work() {
     assert!(delivery_source.contains("delegated_delivery_count: u64,"));
     assert!(delivery_source.contains("DelegatedReply<HarnessDeliveryOutcome>"));
     assert!(delivery_source.contains("tokio::task::spawn_blocking"));
-    assert!(delivery_source.contains("HarnessTerminalDelivery"));
-    assert!(delivery_source.contains("HarnessTerminalEndpoint"));
+    assert!(delivery_source.contains("deliver_to_terminal_socket"));
+    assert!(delivery_source.contains("deliver_to_harness_socket"));
 }
 
 #[test]

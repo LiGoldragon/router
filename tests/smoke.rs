@@ -10,11 +10,17 @@ use persona_router::{
     SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
+use signal_frame::{
+    ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
+    LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
+};
+use signal_persona::engine_management::{
+    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
+    Query as SupervisionQuery, Reply as SupervisionReply,
+};
 use signal_persona::{
-    ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind,
-    ComponentName as SupervisionComponentName, ComponentReadinessQuery, SupervisionFrame,
-    SupervisionFrameBody, SupervisionProtocolVersion, SupervisionReply, SupervisionRequest,
-    TimestampNanos,
+    ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
+    EngineManagementProtocolVersion, Presence, TimestampNanos,
 };
 use signal_persona_auth::{ComponentName, MessageOrigin};
 use signal_persona_message::{
@@ -86,15 +92,12 @@ fn router_output_encodes_delivery_changed() {
         pending: 0,
     });
 
-    assert_eq!(
-        output.to_nota().expect("output encodes"),
-        "(DeliveryChanged 1 0)"
-    );
+    assert_eq!(output.to_nota().expect("output encodes"), "(1 0)");
 }
 
 #[test]
 fn router_bootstrap_decodes_direct_message_channel_grant() {
-    let operation = RouterBootstrapOperation::from_nota("(GrantDirectMessage owner responder)")
+    let operation = RouterBootstrapOperation::from_nota("(GrantDirectMessage (owner responder))")
         .expect("bootstrap channel grant decodes");
 
     assert!(matches!(
@@ -107,7 +110,7 @@ fn router_bootstrap_decodes_direct_message_channel_grant() {
 #[test]
 fn router_bootstrap_decodes_registered_pty_endpoint() {
     let operation = RouterBootstrapOperation::from_nota(
-        r#"(RegisterActor (Actor responder 42 (EndpointTransport PtySocket "/tmp/responder.terminal.sock" None)))"#,
+        r#"(RegisterActor ((responder 42 (Some (PtySocket "/tmp/responder.terminal.sock" None)))))"#,
     )
     .expect("bootstrap actor registration decodes");
 
@@ -123,7 +126,7 @@ fn router_bootstrap_decodes_registered_pty_endpoint() {
 #[test]
 fn router_bootstrap_decodes_registered_harness_socket_endpoint() {
     let operation = RouterBootstrapOperation::from_nota(
-        r#"(RegisterActor (Actor responder 42 (EndpointTransport HarnessSocket "/tmp/responder.harness.sock" None)))"#,
+        r#"(RegisterActor ((responder 42 (Some (HarnessSocket "/tmp/responder.harness.sock" None)))))"#,
     )
     .expect("bootstrap harness socket registration decodes");
 
@@ -222,10 +225,10 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
 
     send_supervision_request(
         &mut stream,
-        SupervisionRequest::ComponentHello(ComponentHello {
+        SupervisionRequest::Announce(Presence {
             expected_component: SupervisionComponentName::new("persona-router"),
             expected_kind: ComponentKind::Router,
-            supervision_protocol_version: SupervisionProtocolVersion::new(1),
+            engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
         }),
     );
     let identity = codec
@@ -233,40 +236,40 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
         .expect("identity reply decodes");
     assert!(matches!(
         identity,
-        SupervisionReply::ComponentIdentity(identity)
+        SupervisionReply::Identified(identity)
             if identity.name.as_str() == "persona-router"
                 && identity.kind == ComponentKind::Router
     ));
 
     send_supervision_request(
         &mut stream,
-        SupervisionRequest::ComponentReadinessQuery(ComponentReadinessQuery {
-            component: SupervisionComponentName::new("persona-router"),
-        }),
+        SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(
+            SupervisionComponentName::new("persona-router"),
+        )),
     );
     let readiness = codec
         .read_reply(&mut stream)
         .expect("readiness reply decodes");
-    assert!(matches!(readiness, SupervisionReply::ComponentReady(_)));
+    assert!(matches!(readiness, SupervisionReply::Ready(_)));
 
     send_supervision_request(
         &mut stream,
-        SupervisionRequest::ComponentHealthQuery(ComponentHealthQuery {
-            component: SupervisionComponentName::new("persona-router"),
-        }),
+        SupervisionRequest::Query(SupervisionQuery::HealthStatus(
+            SupervisionComponentName::new("persona-router"),
+        )),
     );
     let health = codec.read_reply(&mut stream).expect("health reply decodes");
     assert!(matches!(
         health,
-        SupervisionReply::ComponentHealthReport(report)
+        SupervisionReply::HealthReport(report)
             if report.health == ComponentHealth::Running
     ));
 }
 
 fn send_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
     let frame = SupervisionFrame::new(SupervisionFrameBody::Request {
-        exchange: test_exchange(),
-        request: Request::from_payload(request),
+        exchange: test_supervision_exchange(),
+        request: FrameRequest::from_payload(request),
     });
     stream
         .write_all(
@@ -283,5 +286,13 @@ fn test_exchange() -> ExchangeIdentifier {
         SessionEpoch::new(0),
         ExchangeLane::Connector,
         LaneSequence::first(),
+    )
+}
+
+fn test_supervision_exchange() -> FrameExchangeIdentifier {
+    FrameExchangeIdentifier::new(
+        FrameSessionEpoch::new(0),
+        FrameExchangeLane::Connector,
+        FrameLaneSequence::first(),
     )
 }

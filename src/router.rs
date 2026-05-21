@@ -25,8 +25,9 @@ use signal_persona_message::{
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
 use signal_persona_mind::{
-    AdjudicationDeny as MindAdjudicationDeny, ChannelDuration as MindChannelDuration,
-    ChannelEndpoint as MindChannelEndpoint, ChannelGrant as MindChannelGrant,
+    AdjudicationRequestId as MindAdjudicationRequestId, ChannelDuration as MindChannelDuration,
+    ChannelEndpoint as MindChannelEndpoint, ChannelMessageKind as MindChannelMessageKind,
+    TextBody as MindTextBody,
 };
 use signal_persona_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
@@ -1641,14 +1642,14 @@ impl RouterSignalInput {
 
 impl NotaDecode for RouterSignalInput {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
-            "StampedMessageSubmission" => Ok(Self::StampedMessageSubmission(
-                StampedMessageSubmission::decode(decoder)?,
-            )),
-            "InboxQuery" => Ok(Self::InboxQuery(SignalInboxQuery::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "RouterSignalInput",
-                got: other.to_string(),
+        match SignalMessageRequest::decode(decoder)? {
+            SignalMessageRequest::StampedMessageSubmission(input) => {
+                Ok(Self::StampedMessageSubmission(input))
+            }
+            SignalMessageRequest::InboxQuery(input) => Ok(Self::InboxQuery(input)),
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "RouterSignalInput",
+                got: format!("{other:?}"),
             }),
         }
     }
@@ -1769,10 +1770,26 @@ impl RouterSignalOutput {
 impl NotaEncode for RouterSignalOutput {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::SubmissionAccepted(output) => output.encode(encoder),
-            Self::SubmissionRejected(output) => output.encode(encoder),
-            Self::RouterInboxListing(output) => output.encode(encoder),
-            Self::MessageRequestUnimplemented(output) => output.encode(encoder),
+            Self::SubmissionAccepted(output) => {
+                encoder.start_record("SubmissionAccepted")?;
+                output.message_slot.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::SubmissionRejected(output) => {
+                encoder.start_record("SubmissionRejected")?;
+                output.reason.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::RouterInboxListing(output) => {
+                encoder.start_record("RouterInboxListing")?;
+                output.messages.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::MessageRequestUnimplemented(output) => {
+                encoder.start_record("MessageRequestUnimplemented")?;
+                output.encode(encoder)?;
+                encoder.end_record()
+            }
         }
     }
 }
@@ -1791,8 +1808,8 @@ impl NotaDecode for SubmissionRejectionReason {
         match String::decode(decoder)?.as_str() {
             "StoreRejected" => Ok(Self::StoreRejected),
             "RecipientNotFound" => Ok(Self::RecipientNotFound),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "SubmissionRejectionReason",
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "SubmissionRejectionReason",
                 got: other.to_string(),
             }),
         }
@@ -2186,6 +2203,14 @@ pub struct InstallRouteStructuralChannels {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MindChannelGrant {
+    pub source: MindChannelEndpoint,
+    pub destination: MindChannelEndpoint,
+    pub kinds: Vec<MindChannelMessageKind>,
+    pub duration: MindChannelDuration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyMindChannelGrant {
     pub grant: MindChannelGrant,
 }
@@ -2249,6 +2274,12 @@ impl ApplyMindChannelGrant {
             ConnectionClass::Network(peer) => ActorId::new(format!("network-{}", peer.as_str())),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MindAdjudicationDeny {
+    pub request: MindAdjudicationRequestId,
+    pub reason: MindTextBody,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2330,11 +2361,26 @@ impl RouterInput {
 impl NotaDecode for RouterInput {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
         match decoder.peek_record_head()?.as_str() {
-            "RegisterActor" => Ok(Self::RegisterActor(RegisterActor::decode(decoder)?)),
-            "RouteMessage" => Ok(Self::RouteMessage(RouteMessage::decode(decoder)?)),
-            "Status" => Ok(Self::Status(Status::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "RouterInput",
+            "RegisterActor" => {
+                decoder.expect_record_head("RegisterActor")?;
+                let actor = Actor::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::RegisterActor(RegisterActor { actor }))
+            }
+            "RouteMessage" => {
+                decoder.expect_record_head("RouteMessage")?;
+                let message = Message::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::RouteMessage(RouteMessage { message }))
+            }
+            "Status" => {
+                decoder.expect_record_head("Status")?;
+                let requester = ActorId::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Status(Status { requester }))
+            }
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "RouterInput",
                 got: other.to_string(),
             }),
         }

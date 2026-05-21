@@ -17,15 +17,15 @@ test -S "$socket"
 
 "$router" \
   --socket "$socket" \
-  '(StampedMessageSubmission (MessageSubmission responder Send "router hello") (Internal Message) 1)' \
+  '(StampedMessageSubmission ((responder Send "router hello") (Internal Message) 1))' \
   >"$workspace/submission.out"
 
 grep -Fq '(SubmissionAccepted 1)' "$workspace/submission.out"
 
 "$router" \
   --socket "$socket" \
-  '(InboxQuery responder)' \
+  '(InboxQuery (responder))' \
   >"$workspace/inbox.out"
 
-grep -Fq '(RouterInboxListing [(RouterInboxEntry 1 message "router hello")])' \
+grep -Fq '(RouterInboxListing [(1 message "router hello")])' \
   "$workspace/inbox.out"

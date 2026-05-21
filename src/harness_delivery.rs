@@ -6,10 +6,6 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 use kameo::reply::DelegatedReply;
-use persona_harness::{
-    HarnessId, HarnessTerminalBinding, HarnessTerminalDelivery as TerminalDelivery,
-    HarnessTerminalEndpoint,
-};
 use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
@@ -18,7 +14,7 @@ use signal_persona_harness::{
     MessageDelivery, MessageSender, MessageSlot,
 };
 
-use crate::{Actor, EndpointKind, EndpointTransport, Error, Message, Result};
+use crate::{Actor, EndpointKind, Error, Message, Result};
 
 #[derive(Debug)]
 pub struct HarnessDelivery {
@@ -41,22 +37,25 @@ impl HarnessDelivery {
         if endpoint.kind == EndpointKind::HarnessSocket {
             return Self::deliver_to_harness_socket(actor, message, message_slot, &endpoint.target);
         }
-        let text = message.to_nota()?;
-        let terminal = HarnessTerminalBinding::for_harness(HarnessId::new(actor.name.as_str()));
-        let mut delivery = TerminalDelivery::new(Self::terminal_endpoint(endpoint)?);
-        Ok(delivery.deliver_text(&terminal, &text)?.delivered())
-    }
-
-    fn terminal_endpoint(endpoint: &EndpointTransport) -> Result<HarnessTerminalEndpoint> {
         match endpoint.kind {
-            EndpointKind::Human => Ok(HarnessTerminalEndpoint::fixture_only_human()),
+            EndpointKind::Human => Ok(false),
             EndpointKind::HarnessSocket => Err(Error::UnexpectedSignalFrame {
                 got: "harness socket endpoint cannot be treated as terminal transport".to_string(),
             }),
-            EndpointKind::PtySocket => {
-                Ok(HarnessTerminalEndpoint::pty_socket(endpoint.target.clone()))
-            }
+            EndpointKind::PtySocket => Self::deliver_to_terminal_socket(message, &endpoint.target),
         }
+    }
+
+    fn deliver_to_terminal_socket(message: &Message, path: &str) -> Result<bool> {
+        let text = message.to_nota()?;
+        let mut stream = UnixStream::connect(Path::new(path))?;
+        stream.write_all(b"P")?;
+        stream.write_all(&(text.len() as u64).to_be_bytes())?;
+        stream.write_all(text.as_bytes())?;
+        stream.flush()?;
+        let mut acceptance = [0_u8; 1];
+        stream.read_exact(&mut acceptance)?;
+        Ok(acceptance[0] == b'A')
     }
 
     fn deliver_to_harness_socket(
