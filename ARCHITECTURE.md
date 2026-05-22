@@ -250,6 +250,130 @@ system) — a peer-direction write, not an authority order. Routing /
 delivery is the router's decision; that's why message ingress is
 `Assert` and channel changes are `Mutate`.
 
+## 2.6 · Channel kinds
+
+The `ChannelMessageKind` enum is the closed set of typed message
+flavors the router authorizes. Today the variants are:
+
+- `MessageIngressSubmission` — external/owner submission entering
+  through `persona-message`; distinguished from internal direct
+  delivery so the structural channel
+  `Internal(Message) → Internal(Router)` carries it explicitly.
+- `MessageSubmission` — generic internal submission (not the
+  ingress shape).
+- `InboxQuery` — read against router-held message state.
+- `FocusObservation` — window-focus observation flowing through
+  the router (currently from `persona-system`).
+- `PromptBufferObservation` — prompt-buffer observation flowing
+  through the router (also from `persona-system`).
+- `MessageDelivery` — router→target delivery hop.
+- `TerminalInput` / `TerminalCapture` / `TerminalResize` —
+  terminal-cell input, output capture, and resize signals.
+- `TranscriptEvent` — transcript stream from terminal-cell.
+- `AdjudicationRequest` — router→mind adjudication request for a
+  parked message.
+- `DeliveryNotification` — router→subscriber notification on
+  delivery success/failure.
+
+The set is closed because every typed message that crosses a
+channel has authority semantics — who may send it, what destination
+shape it may target, what duration the channel can carry it for.
+A typed enum gives the channel-grant authority (`persona-mind`)
+and the router enforcement layer a finite vocabulary to bind
+against. Opening this enum to free identifiers would make
+channel-grant policy unenumerable.
+
+The variants reflect the wire shapes the system carries today —
+message ingress (`MessageIngressSubmission` separate from
+`MessageSubmission` so the structural channel into the router
+distinguishes user-message ingress from internal traffic),
+observation flows (focus, prompt buffer, transcript), the
+delivery hop (`MessageDelivery`), the terminal I/O surface, and
+the meta-channels (`AdjudicationRequest` for missed-channel
+escalation, `DeliveryNotification` for subscriber feedback).
+New variants are added only when a new wire shape lands; this is
+not a generic data-carrying channel.
+
+Channel-grant authority lives in `persona-mind`: mind decides
+which `(source, destination, kind)` tuples are authorized for
+which channel durations. The router enforces — it commits
+authorized channels and rejects (or escalates) unauthorized
+messages. See §2.5 above for the authority direction.
+
+## 2.7 · Channel duration
+
+The `ChannelDuration` enum is the closed three-variant set:
+
+- `OneShot` — the channel authorizes exactly one message, then
+  retires. Useful for request-reply patterns where the reply
+  channel exists only for the matching reply.
+- `Permanent` — the channel stays authorized until explicitly
+  retracted. Useful for long-lived mind↔agent channels, the
+  structural channels the router installs at engine setup, and
+  any long-running flow the policy layer has declared durable.
+- `TimeBound(TimestampNanos)` — the channel authorizes messages
+  until the carried timestamp; after that the channel cannot
+  authorize. Useful for policy-driven temporary grants where a
+  bounded window is the security property.
+
+The three durations are chosen because they cover the three
+shapes the channel-grant authority distinguishes: one-time, until-
+retracted, and bounded-window. A finer-grain duration model
+(`OneShot(n)` for n-shot, or rate-limit variants) could be added
+when channel-grant authority needs it; today's three covers the
+deployed authorization patterns.
+
+Expired `TimeBound` channels cannot authorize messages — this is
+an invariant of the channel table (per §4 below). Retracted
+channels cannot keep authorizing — same rule. The duration is a
+property of the channel record; expiry/retraction is a state
+transition of that record.
+
+## 2.8 · Rejection reasons
+
+A router-traversing message may be rejected (rather than
+delivered) for a closed set of reasons. Today's set:
+
+- **Channel inactive** — the channel matching `(source,
+  destination, kind)` is not present in the channel table. The
+  router parks the message and emits an
+  `AdjudicationRequest` to `persona-mind` for the missed channel.
+  After mind adjudication: a `ChannelGrant` results in delivery;
+  an `AdjudicationDeny` retires the message without delivery.
+- **Recipient not found** — the destination has no registered
+  delivery target (no harness registered for the named
+  destination, no terminal cell available). Replied as
+  `SubmissionRejected { reason: RecipientNotFound }`.
+- **Store rejected** — router-owned Sema persistence layer
+  refused the message commit (schema mismatch, IO failure on
+  durable storage). Replied as
+  `SubmissionRejected { reason: StoreRejected }`. Per the
+  invariant "Accepted Signal messages persist to router-owned
+  Sema before delivery retry," a store failure aborts acceptance
+  rather than committing a message the durable layer didn't keep.
+- **Authority revoked** — the channel was retracted or expired
+  between the message's submission and its delivery attempt. The
+  message is parked or dropped per the active retraction
+  semantics; the rejection surfaces as a delivery deferral on
+  the channel's tombstone.
+- **Unimplemented operation variant** — the router decoded a
+  request variant it does not yet implement (per `signal-persona`
+  skeleton-honesty rule). Replied as
+  `MessageRequestUnimplemented`; not a delivery decision per se,
+  but a router-side typed refusal on an operation it cannot
+  execute.
+
+The set is closed because the router's authority surface is
+finite: a message either has an authorized channel (delivered),
+has no authorized channel (parked + adjudication), targets an
+unknown recipient (recipient-not-found), fails the durable-commit
+constraint (store-rejected), targets a now-retracted channel
+(authority-revoked), or invokes a not-yet-built operation
+(unimplemented). New reasons land only when a new authority
+surface emerges. This is the canonical rejection enumeration;
+caller code switching on a rejection observes a typed enum, never
+a free string.
+
 ## 3 · Boundaries
 
 This repo owns:
