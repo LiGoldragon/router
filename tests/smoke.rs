@@ -22,11 +22,11 @@ use signal_persona::{
     ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
     EngineManagementProtocolVersion, Presence, TimestampNanos,
 };
-use signal_persona_auth::{ComponentName, MessageOrigin};
 use signal_persona_message::{
     Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
     MessageRequest, MessageSubmission, StampedMessageSubmission,
 };
+use signal_persona_origin::{ComponentName, MessageOrigin};
 
 struct SocketFixture {
     directory: PathBuf,

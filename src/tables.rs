@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema::{Schema, SchemaVersion, Sema, Table};
-use signal_persona_auth::{ChannelId, MessageOrigin};
 use signal_persona_message::MessageSlot;
+use signal_persona_origin::{ChannelIdentifier, MessageOrigin};
 
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
@@ -56,8 +56,12 @@ impl RouterTables {
         })
     }
 
-    pub fn insert_channel(&self, channel_id: &ChannelId, grant: &GrantChannel) -> Result<()> {
-        let channel = StoredChannelRecord::from_grant(channel_id, grant);
+    pub fn insert_channel(
+        &self,
+        channel_identifier: &ChannelIdentifier,
+        grant: &GrantChannel,
+    ) -> Result<()> {
+        let channel = StoredChannelRecord::from_grant(channel_identifier, grant);
         let channel_key = channel.id.clone();
         let triple_key = channel.triple_key();
         let index = StoredChannelIndex {
@@ -213,9 +217,9 @@ pub struct StoredChannelRecord {
 }
 
 impl StoredChannelRecord {
-    fn from_grant(channel_id: &ChannelId, grant: &GrantChannel) -> Self {
+    fn from_grant(channel_identifier: &ChannelIdentifier, grant: &GrantChannel) -> Self {
         Self {
-            id: channel_id.as_str().to_string(),
+            id: channel_identifier.as_str().to_string(),
             from: grant.from.as_str().to_string(),
             to: grant.to.as_str().to_string(),
             kind: grant.kind,

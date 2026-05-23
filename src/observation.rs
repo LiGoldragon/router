@@ -1,8 +1,8 @@
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use signal_persona_auth::ChannelId;
 use signal_persona_message::MessageSlot;
+use signal_persona_origin::ChannelIdentifier;
 use signal_persona_router::{
     RouterChannelState, RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus,
     RouterMessageTrace, RouterMessageTraceMissing, RouterMessageTraceQuery,
@@ -139,7 +139,7 @@ impl RouterObservationPlane {
 
     fn channel_status_for(
         channels: &[crate::tables::StoredChannelRecord],
-        target: &ChannelId,
+        target: &ChannelIdentifier,
     ) -> RouterChannelStatus {
         let Some(channel) = channels.iter().find(|record| record.id == target.as_str()) else {
             return RouterChannelStatus::Missing;

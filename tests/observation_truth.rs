@@ -24,11 +24,11 @@ use signal_core::{
     SessionEpoch, SignalVerb, SubReply,
 };
 use signal_persona::TimestampNanos;
-use signal_persona_auth::{ChannelId, ConnectionClass, EngineId, MessageOrigin};
 use signal_persona_message::{
     MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageReply, MessageRequest,
     MessageSlot, MessageSubmission, StampedMessageSubmission,
 };
+use signal_persona_origin::{ChannelIdentifier, ConnectionClass, EngineIdentifier, MessageOrigin};
 use signal_persona_router::{
     RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus, RouterFrame,
     RouterFrameBody, RouterMessageTraceQuery, RouterObservationScope,
@@ -125,8 +125,8 @@ impl ObservationFixture {
     }
 }
 
-fn engine_id() -> EngineId {
-    EngineId::new("prototype")
+fn engine_identifier() -> EngineIdentifier {
+    EngineIdentifier::new("prototype")
 }
 
 fn router_exchange() -> ExchangeIdentifier {
@@ -142,7 +142,7 @@ async fn router_daemon_connection_routes_router_frame_to_observation_plane() {
     let router = ObservationFixture::start().await;
     let (mut client, server) = UnixStream::pair().expect("socket pair");
     let request = RouterRequest::Summary(RouterSummaryQuery {
-        engine: engine_id(),
+        engine: engine_identifier(),
     });
     let frame = RouterFrame::new(RouterFrameBody::Request {
         exchange: router_exchange(),
@@ -188,7 +188,7 @@ async fn router_daemon_connection_routes_router_frame_to_observation_plane() {
                     verb: SignalVerb::Match,
                     payload: RouterReply::Summary(summary),
                 } => {
-                    assert_eq!(summary.engine, engine_id());
+                    assert_eq!(summary.engine, engine_identifier());
                     assert_eq!(summary.accepted_messages, 0);
                     assert_eq!(summary.routed_messages, 0);
                     assert_eq!(summary.deferred_messages, 0);
@@ -230,7 +230,7 @@ async fn router_daemon_answers_router_summary_query() {
 
     let reply = router
         .observe(RouterRequest::Summary(RouterSummaryQuery {
-            engine: engine_id(),
+            engine: engine_identifier(),
         }))
         .await
         .expect("observation plane answers summary");
@@ -238,7 +238,7 @@ async fn router_daemon_answers_router_summary_query() {
     let RouterReply::Summary(summary) = reply else {
         panic!("expected RouterReply::Summary, got {reply:?}");
     };
-    assert_eq!(summary.engine, engine_id());
+    assert_eq!(summary.engine, engine_identifier());
     assert_eq!(summary.accepted_messages, 0);
     assert_eq!(summary.routed_messages, 0);
     assert_eq!(summary.deferred_messages, 0);
@@ -297,7 +297,7 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
 
     let reply = router
         .observe(RouterRequest::Summary(RouterSummaryQuery {
-            engine: engine_id(),
+            engine: engine_identifier(),
         }))
         .await
         .expect("observation plane answers summary");
@@ -345,7 +345,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
 
     let reply = router
         .observe(RouterRequest::MessageTrace(RouterMessageTraceQuery {
-            engine: engine_id(),
+            engine: engine_identifier(),
             message_slot: MessageSlot::new(1),
         }))
         .await
@@ -359,7 +359,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
 
     let missing_reply = router
         .observe(RouterRequest::MessageTrace(RouterMessageTraceQuery {
-            engine: engine_id(),
+            engine: engine_identifier(),
             message_slot: MessageSlot::new(99),
         }))
         .await
@@ -398,8 +398,8 @@ async fn router_channel_state_query_reads_router_tables() {
 
     let reply = router
         .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
-            engine: engine_id(),
-            channel: ChannelId::new(installed_id.clone()),
+            engine: engine_identifier(),
+            channel: ChannelIdentifier::new(installed_id.clone()),
         }))
         .await
         .expect("observation plane answers channel state");
@@ -407,13 +407,13 @@ async fn router_channel_state_query_reads_router_tables() {
     let RouterReply::ChannelState(state) = reply else {
         panic!("expected RouterReply::ChannelState, got {reply:?}");
     };
-    assert_eq!(state.channel, ChannelId::new(installed_id));
+    assert_eq!(state.channel, ChannelIdentifier::new(installed_id));
     assert_eq!(state.status, RouterChannelStatus::Installed);
 
     let missing_reply = router
         .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
-            engine: engine_id(),
-            channel: ChannelId::new("channel-does-not-exist"),
+            engine: engine_identifier(),
+            channel: ChannelIdentifier::new("channel-does-not-exist"),
         }))
         .await
         .expect("observation plane answers missing channel");
@@ -431,8 +431,8 @@ async fn router_channel_state_query_without_tables_reports_router_store_unavaila
 
     let reply = router
         .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
-            engine: engine_id(),
-            channel: ChannelId::new("any-channel"),
+            engine: engine_identifier(),
+            channel: ChannelIdentifier::new("any-channel"),
         }))
         .await
         .expect("observation plane answers without tables");
@@ -490,7 +490,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 
     let RouterReply::Summary(summary) = router
         .observe(RouterRequest::Summary(RouterSummaryQuery {
-            engine: engine_id(),
+            engine: engine_identifier(),
         }))
         .await
         .expect("summary query passes")
@@ -504,7 +504,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 
     let _ = router
         .observe(RouterRequest::MessageTrace(RouterMessageTraceQuery {
-            engine: engine_id(),
+            engine: engine_identifier(),
             message_slot: MessageSlot::new(1),
         }))
         .await
@@ -542,7 +542,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_daemon_restart_surfaces_persisted_adjudication_through_observation_plane() {
     let store = TemporaryRouterStore::new("restart-adjudication");
-    let channel_id = ChannelId::new("restart-witness-channel");
+    let channel_identifier = ChannelIdentifier::new("restart-witness-channel");
 
     // First "daemon": persist a channel through `RouterTables`
     // synchronously, then drop the handle.
@@ -554,7 +554,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
             ChannelLifetime::Persistent,
         );
         tables_first
-            .insert_channel(&channel_id, &grant)
+            .insert_channel(&channel_identifier, &grant)
             .expect("structural channel persisted before restart");
 
         let channels_persisted = tables_first
@@ -563,7 +563,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
         assert!(
             channels_persisted
                 .iter()
-                .any(|record| record.id == channel_id.as_str()),
+                .any(|record| record.id == channel_identifier.as_str()),
             "channel persisted before first-handle drop"
         );
         // Scope ends: `tables_first` drops; the redb flock releases.
@@ -580,7 +580,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     assert!(
         restored_channels
             .iter()
-            .any(|record| record.id == channel_id.as_str()),
+            .any(|record| record.id == channel_identifier.as_str()),
         "prior-daemon channel survives the redb reopen"
     );
 
@@ -589,8 +589,8 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     let router = ObservationFixture::start_with_tables(tables_second).await;
     let reply = router
         .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
-            engine: engine_id(),
-            channel: channel_id.clone(),
+            engine: engine_identifier(),
+            channel: channel_identifier.clone(),
         }))
         .await
         .expect("observation plane answers post-restart channel state");
@@ -598,7 +598,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     let RouterReply::ChannelState(state) = reply else {
         panic!("expected RouterReply::ChannelState across the reopen, got {reply:?}");
     };
-    assert_eq!(state.channel, channel_id);
+    assert_eq!(state.channel, channel_identifier);
     assert_eq!(
         state.status,
         RouterChannelStatus::Installed,

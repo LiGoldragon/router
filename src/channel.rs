@@ -6,7 +6,7 @@ use kameo::error::Infallible;
 use kameo::message::Context;
 use nota_codec::NotaEnum;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use signal_persona_auth::ChannelId;
+use signal_persona_origin::ChannelIdentifier;
 
 use crate::{ActorIdentifier, Message, Result, RouterTables};
 
@@ -60,10 +60,10 @@ impl ChannelAuthority {
         }
     }
 
-    fn authorize(&mut self, grant: GrantChannel) -> Result<ChannelId> {
+    fn authorize(&mut self, grant: GrantChannel) -> Result<ChannelIdentifier> {
         self.channel_sequence = self.channel_sequence.saturating_add(1);
         let triple = grant.triple();
-        let channel_id = ChannelId::new(format!(
+        let channel_identifier = ChannelIdentifier::new(format!(
             "channel-{}-{}-{}",
             self.channel_sequence,
             triple.from.as_str(),
@@ -72,16 +72,16 @@ impl ChannelAuthority {
         self.channels.insert(
             triple,
             ChannelRecord {
-                id: channel_id.clone(),
+                id: channel_identifier.clone(),
                 status: ChannelStatus::Active,
                 lifetime: grant.lifetime,
                 use_count: 0,
             },
         );
         if let Some(tables) = &self.tables {
-            tables.insert_channel(&channel_id, &grant)?;
+            tables.insert_channel(&channel_identifier, &grant)?;
         }
-        Ok(channel_id)
+        Ok(channel_identifier)
     }
 
     fn retract(&mut self, retraction: RetractChannel) -> bool {
@@ -274,7 +274,7 @@ pub enum ChannelStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelRecord {
-    id: ChannelId,
+    id: ChannelIdentifier,
     status: ChannelStatus,
     lifetime: ChannelLifetime,
     use_count: u64,
@@ -424,15 +424,15 @@ impl GrantChannel {
 
 #[derive(Debug, kameo::Reply)]
 pub struct ChannelGrantOutcome {
-    result: Result<ChannelId>,
+    result: Result<ChannelIdentifier>,
 }
 
 impl ChannelGrantOutcome {
-    fn new(result: Result<ChannelId>) -> Self {
+    fn new(result: Result<ChannelIdentifier>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<ChannelId> {
+    pub fn into_result(self) -> Result<ChannelIdentifier> {
         self.result
     }
 }
@@ -470,7 +470,7 @@ pub struct CheckChannel {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelDecision {
-    Authorized { channel: ChannelId },
+    Authorized { channel: ChannelIdentifier },
     NeedsAdjudication(AdjudicationRequest),
 }
 

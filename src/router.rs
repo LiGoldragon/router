@@ -12,7 +12,6 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
     SignalVerb, SubReply,
 };
-use signal_persona_auth::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
 use signal_persona_message::{
     Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
@@ -29,6 +28,7 @@ use signal_persona_mind::{
     ChannelEndpoint as MindChannelEndpoint, ChannelMessageKind as MindChannelMessageKind,
     TextBody as MindTextBody,
 };
+use signal_persona_origin::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
 use signal_persona_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, RouterBootstrapDocument,
@@ -412,9 +412,12 @@ impl RouterIngressContext {
             ConnectionClass::System(principal) => {
                 ActorIdentifier::new(format!("system-{}", principal.as_str()))
             }
-            ConnectionClass::OtherPersona { engine_id, host } => ActorIdentifier::new(format!(
+            ConnectionClass::OtherPersona {
+                engine_identifier,
+                host,
+            } => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
-                engine_id.as_str(),
+                engine_identifier.as_str(),
                 host.as_str()
             )),
             ConnectionClass::Network(peer) => {
@@ -2272,9 +2275,12 @@ impl ApplyMindChannelGrant {
             ConnectionClass::System(principal) => {
                 ActorIdentifier::new(format!("system-{}", principal.as_str()))
             }
-            ConnectionClass::OtherPersona { engine_id, host } => ActorIdentifier::new(format!(
+            ConnectionClass::OtherPersona {
+                engine_identifier,
+                host,
+            } => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
-                engine_id.as_str(),
+                engine_identifier.as_str(),
                 host.as_str()
             )),
             ConnectionClass::Network(peer) => {

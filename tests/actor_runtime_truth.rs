@@ -21,10 +21,6 @@ use persona_router::{
 };
 use signal_core::{NonEmpty, Reply, SubReply};
 use signal_persona::TimestampNanos;
-use signal_persona_auth::{
-    ComponentInstanceName, ComponentName, ConnectionClass, InternalComponentInstanceOrigin,
-    MessageOrigin,
-};
 use signal_persona_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
 };
@@ -34,6 +30,10 @@ use signal_persona_message::{
 };
 use signal_persona_mind::{
     AdjudicationRequestId, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
+};
+use signal_persona_origin::{
+    ComponentInstanceName, ComponentName, ConnectionClass, InternalComponentInstanceOrigin,
+    MessageOrigin,
 };
 
 struct SourceFile {
@@ -826,7 +826,7 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
     };
     tables
         .insert_channel(
-            &signal_persona_auth::ChannelId::new("channel-table"),
+            &signal_persona_origin::ChannelIdentifier::new("channel-table"),
             &grant,
         )
         .expect("channel record persists");

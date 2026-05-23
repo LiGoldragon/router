@@ -1,11 +1,11 @@
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use signal_persona_auth::{ComponentName, MessageOrigin};
 use signal_persona_mind::{
     AdjudicationRequest as MindAdjudicationRequest, AdjudicationRequestId, ChannelEndpoint,
     ChannelMessageKind, TextBody,
 };
+use signal_persona_origin::{ComponentName, MessageOrigin};
 
 use crate::{ActorIdentifier, Message};
 

@@ -24,7 +24,7 @@ rkyv                  = "0.8"
 sema                  = { git = "https://github.com/LiGoldragon/sema.git" }
 signal-core           = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-persona-auth   = { git = "https://github.com/LiGoldragon/signal-persona-auth.git" }
+signal-persona-origin   = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
 signal-persona-harness = { git = "https://github.com/LiGoldragon/signal-persona-harness.git" }
 signal-persona-mind   = { git = "https://github.com/LiGoldragon/signal-persona-mind.git" }
 signal-persona-message = { git = "https://github.com/LiGoldragon/signal-persona-message.git" }
