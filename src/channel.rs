@@ -8,7 +8,7 @@ use nota_codec::NotaEnum;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_persona_auth::ChannelId;
 
-use crate::{ActorId, Message, Result, RouterTables};
+use crate::{ActorIdentifier, Message, Result, RouterTables};
 
 #[derive(Debug)]
 pub struct ChannelAuthority {
@@ -18,7 +18,7 @@ pub struct ChannelAuthority {
     channel_sequence: u64,
     check_count: u64,
     status_request_count: u64,
-    last_status_requester: Option<ActorId>,
+    last_status_requester: Option<ActorIdentifier>,
     tables: Option<RouterTables>,
     clock: ChannelClock,
 }
@@ -157,7 +157,7 @@ impl ChannelAuthority {
         Ok(request)
     }
 
-    fn snapshot(&mut self, requester: ActorId) -> ChannelAuthoritySnapshot {
+    fn snapshot(&mut self, requester: ActorIdentifier) -> ChannelAuthoritySnapshot {
         self.status_request_count = self.status_request_count.saturating_add(1);
         self.last_status_requester = Some(requester);
         ChannelAuthoritySnapshot {
@@ -234,13 +234,13 @@ enum ChannelClockMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChannelTriple {
-    from: ActorId,
-    to: ActorId,
+    from: ActorIdentifier,
+    to: ActorIdentifier,
     kind: ChannelKind,
 }
 
 impl ChannelTriple {
-    pub fn direct_message(from: ActorId, to: ActorId) -> Self {
+    pub fn direct_message(from: ActorIdentifier, to: ActorIdentifier) -> Self {
         Self {
             from,
             to,
@@ -308,43 +308,43 @@ impl EngineStructuralChannels {
         Self {
             grants: vec![
                 GrantChannel::direct_message(
-                    ActorId::new("message"),
-                    ActorId::new("router"),
+                    ActorIdentifier::new("message"),
+                    ActorIdentifier::new("router"),
                     persistent,
                 ),
                 GrantChannel::direct_message(
-                    ActorId::new("system"),
-                    ActorId::new("router"),
+                    ActorIdentifier::new("system"),
+                    ActorIdentifier::new("router"),
                     persistent,
                 ),
                 GrantChannel::direct_message(
-                    ActorId::new("router"),
-                    ActorId::new("harness"),
+                    ActorIdentifier::new("router"),
+                    ActorIdentifier::new("harness"),
                     persistent,
                 ),
                 GrantChannel::direct_message(
-                    ActorId::new("harness"),
-                    ActorId::new("terminal"),
+                    ActorIdentifier::new("harness"),
+                    ActorIdentifier::new("terminal"),
                     persistent,
                 ),
                 GrantChannel::direct_message(
-                    ActorId::new("terminal"),
-                    ActorId::new("harness"),
+                    ActorIdentifier::new("terminal"),
+                    ActorIdentifier::new("harness"),
                     persistent,
                 ),
                 GrantChannel::direct_message(
-                    ActorId::new("router"),
-                    ActorId::new("mind"),
+                    ActorIdentifier::new("router"),
+                    ActorIdentifier::new("mind"),
                     persistent,
                 ),
                 GrantChannel::direct_message(
-                    ActorId::new("mind"),
-                    ActorId::new("router"),
+                    ActorIdentifier::new("mind"),
+                    ActorIdentifier::new("router"),
                     persistent,
                 ),
                 GrantChannel::direct_message(
-                    ActorId::new("owner"),
-                    ActorId::new("router"),
+                    ActorIdentifier::new("owner"),
+                    ActorIdentifier::new("router"),
                     persistent,
                 ),
             ],
@@ -393,14 +393,18 @@ pub struct ChannelClockSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantChannel {
-    pub from: ActorId,
-    pub to: ActorId,
+    pub from: ActorIdentifier,
+    pub to: ActorIdentifier,
     pub kind: ChannelKind,
     pub lifetime: ChannelLifetime,
 }
 
 impl GrantChannel {
-    pub fn direct_message(from: ActorId, to: ActorId, lifetime: ChannelLifetime) -> Self {
+    pub fn direct_message(
+        from: ActorIdentifier,
+        to: ActorIdentifier,
+        lifetime: ChannelLifetime,
+    ) -> Self {
         Self {
             from,
             to,
@@ -439,7 +443,7 @@ pub struct RetractChannel {
 }
 
 impl RetractChannel {
-    pub fn direct_message(from: ActorId, to: ActorId) -> Self {
+    pub fn direct_message(from: ActorIdentifier, to: ActorIdentifier) -> Self {
         Self {
             triple: ChannelTriple::direct_message(from, to),
         }
@@ -452,7 +456,7 @@ pub struct UseChannel {
 }
 
 impl UseChannel {
-    pub fn direct_message(from: ActorId, to: ActorId) -> Self {
+    pub fn direct_message(from: ActorIdentifier, to: ActorIdentifier) -> Self {
         Self {
             triple: ChannelTriple::direct_message(from, to),
         }
@@ -488,19 +492,19 @@ impl ChannelCheckOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdjudicationRequest {
     pub message: crate::MessageId,
-    pub from: ActorId,
-    pub to: ActorId,
+    pub from: ActorIdentifier,
+    pub to: ActorIdentifier,
     pub kind: ChannelKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadChannelAuthorityStatus {
-    pub requester: ActorId,
+    pub requester: ActorIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadChannelPersistence {
-    pub requester: ActorId,
+    pub requester: ActorIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]

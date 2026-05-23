@@ -4,9 +4,9 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 #[derive(
     Archive, RkyvSerialize, RkyvDeserialize, NotaTransparent, Debug, Clone, PartialEq, Eq, Hash,
 )]
-pub struct ActorId(String);
+pub struct ActorIdentifier(String);
 
-impl ActorId {
+impl ActorIdentifier {
     pub fn new(text: impl Into<String>) -> Self {
         Self(text.into())
     }
@@ -29,8 +29,8 @@ impl MessageId {
     pub fn from_parts(
         sequence: u64,
         thread: &ThreadId,
-        sender: &ActorId,
-        recipient: &ActorId,
+        sender: &ActorIdentifier,
+        recipient: &ActorIdentifier,
         body: &str,
     ) -> Self {
         let mut hash = ShortMessageHash::new();
@@ -64,7 +64,7 @@ impl ThreadId {
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct Actor {
-    pub name: ActorId,
+    pub name: ActorIdentifier,
     pub pid: u32,
     pub endpoint: Option<EndpointTransport>,
 }
@@ -93,8 +93,8 @@ pub struct Attachment {
 pub struct Message {
     pub id: MessageId,
     pub thread: ThreadId,
-    pub from: ActorId,
-    pub to: ActorId,
+    pub from: ActorIdentifier,
+    pub to: ActorIdentifier,
     pub body: String,
     pub attachments: Vec<Attachment>,
 }
@@ -106,8 +106,8 @@ impl Message {
         recipient: impl Into<String>,
         body: MessageBody,
     ) -> Self {
-        let sender = ActorId::new(sender.into());
-        let recipient = ActorId::new(recipient.into());
+        let sender = ActorIdentifier::new(sender.into());
+        let recipient = ActorIdentifier::new(recipient.into());
         Self {
             id,
             thread: ThreadId::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str())),

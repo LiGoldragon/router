@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use persona_router::{
-    Actor, ActorId, ActorRef, ApplyRouterInput, ApplyRouterObservation, ChannelLifetime,
+    Actor, ActorIdentifier, ActorRef, ApplyRouterInput, ApplyRouterObservation, ChannelLifetime,
     EngineStructuralChannels, GrantChannel, GrantRouteChannel, InstallRouteStructuralChannels,
     InstallStructuralChannels, ReadRouterObservationPlaneStatus, RegisterActor, RouterConnection,
     RouterDaemonInput, RouterIngressContext, RouterInput, RouterObservationFrameCodec,
@@ -110,7 +110,7 @@ impl ObservationFixture {
     async fn observation_plane_status(&self) -> persona_router::RouterObservationPlaneStatus {
         self.runtime
             .ask(ReadRouterObservationPlaneStatus {
-                requester: ActorId::new("operator"),
+                requester: ActorIdentifier::new("operator"),
             })
             .await
             .expect("observation plane status reply")
@@ -210,7 +210,7 @@ async fn router_daemon_answers_router_summary_query() {
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
-                name: ActorId::new("responder"),
+                name: ActorIdentifier::new("responder"),
                 pid: 42,
                 endpoint: None,
             },
@@ -220,8 +220,8 @@ async fn router_daemon_answers_router_summary_query() {
     router
         .apply(RouterInput::GrantChannel(GrantRouteChannel {
             channel: GrantChannel::direct_message(
-                ActorId::new("operator"),
-                ActorId::new("responder"),
+                ActorIdentifier::new("operator"),
+                ActorIdentifier::new("responder"),
                 ChannelLifetime::Persistent,
             ),
         }))
@@ -256,7 +256,7 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
-                name: ActorId::new("responder"),
+                name: ActorIdentifier::new("responder"),
                 pid: 42,
                 endpoint: None,
             },
@@ -266,7 +266,7 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
 
     router
         .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
@@ -281,7 +281,7 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
         .expect("first signal message accepts");
     router
         .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
@@ -319,7 +319,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
-                name: ActorId::new("responder"),
+                name: ActorIdentifier::new("responder"),
                 pid: 42,
                 endpoint: None,
             },
@@ -329,7 +329,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
 
     router
         .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
@@ -465,7 +465,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
-                name: ActorId::new("responder"),
+                name: ActorIdentifier::new("responder"),
                 pid: 42,
                 endpoint: None,
             },
@@ -474,7 +474,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
         .expect("register passes through router actor");
     router
         .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
@@ -549,8 +549,8 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     {
         let tables_first = RouterTables::open(store.path()).expect("router tables open");
         let grant = GrantChannel::direct_message(
-            ActorId::new("message"),
-            ActorId::new("router"),
+            ActorIdentifier::new("message"),
+            ActorIdentifier::new("router"),
             ChannelLifetime::Persistent,
         );
         tables_first

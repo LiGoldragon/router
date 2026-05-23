@@ -197,7 +197,7 @@ impl kameo::message::Message<ApplyRouterObservation> for RouterObservationPlane 
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadRouterObservationPlaneStatus {
-    pub requester: crate::ActorId,
+    pub requester: crate::ActorIdentifier,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, kameo::Reply)]

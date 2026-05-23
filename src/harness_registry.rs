@@ -4,14 +4,14 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 
-use crate::{Actor, ActorId};
+use crate::{Actor, ActorIdentifier};
 
 #[derive(Debug)]
 pub struct HarnessRegistry {
-    actors: HashMap<ActorId, HarnessRegistration>,
+    actors: HashMap<ActorIdentifier, HarnessRegistration>,
     registered_actor_count: u64,
     status_request_count: u64,
-    last_status_requester: Option<ActorId>,
+    last_status_requester: Option<ActorIdentifier>,
 }
 
 impl HarnessRegistry {
@@ -31,15 +31,15 @@ impl HarnessRegistry {
         self.registered_actor_count
     }
 
-    fn delivery_target(&self, recipient: &ActorId) -> Option<HarnessDeliveryTarget> {
+    fn delivery_target(&self, recipient: &ActorIdentifier) -> Option<HarnessDeliveryTarget> {
         self.actors
             .get(recipient)
             .map(HarnessRegistration::delivery_target)
     }
 
-    fn mark_delivered(&mut self, _actor: &ActorId) {}
+    fn mark_delivered(&mut self, _actor: &ActorIdentifier) {}
 
-    fn status(&mut self, requester: ActorId) -> u64 {
+    fn status(&mut self, requester: ActorIdentifier) -> u64 {
         self.status_request_count = self.status_request_count.saturating_add(1);
         self.last_status_requester = Some(requester);
         self.actors.len() as u64
@@ -76,17 +76,17 @@ pub struct RegisterHarness {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadHarnessDeliveryTarget {
-    pub recipient: ActorId,
+    pub recipient: ActorIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkHarnessDelivered {
-    pub actor: ActorId,
+    pub actor: ActorIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadHarnessRegistryStatus {
-    pub requester: ActorId,
+    pub requester: ActorIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]

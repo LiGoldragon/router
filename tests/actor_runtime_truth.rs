@@ -8,10 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
 use persona_router::{
-    Actor, ActorId, ActorRef, ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput,
-    ApplySignalMessage, ChannelAuthority, ChannelClock, ChannelDecision, ChannelEpochSeconds,
-    ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport, EngineStructuralChannels,
-    GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry,
+    Actor, ActorIdentifier, ActorRef, ApplyMindAdjudicationDeny, ApplyMindChannelGrant,
+    ApplyRouterInput, ApplySignalMessage, ChannelAuthority, ChannelClock, ChannelDecision,
+    ChannelEpochSeconds, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport,
+    EngineStructuralChannels, GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry,
     InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageId,
     MindAdjudicationDeny, MindChannelGrant, ObserveChannelTime, ReadChannelAuthorityStatus,
     ReadChannelPersistence, ReadHarnessRegistryStatus, ReadRouterChannelPersistence,
@@ -66,7 +66,7 @@ impl RouterFixture {
             .into_result()
     }
 
-    async fn grant_direct(&self, sender: &ActorId, recipient: &ActorId) {
+    async fn grant_direct(&self, sender: &ActorIdentifier, recipient: &ActorIdentifier) {
         self.apply(RouterInput::GrantChannel(GrantRouteChannel {
             channel: GrantChannel::direct_message(
                 sender.clone(),
@@ -91,7 +91,7 @@ impl RouterFixture {
     ) -> persona_router::Result<persona_router::ChannelPersistenceSnapshot> {
         self.runtime
             .ask(ReadRouterChannelPersistence {
-                requester: ActorId::new("operator"),
+                requester: ActorIdentifier::new("operator"),
             })
             .await
             .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
@@ -103,7 +103,7 @@ impl RouterFixture {
     ) -> persona_router::Result<persona_router::MindAdjudicationOutboxSnapshot> {
         self.runtime
             .ask(ReadRouterMindAdjudicationOutbox {
-                requester: ActorId::new("operator"),
+                requester: ActorIdentifier::new("operator"),
             })
             .await
             .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
@@ -404,8 +404,8 @@ fn router_actor_cannot_use_non_kameo_runtime() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_cannot_emit_delivery_before_commit() {
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let message_id = MessageId::new("m-order");
     let router = RouterFixture::start().await;
     router
@@ -464,8 +464,8 @@ async fn router_cannot_emit_delivery_before_commit() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unknown_channel_cannot_reach_delivery_actor() {
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let message_id = MessageId::new("m-channel");
     let router = RouterFixture::start().await;
     router
@@ -512,7 +512,7 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
 
     let output = router
         .apply(RouterInput::Status(Status {
-            requester: ActorId::new("operator"),
+            requester: ActorIdentifier::new("operator"),
         }))
         .await
         .expect("status request passes through router actor");
@@ -526,8 +526,8 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unknown_channel_emits_typed_mind_adjudication_request() {
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let router = RouterFixture::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -576,14 +576,14 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
     // snapshot.
     assert_eq!(outbox.recorded_count, 1);
     assert_eq!(outbox.read_count, 1);
-    assert_eq!(outbox.last_reader, Some(ActorId::new("operator")));
+    assert_eq!(outbox.last_reader, Some(ActorIdentifier::new("operator")));
 
     // A second read increments read_count without touching recorded_count,
     // and updates last_reader.
     let second_snapshot = router
         .runtime
         .ask(ReadRouterMindAdjudicationOutbox {
-            requester: ActorId::new("reviewer"),
+            requester: ActorIdentifier::new("reviewer"),
         })
         .await
         .expect("second mind adjudication outbox read")
@@ -591,15 +591,18 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
         .expect("second outbox snapshot");
     assert_eq!(second_snapshot.recorded_count, 1);
     assert_eq!(second_snapshot.read_count, 2);
-    assert_eq!(second_snapshot.last_reader, Some(ActorId::new("reviewer")));
+    assert_eq!(
+        second_snapshot.last_reader,
+        Some(ActorIdentifier::new("reviewer"))
+    );
 
     router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_shot_channel_cannot_authorize_second_message() {
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let authority = ChannelAuthority::spawn(ChannelAuthority::new());
     authority.wait_for_startup().await;
     authority
@@ -650,8 +653,8 @@ async fn one_shot_channel_cannot_authorize_second_message() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retracted_channel_cannot_authorize_message() {
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let authority = ChannelAuthority::spawn(ChannelAuthority::new());
     authority.wait_for_startup().await;
     authority
@@ -697,8 +700,8 @@ async fn retracted_channel_cannot_authorize_message() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expired_channel_cannot_authorize_message() {
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let authority = ChannelAuthority::spawn(ChannelAuthority::with_clock(ChannelClock::fixed(
         ChannelEpochSeconds::new(10),
     )));
@@ -757,9 +760,9 @@ async fn expired_channel_cannot_authorize_message() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn channel_authority_persists_grants_and_adjudication_requests() {
     let store = TemporaryRouterStore::new("channel-authority");
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
-    let reviewer = ActorId::new("reviewer");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
+    let reviewer = ActorIdentifier::new("reviewer");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let authority = ChannelAuthority::spawn(ChannelAuthority::with_tables(tables));
     authority.wait_for_startup().await;
@@ -790,7 +793,7 @@ async fn channel_authority_persists_grants_and_adjudication_requests() {
         .expect("adjudication request persists");
     let persisted = authority
         .ask(ReadChannelPersistence {
-            requester: ActorId::new("operator"),
+            requester: ActorIdentifier::new("operator"),
         })
         .await
         .expect("persistence read reaches channel authority")
@@ -811,14 +814,14 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
     let store = TemporaryRouterStore::new("tables");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let grant = GrantChannel::direct_message(
-        ActorId::new("operator"),
-        ActorId::new("responder"),
+        ActorIdentifier::new("operator"),
+        ActorIdentifier::new("responder"),
         ChannelLifetime::Persistent,
     );
     let request = persona_router::AdjudicationRequest {
         message: MessageId::new("m-table"),
-        from: ActorId::new("operator"),
-        to: ActorId::new("reviewer"),
+        from: ActorIdentifier::new("operator"),
+        to: ActorIdentifier::new("reviewer"),
         kind: persona_router::ChannelKind::DirectMessage,
     };
     tables
@@ -848,9 +851,9 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_runtime_wires_channel_authority_to_router_tables() {
     let store = TemporaryRouterStore::new("runtime-tables");
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
-    let reviewer = ActorId::new("reviewer");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
+    let reviewer = ActorIdentifier::new("reviewer");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let router = RouterFixture::start_with_tables(tables).await;
     router
@@ -900,8 +903,8 @@ async fn router_runtime_wires_channel_authority_to_router_tables() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_root_persists_delivery_attempt_and_result_records() {
     let store = TemporaryRouterStore::new("delivery-tables");
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let message_id = MessageId::new("m-delivery-table");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let inspection = tables.clone();
@@ -1018,7 +1021,7 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
-                name: ActorId::new("harness"),
+                name: ActorIdentifier::new("harness"),
                 pid: 42,
                 endpoint: Some(EndpointTransport {
                     kind: EndpointKind::PtySocket,
@@ -1035,8 +1038,8 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
             message: Message {
                 id: message_id.clone(),
                 thread: ThreadId::new("direct-router-harness"),
-                from: ActorId::new("router"),
-                to: ActorId::new("harness"),
+                from: ActorIdentifier::new("router"),
+                to: ActorIdentifier::new("harness"),
                 body: "deliver after mind grant".to_string(),
                 attachments: Vec::new(),
             },
@@ -1117,8 +1120,8 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
 async fn router_delivers_to_harness_daemon_socket_through_signal_contract() {
     let harness_socket = HarnessAcceptanceSocket::new("signal-delivery");
     let router = RouterFixture::start().await;
-    let sender = ActorId::new("operator");
-    let recipient = ActorId::new("responder");
+    let sender = ActorIdentifier::new("operator");
+    let recipient = ActorIdentifier::new("responder");
     let message_id = MessageId::new("m-harness-socket");
 
     router
@@ -1177,7 +1180,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
-                name: ActorId::new("harness"),
+                name: ActorIdentifier::new("harness"),
                 pid: 42,
                 endpoint: Some(EndpointTransport {
                     kind: EndpointKind::Human,
@@ -1194,8 +1197,8 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
             message: Message {
                 id: message_id.clone(),
                 thread: ThreadId::new("direct-router-harness"),
-                from: ActorId::new("router"),
-                to: ActorId::new("harness"),
+                from: ActorIdentifier::new("router"),
+                to: ActorIdentifier::new("harness"),
                 body: "deny this adjudication".to_string(),
                 attachments: Vec::new(),
             },
@@ -1245,7 +1248,7 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
     let router = RouterFixture::start().await;
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
@@ -1285,7 +1288,7 @@ async fn router_root_persists_accepted_signal_message_before_delivery_attempt() 
 
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorId::new("operator")),
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
@@ -1406,7 +1409,7 @@ async fn router_status_cannot_bypass_router_root_mailbox() {
     let router = RouterFixture::start().await;
     let output = router
         .apply(RouterInput::Status(Status {
-            requester: ActorId::new("operator"),
+            requester: ActorIdentifier::new("operator"),
         }))
         .await
         .expect("status request passes through router actor");
@@ -1429,7 +1432,7 @@ async fn router_registry_state_cannot_bypass_harness_registry_between_messages()
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
-                name: ActorId::new("responder"),
+                name: ActorIdentifier::new("responder"),
                 pid: 42,
                 endpoint: None,
             },
@@ -1438,7 +1441,7 @@ async fn router_registry_state_cannot_bypass_harness_registry_between_messages()
         .expect("register request passes through router actor");
     let output = router
         .apply(RouterInput::Status(Status {
-            requester: ActorId::new("operator"),
+            requester: ActorIdentifier::new("operator"),
         }))
         .await
         .expect("status request passes through router actor");
@@ -1457,8 +1460,8 @@ async fn router_registry_state_cannot_bypass_harness_registry_between_messages()
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn delivery_error_cannot_drop_pending_message() {
-    let operator = ActorId::new("operator");
-    let responder = ActorId::new("responder");
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
     let router = RouterFixture::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -1491,7 +1494,7 @@ async fn delivery_error_cannot_drop_pending_message() {
 
     let output = router
         .apply(RouterInput::Status(Status {
-            requester: ActorId::new("operator"),
+            requester: ActorIdentifier::new("operator"),
         }))
         .await
         .expect("status request passes through router actor");
@@ -1554,7 +1557,7 @@ fn harness_registry_cannot_be_empty_marker() {
     );
 
     assert!(registry_source.contains("pub struct HarnessRegistry {"));
-    assert!(registry_source.contains("actors: HashMap<ActorId, HarnessRegistration>,"));
+    assert!(registry_source.contains("actors: HashMap<ActorIdentifier, HarnessRegistration>,"));
     assert!(registry_source.contains("registered_actor_count: u64,"));
     assert!(registry_source.contains("status_request_count: u64,"));
 }
@@ -1567,7 +1570,7 @@ fn router_root_cannot_own_harness_registry_map_directly() {
             .join("router.rs"),
     );
 
-    assert!(!router_source.contains("HashMap<ActorId, HarnessRegistration>"));
+    assert!(!router_source.contains("HashMap<ActorIdentifier, HarnessRegistration>"));
     assert!(router_source.contains("RegisterHarness"));
     assert!(router_source.contains("ReadHarnessDeliveryTarget"));
 }
@@ -1622,7 +1625,7 @@ fn router_ingress_cannot_stamp_hidden_operator_owner_origin() {
     for fragment in [
         "from_frame_with_sender",
         "SignalMessageInput::new",
-        "ActorId::new(\"operator\")",
+        "ActorIdentifier::new(\"operator\")",
         "MessageOrigin::External(ConnectionClass::Owner),\n            request",
         "let _ingress_scaffold = actor",
     ] {

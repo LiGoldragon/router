@@ -150,7 +150,7 @@ before retrying delivery. `RouterRuntime` and the daemon can receive a
 to a durable channel authority. The router can also
 install the current first-stack structural channels through the actor tree, so
 Persona engine setup does not need to bypass `RouterRoot` or
-`ChannelAuthority`. Those structural channels are currently an `ActorId`
+`ChannelAuthority`. Those structural channels are currently an `ActorIdentifier`
 projection of the first stack (`message`, `system`, `router`, `harness`,
 `terminal`, `mind`, and `owner`) until the full endpoint/kind channel model is
 wired through the signal contracts. The first witnesses are actor traces and
@@ -161,11 +161,11 @@ named table test writes channel and adjudication records through `RouterTables`
 and reads them back from router-owned Sema.
 
 The current router can consume a typed `signal-persona-mind::ChannelGrant` and
-project it into the temporary `ActorId` channel table. The grant is installed
+project it into the temporary `ActorIdentifier` channel table. The grant is installed
 through `RouterRoot -> ChannelAuthority`; only then does `RouterRoot` retry
 parked messages. This is the first live feedback-loop witness for the mind
 choreography path. Transitional: the channel table is keyed by `ChannelTriple`
-using `ActorId` plus a `ChannelKind::DirectMessage` projection, so the grant
+using `ActorIdentifier` plus a `ChannelKind::DirectMessage` projection, so the grant
 collapses `ChannelMessageKind` into the router's current `DirectMessage` kind.
 Destination: the full `ChannelEndpoint` + `ChannelMessageKind` typed key per
 the `signal-persona-mind` contract.

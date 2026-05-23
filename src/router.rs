@@ -58,7 +58,7 @@ use crate::observation::{
 };
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
-    Actor, ActorId, EndpointKind, EndpointTransport, Error, Message, MessageId, Result,
+    Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageId, Result,
     RouterTables, ThreadId,
 };
 
@@ -336,12 +336,12 @@ enum PendingRouterDaemonReply {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterIngressContext {
-    sender: ActorId,
+    sender: ActorIdentifier,
     context: IngressContext,
 }
 
 impl RouterIngressContext {
-    pub fn new(sender: ActorId, context: IngressContext) -> Self {
+    pub fn new(sender: ActorIdentifier, context: IngressContext) -> Self {
         Self { sender, context }
     }
 
@@ -351,23 +351,23 @@ impl RouterIngressContext {
 
     pub fn internal_component(component: ComponentName) -> Self {
         Self::new(
-            Self::component_actor_id(component),
+            Self::component_actor_identifier(component),
             IngressContext::internal(component),
         )
     }
 
     pub fn external(connection_class: ConnectionClass) -> Self {
         Self::new(
-            Self::connection_actor_id(&connection_class),
+            Self::connection_actor_identifier(&connection_class),
             IngressContext::external(connection_class),
         )
     }
 
-    pub fn fixture_external_owner(sender: ActorId) -> Self {
+    pub fn fixture_external_owner(sender: ActorIdentifier) -> Self {
         Self::new(sender, IngressContext::external(ConnectionClass::Owner))
     }
 
-    pub fn sender(&self) -> &ActorId {
+    pub fn sender(&self) -> &ActorIdentifier {
         &self.sender
     }
 
@@ -379,44 +379,47 @@ impl RouterIngressContext {
         self.context.origin()
     }
 
-    pub fn actor_id_for_origin(origin: &MessageOrigin) -> ActorId {
+    pub fn actor_identifier_for_origin(origin: &MessageOrigin) -> ActorIdentifier {
         match origin {
-            MessageOrigin::Internal(component) => Self::component_actor_id(*component),
+            MessageOrigin::Internal(component) => Self::component_actor_identifier(*component),
             MessageOrigin::InternalComponentInstance(origin) => {
-                ActorId::new(origin.instance().as_str())
+                ActorIdentifier::new(origin.instance().as_str())
             }
-            MessageOrigin::External(connection) => Self::connection_actor_id(connection),
+            MessageOrigin::External(connection) => Self::connection_actor_identifier(connection),
         }
     }
 
-    fn component_actor_id(component: ComponentName) -> ActorId {
+    fn component_actor_identifier(component: ComponentName) -> ActorIdentifier {
         match component {
-            ComponentName::Mind => ActorId::new("mind"),
-            ComponentName::Message => ActorId::new("message"),
-            ComponentName::Router => ActorId::new("router"),
-            ComponentName::Terminal => ActorId::new("terminal"),
-            ComponentName::Harness => ActorId::new("harness"),
-            ComponentName::System => ActorId::new("system"),
-            ComponentName::Introspect => ActorId::new("introspect"),
-            ComponentName::Orchestrate => ActorId::new("orchestrate"),
+            ComponentName::Mind => ActorIdentifier::new("mind"),
+            ComponentName::Message => ActorIdentifier::new("message"),
+            ComponentName::Router => ActorIdentifier::new("router"),
+            ComponentName::Terminal => ActorIdentifier::new("terminal"),
+            ComponentName::Harness => ActorIdentifier::new("harness"),
+            ComponentName::System => ActorIdentifier::new("system"),
+            ComponentName::Introspect => ActorIdentifier::new("introspect"),
+            ComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
+            ComponentName::Spirit => ActorIdentifier::new("spirit"),
         }
     }
 
-    fn connection_actor_id(connection: &ConnectionClass) -> ActorId {
+    fn connection_actor_identifier(connection: &ConnectionClass) -> ActorIdentifier {
         match connection {
-            ConnectionClass::Owner => ActorId::new("owner"),
+            ConnectionClass::Owner => ActorIdentifier::new("owner"),
             ConnectionClass::NonOwnerUser(user) => {
-                ActorId::new(format!("non-owner-user-{}", user.as_u32()))
+                ActorIdentifier::new(format!("non-owner-user-{}", user.as_u32()))
             }
             ConnectionClass::System(principal) => {
-                ActorId::new(format!("system-{}", principal.as_str()))
+                ActorIdentifier::new(format!("system-{}", principal.as_str()))
             }
-            ConnectionClass::OtherPersona { engine_id, host } => ActorId::new(format!(
+            ConnectionClass::OtherPersona { engine_id, host } => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
                 engine_id.as_str(),
                 host.as_str()
             )),
-            ConnectionClass::Network(peer) => ActorId::new(format!("network-{}", peer.as_str())),
+            ConnectionClass::Network(peer) => {
+                ActorIdentifier::new(format!("network-{}", peer.as_str()))
+            }
         }
     }
 }
@@ -542,7 +545,7 @@ impl Default for RouterObservationFrameCodec {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalMessageInput {
-    sender: ActorId,
+    sender: ActorIdentifier,
     ingress: IngressContext,
     request: SignalMessageRequest,
 }
@@ -557,7 +560,7 @@ impl SignalMessageInput {
     }
 
     pub fn with_origin(
-        sender: ActorId,
+        sender: ActorIdentifier,
         origin: MessageOrigin,
         request: SignalMessageRequest,
     ) -> Self {
@@ -568,7 +571,7 @@ impl SignalMessageInput {
         }
     }
 
-    pub fn sender(&self) -> &ActorId {
+    pub fn sender(&self) -> &ActorIdentifier {
         &self.sender
     }
 
@@ -1086,7 +1089,7 @@ impl RouterRoot {
                 MessageOperationKind::StampedMessageSubmission,
             ));
         }
-        let sender = RouterIngressContext::actor_id_for_origin(&stamped.origin);
+        let sender = RouterIngressContext::actor_identifier_for_origin(&stamped.origin);
         let origin = stamped.origin;
         let slot = self.next_signal_message_slot();
         let message = self.signal_message(sender, stamped.submission, slot);
@@ -1122,11 +1125,11 @@ impl RouterRoot {
 
     fn signal_message(
         &self,
-        sender: ActorId,
+        sender: ActorIdentifier,
         submission: SignalMessageSubmission,
         slot: SignalSlot,
     ) -> Message {
-        let recipient = ActorId::new(submission.recipient.as_str());
+        let recipient = ActorIdentifier::new(submission.recipient.as_str());
         let body = submission.body.as_str().to_string();
         let thread = ThreadId::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str()));
         let id =
@@ -1720,7 +1723,7 @@ pub struct RouterInboxListing {
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct RouterInboxEntry {
     pub message_slot: u64,
-    pub sender: ActorId,
+    pub sender: ActorIdentifier,
     pub body: String,
 }
 
@@ -1829,7 +1832,7 @@ impl RouterInboxEntry {
     fn from_signal(entry: SignalInboxEntry) -> Self {
         Self {
             message_slot: entry.message_slot.into_u64(),
-            sender: ActorId::new(entry.sender.as_str()),
+            sender: ActorIdentifier::new(entry.sender.as_str()),
             body: entry.body.as_str().to_string(),
         }
     }
@@ -1912,7 +1915,7 @@ impl kameo::message::Message<ReadRouterTrace> for RouterRuntime {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadRouterChannelPersistence {
-    pub requester: ActorId,
+    pub requester: ActorIdentifier,
 }
 
 #[derive(Debug, kameo::Reply)]
@@ -1972,7 +1975,7 @@ impl kameo::message::Message<ReadRouterChannelPersistence> for RouterRoot {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadRouterMindAdjudicationOutbox {
-    pub requester: ActorId,
+    pub requester: ActorIdentifier,
 }
 
 #[derive(Debug, kameo::Reply)]
@@ -2184,7 +2187,7 @@ pub struct RouteMessage {
 
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct Status {
-    pub requester: ActorId,
+    pub requester: ActorIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2221,8 +2224,8 @@ impl ApplyMindChannelGrant {
             return Vec::new();
         }
         vec![GrantChannel::direct_message(
-            self.endpoint_actor_id(&self.grant.source),
-            self.endpoint_actor_id(&self.grant.destination),
+            self.endpoint_actor_identifier(&self.grant.source),
+            self.endpoint_actor_identifier(&self.grant.destination),
             self.channel_lifetime(),
         )]
     }
@@ -2237,41 +2240,46 @@ impl ApplyMindChannelGrant {
         }
     }
 
-    fn endpoint_actor_id(&self, endpoint: &MindChannelEndpoint) -> ActorId {
+    fn endpoint_actor_identifier(&self, endpoint: &MindChannelEndpoint) -> ActorIdentifier {
         match endpoint {
-            MindChannelEndpoint::Internal(component) => self.component_actor_id(*component),
-            MindChannelEndpoint::External(connection) => self.connection_actor_id(connection),
+            MindChannelEndpoint::Internal(component) => self.component_actor_identifier(*component),
+            MindChannelEndpoint::External(connection) => {
+                self.connection_actor_identifier(connection)
+            }
         }
     }
 
-    fn component_actor_id(&self, component: ComponentName) -> ActorId {
+    fn component_actor_identifier(&self, component: ComponentName) -> ActorIdentifier {
         match component {
-            ComponentName::Mind => ActorId::new("mind"),
-            ComponentName::Message => ActorId::new("message"),
-            ComponentName::Router => ActorId::new("router"),
-            ComponentName::Terminal => ActorId::new("terminal"),
-            ComponentName::Harness => ActorId::new("harness"),
-            ComponentName::System => ActorId::new("system"),
-            ComponentName::Introspect => ActorId::new("introspect"),
-            ComponentName::Orchestrate => ActorId::new("orchestrate"),
+            ComponentName::Mind => ActorIdentifier::new("mind"),
+            ComponentName::Message => ActorIdentifier::new("message"),
+            ComponentName::Router => ActorIdentifier::new("router"),
+            ComponentName::Terminal => ActorIdentifier::new("terminal"),
+            ComponentName::Harness => ActorIdentifier::new("harness"),
+            ComponentName::System => ActorIdentifier::new("system"),
+            ComponentName::Introspect => ActorIdentifier::new("introspect"),
+            ComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
+            ComponentName::Spirit => ActorIdentifier::new("spirit"),
         }
     }
 
-    fn connection_actor_id(&self, connection: &ConnectionClass) -> ActorId {
+    fn connection_actor_identifier(&self, connection: &ConnectionClass) -> ActorIdentifier {
         match connection {
-            ConnectionClass::Owner => ActorId::new("owner"),
+            ConnectionClass::Owner => ActorIdentifier::new("owner"),
             ConnectionClass::NonOwnerUser(user) => {
-                ActorId::new(format!("non-owner-user-{}", user.as_u32()))
+                ActorIdentifier::new(format!("non-owner-user-{}", user.as_u32()))
             }
             ConnectionClass::System(principal) => {
-                ActorId::new(format!("system-{}", principal.as_str()))
+                ActorIdentifier::new(format!("system-{}", principal.as_str()))
             }
-            ConnectionClass::OtherPersona { engine_id, host } => ActorId::new(format!(
+            ConnectionClass::OtherPersona { engine_id, host } => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
                 engine_id.as_str(),
                 host.as_str()
             )),
-            ConnectionClass::Network(peer) => ActorId::new(format!("network-{}", peer.as_str())),
+            ConnectionClass::Network(peer) => {
+                ActorIdentifier::new(format!("network-{}", peer.as_str()))
+            }
         }
     }
 }
@@ -2310,8 +2318,8 @@ impl RouterInput {
             RouterBootstrapOperation::GrantDirectMessage(operation) => {
                 Self::GrantChannel(GrantRouteChannel {
                     channel: GrantChannel::direct_message(
-                        Self::actor_id_from_bootstrap(operation.from),
-                        Self::actor_id_from_bootstrap(operation.to),
+                        Self::actor_identifier_from_bootstrap(operation.from),
+                        Self::actor_identifier_from_bootstrap(operation.to),
                         ChannelLifetime::Persistent,
                     ),
                 })
@@ -2328,7 +2336,7 @@ impl RouterInput {
 
     fn actor_from_bootstrap(actor: BootstrapActor) -> Actor {
         Actor {
-            name: Self::actor_id_from_bootstrap(actor.name),
+            name: Self::actor_identifier_from_bootstrap(actor.name),
             pid: actor.process,
             endpoint: actor.endpoint.map(Self::endpoint_from_bootstrap),
         }
@@ -2346,8 +2354,10 @@ impl RouterInput {
         }
     }
 
-    fn actor_id_from_bootstrap(actor: signal_persona_router::ActorId) -> ActorId {
-        ActorId::new(actor.as_str())
+    fn actor_identifier_from_bootstrap(
+        actor: signal_persona_router::ActorIdentifier,
+    ) -> ActorIdentifier {
+        ActorIdentifier::new(actor.as_str())
     }
 
     pub fn from_nota(text: &str) -> Result<Self> {
@@ -2375,7 +2385,7 @@ impl NotaDecode for RouterInput {
             }
             "Status" => {
                 decoder.expect_record_head("Status")?;
-                let requester = ActorId::decode(decoder)?;
+                let requester = ActorIdentifier::decode(decoder)?;
                 decoder.expect_record_end()?;
                 Ok(Self::Status(Status { requester }))
             }

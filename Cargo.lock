@@ -261,7 +261,7 @@ dependencies = [
 [[package]]
 name = "nota-config"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/nota-config.git?branch=main#b3e01ea50999ca568240d0e245d53d2dde2f462c"
+source = "git+https://github.com/LiGoldragon/nota-config.git?branch=main#575bcd5ed737abd730888bc504a8ae13cf3f3fd1"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -283,6 +283,12 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "persona-router"
@@ -455,7 +461,7 @@ dependencies = [
 [[package]]
 name = "signal-core"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#494da25305183f286b889697617ed6d01b8e4593"
+source = "git+https://github.com/LiGoldragon/signal-core.git#5f8a825cbd3619b6af93f06ac7e6a76a4b5de123"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -466,7 +472,7 @@ dependencies = [
 [[package]]
 name = "signal-core-macros"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#494da25305183f286b889697617ed6d01b8e4593"
+source = "git+https://github.com/LiGoldragon/signal-core.git#5f8a825cbd3619b6af93f06ac7e6a76a4b5de123"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -476,9 +482,10 @@ dependencies = [
 [[package]]
 name = "signal-frame"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#653773b7d4c18d16efd977ada4d280876debefd7"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#8ccaffd69e1027d13abeb98f9635de884f902f32"
 dependencies = [
  "nota-codec",
+ "paste",
  "rkyv",
  "signal-frame-macros",
  "thiserror",
@@ -487,7 +494,7 @@ dependencies = [
 [[package]]
 name = "signal-frame-macros"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#653773b7d4c18d16efd977ada4d280876debefd7"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#8ccaffd69e1027d13abeb98f9635de884f902f32"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -497,7 +504,7 @@ dependencies = [
 [[package]]
 name = "signal-persona"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git#92b33ad14602700460b63fcdcee95c52a3634c98"
+source = "git+https://github.com/LiGoldragon/signal-persona.git#4e6d22b3a000cc461a441f157fb87bcedd685470"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -509,7 +516,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-auth"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-auth.git#53aa35c770567dc470da84533bf31280e0f93194"
+source = "git+https://github.com/LiGoldragon/signal-persona-auth.git#31e994be5fba3b41e71fe4fa63adb73fe8cb400f"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -532,7 +539,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-message.git#eaa6888207619306170bcf00527c0576117d9183"
+source = "git+https://github.com/LiGoldragon/signal-persona-message.git#850bd0b11925b8926e07713ebab6b78cc3222f0f"
 dependencies = [
  "nota-codec",
  "nota-config",
@@ -558,7 +565,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-router.git#e0804f775f964387f487b2645598d9558cc81906"
+source = "git+https://github.com/LiGoldragon/signal-persona-router.git#b61903ca7ed3c85ce4559c3036cc86dc954da6e6"
 dependencies = [
  "nota-codec",
  "nota-config",
@@ -573,7 +580,7 @@ dependencies = [
 [[package]]
 name = "signal-sema"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#22b036a095857b42a81556666e093f03bf4533a1"
+source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#9968ffad5e494954a06a4d61721e5df904bc0c67"
 dependencies = [
  "nota-codec",
  "rkyv",

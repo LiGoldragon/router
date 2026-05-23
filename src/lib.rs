@@ -32,7 +32,8 @@ pub use harness_registry::{
 };
 pub use kameo::actor::ActorRef;
 pub use message::{
-    Actor, ActorId, EndpointKind, EndpointTransport, Message, MessageBody, MessageId, ThreadId,
+    Actor, ActorIdentifier, EndpointKind, EndpointTransport, Message, MessageBody, MessageId,
+    ThreadId,
 };
 pub use observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,

@@ -7,14 +7,14 @@ use signal_persona_mind::{
     ChannelMessageKind, TextBody,
 };
 
-use crate::{ActorId, Message};
+use crate::{ActorIdentifier, Message};
 
 #[derive(Debug)]
 pub struct MindAdjudicationOutbox {
     requests: Vec<MindAdjudicationRequest>,
     recorded_count: u64,
     read_count: u64,
-    last_reader: Option<ActorId>,
+    last_reader: Option<ActorIdentifier>,
 }
 
 impl MindAdjudicationOutbox {
@@ -73,7 +73,7 @@ pub struct MindAdjudicationReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadMindAdjudicationOutbox {
-    pub requester: ActorId,
+    pub requester: ActorIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
@@ -81,7 +81,7 @@ pub struct MindAdjudicationOutboxSnapshot {
     pub requests: Vec<MindAdjudicationRequest>,
     pub recorded_count: u64,
     pub read_count: u64,
-    pub last_reader: Option<ActorId>,
+    pub last_reader: Option<ActorIdentifier>,
 }
 
 impl kameo::actor::Actor for MindAdjudicationOutbox {
