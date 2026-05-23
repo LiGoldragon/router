@@ -2,7 +2,7 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 use signal_persona_mind::{
-    AdjudicationRequest as MindAdjudicationRequest, AdjudicationRequestId, ChannelEndpoint,
+    AdjudicationRequest as MindAdjudicationRequest, AdjudicationRequestIdentifier, ChannelEndpoint,
     ChannelMessageKind, TextBody,
 };
 use signal_persona_origin::{ComponentName, MessageOrigin};
@@ -30,7 +30,7 @@ impl MindAdjudicationOutbox {
     fn record(&mut self, request: RecordMindAdjudication) -> MindAdjudicationReceipt {
         self.recorded_count = self.recorded_count.saturating_add(1);
         let request = MindAdjudicationRequest {
-            request: AdjudicationRequestId::new(request.message.id.as_str()),
+            request: AdjudicationRequestIdentifier::new(request.message.id.as_str()),
             origin: request.origin,
             destination: ChannelEndpoint::Internal(ComponentName::Harness),
             kind: ChannelMessageKind::MessageDelivery,

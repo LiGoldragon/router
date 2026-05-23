@@ -17,7 +17,7 @@ use persona_router::{
     ReadChannelPersistence, ReadHarnessRegistryStatus, ReadRouterChannelPersistence,
     ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage,
     RouterIngressContext, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables,
-    RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadId, UseChannel,
+    RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadIdentifier, UseChannel,
 };
 use signal_core::{NonEmpty, Reply, SubReply};
 use signal_persona::TimestampNanos;
@@ -29,7 +29,7 @@ use signal_persona_message::{
     MessageSubmission, MessageUnimplementedReason, StampedMessageSubmission,
 };
 use signal_persona_mind::{
-    AdjudicationRequestId, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
+    AdjudicationRequestIdentifier, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
 use signal_persona_origin::{
     ComponentInstanceName, ComponentName, ConnectionClass, InternalComponentInstanceOrigin,
@@ -423,7 +423,7 @@ async fn router_cannot_emit_delivery_before_commit() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_identifier.clone(),
-                thread: ThreadId::new("direct-operator-responder"),
+                thread: ThreadIdentifier::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
                 body: "hello".to_string(),
@@ -483,7 +483,7 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_identifier.clone(),
-                thread: ThreadId::new("direct-operator-responder"),
+                thread: ThreadIdentifier::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
                 body: "hello".to_string(),
@@ -617,7 +617,7 @@ async fn one_shot_channel_cannot_authorize_second_message() {
         .expect("one shot grant is stored");
     let message = Message {
         id: MessageIdentifier::new("m-one"),
-        thread: ThreadId::new("direct-operator-responder"),
+        thread: ThreadIdentifier::new("direct-operator-responder"),
         from: operator.clone(),
         to: responder.clone(),
         body: "hello".to_string(),
@@ -678,7 +678,7 @@ async fn retracted_channel_cannot_authorize_message() {
         .ask(CheckChannel {
             message: Message {
                 id: MessageIdentifier::new("m-retracted"),
-                thread: ThreadId::new("direct-operator-responder"),
+                thread: ThreadIdentifier::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
                 body: "hello".to_string(),
@@ -718,7 +718,7 @@ async fn expired_channel_cannot_authorize_message() {
         .expect("grant succeeds");
     let message = Message {
         id: MessageIdentifier::new("m-expires"),
-        thread: ThreadId::new("direct-operator-responder"),
+        thread: ThreadIdentifier::new("direct-operator-responder"),
         from: operator,
         to: responder,
         body: "hello".to_string(),
@@ -780,7 +780,7 @@ async fn channel_authority_persists_grants_and_adjudication_requests() {
         .ask(CheckChannel {
             message: Message {
                 id: MessageIdentifier::new("m-adjudicate"),
-                thread: ThreadId::new("direct-operator-reviewer"),
+                thread: ThreadIdentifier::new("direct-operator-reviewer"),
                 from: operator,
                 to: reviewer,
                 body: "please review".to_string(),
@@ -880,7 +880,7 @@ async fn router_runtime_wires_channel_authority_to_router_tables() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: MessageIdentifier::new("m-runtime-table"),
-                thread: ThreadId::new("direct-operator-reviewer"),
+                thread: ThreadIdentifier::new("direct-operator-reviewer"),
                 from: operator,
                 to: reviewer,
                 body: "persist through runtime".to_string(),
@@ -933,7 +933,7 @@ async fn router_root_persists_delivery_attempt_and_result_records() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_identifier.clone(),
-                thread: ThreadId::new("direct-operator-responder"),
+                thread: ThreadIdentifier::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
                 body: "persist delivery attempt".to_string(),
@@ -1037,7 +1037,7 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_identifier.clone(),
-                thread: ThreadId::new("direct-router-harness"),
+                thread: ThreadIdentifier::new("direct-router-harness"),
                 from: ActorIdentifier::new("router"),
                 to: ActorIdentifier::new("harness"),
                 body: "deliver after mind grant".to_string(),
@@ -1144,7 +1144,7 @@ async fn router_delivers_to_harness_daemon_socket_through_signal_contract() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_identifier,
-                thread: ThreadId::new("direct-operator-responder"),
+                thread: ThreadIdentifier::new("direct-operator-responder"),
                 from: sender,
                 to: recipient,
                 body: "deliver through harness signal".to_string(),
@@ -1196,7 +1196,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_identifier.clone(),
-                thread: ThreadId::new("direct-router-harness"),
+                thread: ThreadIdentifier::new("direct-router-harness"),
                 from: ActorIdentifier::new("router"),
                 to: ActorIdentifier::new("harness"),
                 body: "deny this adjudication".to_string(),
@@ -1210,7 +1210,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
         .apply(RouterInput::ApplyMindAdjudicationDeny(
             ApplyMindAdjudicationDeny {
                 deny: MindAdjudicationDeny {
-                    request: AdjudicationRequestId::new(message_identifier.as_str()),
+                    request: AdjudicationRequestIdentifier::new(message_identifier.as_str()),
                     reason: TextBody::new("denied by mind"),
                 },
             },
@@ -1482,7 +1482,7 @@ async fn delivery_error_cannot_drop_pending_message() {
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: MessageIdentifier::new("m-error"),
-                thread: ThreadId::new("direct-operator-responder"),
+                thread: ThreadIdentifier::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
                 body: "hello".to_string(),

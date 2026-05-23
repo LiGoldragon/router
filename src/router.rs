@@ -24,7 +24,7 @@ use signal_persona_message::{
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
 use signal_persona_mind::{
-    AdjudicationRequestId as MindAdjudicationRequestId, ChannelDuration as MindChannelDuration,
+    AdjudicationRequestIdentifier, ChannelDuration as MindChannelDuration,
     ChannelEndpoint as MindChannelEndpoint, ChannelMessageKind as MindChannelMessageKind,
     TextBody as MindTextBody,
 };
@@ -59,7 +59,7 @@ use crate::observation::{
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
-    Result, RouterTables, ThreadId,
+    Result, RouterTables, ThreadIdentifier,
 };
 
 fn synthetic_exchange() -> ExchangeIdentifier {
@@ -1134,7 +1134,8 @@ impl RouterRoot {
     ) -> Message {
         let recipient = ActorIdentifier::new(submission.recipient.as_str());
         let body = submission.body.as_str().to_string();
-        let thread = ThreadId::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str()));
+        let thread =
+            ThreadIdentifier::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str()));
         let id = MessageIdentifier::from_parts(
             slot.into_u64(),
             &thread,
@@ -2299,7 +2300,7 @@ impl ApplyMindChannelGrant {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MindAdjudicationDeny {
-    pub request: MindAdjudicationRequestId,
+    pub request: AdjudicationRequestIdentifier,
     pub reason: MindTextBody,
 }
 

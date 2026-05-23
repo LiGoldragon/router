@@ -28,7 +28,7 @@ impl MessageIdentifier {
 
     pub fn from_parts(
         sequence: u64,
-        thread: &ThreadId,
+        thread: &ThreadIdentifier,
         sender: &ActorIdentifier,
         recipient: &ActorIdentifier,
         body: &str,
@@ -50,9 +50,9 @@ impl MessageIdentifier {
 #[derive(
     Archive, RkyvSerialize, RkyvDeserialize, NotaTransparent, Debug, Clone, PartialEq, Eq, Hash,
 )]
-pub struct ThreadId(String);
+pub struct ThreadIdentifier(String);
 
-impl ThreadId {
+impl ThreadIdentifier {
     pub fn new(text: impl Into<String>) -> Self {
         Self(text.into())
     }
@@ -92,7 +92,7 @@ pub struct Attachment {
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub id: MessageIdentifier,
-    pub thread: ThreadId,
+    pub thread: ThreadIdentifier,
     pub from: ActorIdentifier,
     pub to: ActorIdentifier,
     pub body: String,
@@ -110,7 +110,11 @@ impl Message {
         let recipient = ActorIdentifier::new(recipient.into());
         Self {
             id,
-            thread: ThreadId::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str())),
+            thread: ThreadIdentifier::new(format!(
+                "direct-{}-{}",
+                sender.as_str(),
+                recipient.as_str()
+            )),
             from: sender,
             to: recipient,
             body: body.into_string(),
