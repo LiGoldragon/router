@@ -285,12 +285,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
 name = "persona-router"
 version = "0.1.0"
 dependencies = [
@@ -461,7 +455,7 @@ dependencies = [
 [[package]]
 name = "signal-core"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#5f8a825cbd3619b6af93f06ac7e6a76a4b5de123"
+source = "git+https://github.com/LiGoldragon/signal-core.git#494da25305183f286b889697617ed6d01b8e4593"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -472,7 +466,7 @@ dependencies = [
 [[package]]
 name = "signal-core-macros"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#5f8a825cbd3619b6af93f06ac7e6a76a4b5de123"
+source = "git+https://github.com/LiGoldragon/signal-core.git#494da25305183f286b889697617ed6d01b8e4593"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -482,10 +476,9 @@ dependencies = [
 [[package]]
 name = "signal-frame"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#8ccaffd69e1027d13abeb98f9635de884f902f32"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#653773b7d4c18d16efd977ada4d280876debefd7"
 dependencies = [
  "nota-codec",
- "paste",
  "rkyv",
  "signal-frame-macros",
  "thiserror",
@@ -494,7 +487,7 @@ dependencies = [
 [[package]]
 name = "signal-frame-macros"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#8ccaffd69e1027d13abeb98f9635de884f902f32"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#653773b7d4c18d16efd977ada4d280876debefd7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -539,7 +532,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-message.git#850bd0b11925b8926e07713ebab6b78cc3222f0f"
+source = "git+https://github.com/LiGoldragon/signal-persona-message.git#eaa6888207619306170bcf00527c0576117d9183"
 dependencies = [
  "nota-codec",
  "nota-config",
