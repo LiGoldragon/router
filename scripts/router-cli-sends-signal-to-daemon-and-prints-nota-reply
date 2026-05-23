@@ -17,7 +17,7 @@ test -S "$socket"
 
 "$router" \
   --socket "$socket" \
-  '(StampedMessageSubmission ((responder Send "router hello") (Internal Message) 1))' \
+  '(StampedMessageSubmission ((responder Send [router hello]) (Internal Message) 1))' \
   >"$workspace/submission.out"
 
 grep -Fq '(SubmissionAccepted 1)' "$workspace/submission.out"
@@ -27,5 +27,5 @@ grep -Fq '(SubmissionAccepted 1)' "$workspace/submission.out"
   '(InboxQuery (responder))' \
   >"$workspace/inbox.out"
 
-grep -Fq '(RouterInboxListing [(1 message "router hello")])' \
+grep -Fq '(RouterInboxListing [(1 message [router hello])])' \
   "$workspace/inbox.out"

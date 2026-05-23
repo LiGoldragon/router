@@ -262,10 +262,9 @@ flavors the router authorizes. Today the variants are:
 - `MessageSubmission` — generic internal submission (not the
   ingress shape).
 - `InboxQuery` — read against router-held message state.
-- `FocusObservation` — window-focus observation flowing through
-  the router (currently from `persona-system`).
-- `PromptBufferObservation` — prompt-buffer observation flowing
-  through the router (also from `persona-system`).
+- Prompt-state observations are not a router-owned terminal-safety
+  gate. They need a refreshed system/terminal signal relation before
+  they become routed channel kinds again.
 - `MessageDelivery` — router→target delivery hop.
 - `TerminalInput` / `TerminalCapture` / `TerminalResize` —
   terminal-cell input, output capture, and resize signals.
