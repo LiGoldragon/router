@@ -19,9 +19,9 @@ impl ActorIdentifier {
 #[derive(
     Archive, RkyvSerialize, RkyvDeserialize, NotaTransparent, Debug, Clone, PartialEq, Eq, Hash,
 )]
-pub struct MessageId(String);
+pub struct MessageIdentifier(String);
 
-impl MessageId {
+impl MessageIdentifier {
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
@@ -91,7 +91,7 @@ pub struct Attachment {
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct Message {
-    pub id: MessageId,
+    pub id: MessageIdentifier,
     pub thread: ThreadId,
     pub from: ActorIdentifier,
     pub to: ActorIdentifier,
@@ -101,7 +101,7 @@ pub struct Message {
 
 impl Message {
     pub fn new(
-        id: MessageId,
+        id: MessageIdentifier,
         sender: impl Into<String>,
         recipient: impl Into<String>,
         body: MessageBody,

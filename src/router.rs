@@ -58,8 +58,8 @@ use crate::observation::{
 };
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
-    Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageId, Result,
-    RouterTables, ThreadId,
+    Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
+    Result, RouterTables, ThreadId,
 };
 
 fn synthetic_exchange() -> ExchangeIdentifier {
@@ -970,11 +970,11 @@ impl RouterRoot {
             }
             RouterInput::RouteMessage(input) => {
                 let pending = PendingRouterMessage::internal_router(input.message);
-                let message_id = pending.message.id.clone();
+                let message_identifier = pending.message.id.clone();
                 self.persist_message(&pending.message, &pending.origin, None)?;
                 self.pending.push(pending);
                 self.trace
-                    .record(message_id, RouterTraceStep::MessageCommitted);
+                    .record(message_identifier, RouterTraceStep::MessageCommitted);
                 let delivered = self.retry_pending().await?;
                 Ok(RouterOutput::DeliveryChanged(DeliveryChanged {
                     delivered,
@@ -1135,8 +1135,13 @@ impl RouterRoot {
         let recipient = ActorIdentifier::new(submission.recipient.as_str());
         let body = submission.body.as_str().to_string();
         let thread = ThreadId::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str()));
-        let id =
-            MessageId::from_parts(slot.into_u64(), &thread, &sender, &recipient, body.as_str());
+        let id = MessageIdentifier::from_parts(
+            slot.into_u64(),
+            &thread,
+            &sender,
+            &recipient,
+            body.as_str(),
+        );
         Message {
             id,
             thread,
@@ -1174,14 +1179,16 @@ impl RouterRoot {
             .collect()
     }
 
-    fn signal_slot_for(&self, message_id: &MessageId) -> Option<SignalSlot> {
-        self.signal_slots
-            .iter()
-            .find_map(|slot| slot.matches(message_id).then_some(slot.message_slot()))
+    fn signal_slot_for(&self, message_identifier: &MessageIdentifier) -> Option<SignalSlot> {
+        self.signal_slots.iter().find_map(|slot| {
+            slot.matches(message_identifier)
+                .then_some(slot.message_slot())
+        })
     }
 
-    fn mark_signal_delivered(&mut self, message_id: &MessageId) {
-        self.signal_slots.retain(|slot| !slot.matches(message_id));
+    fn mark_signal_delivered(&mut self, message_identifier: &MessageIdentifier) {
+        self.signal_slots
+            .retain(|slot| !slot.matches(message_identifier));
     }
 
     async fn retry_pending(&mut self) -> Result<u64> {
@@ -1357,16 +1364,16 @@ impl PendingRouterMessage {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalMessageSlot {
-    message: MessageId,
+    message: MessageIdentifier,
     slot: SignalSlot,
 }
 
 impl SignalMessageSlot {
-    fn new(message: MessageId, slot: SignalSlot) -> Self {
+    fn new(message: MessageIdentifier, slot: SignalSlot) -> Self {
         Self { message, slot }
     }
 
-    fn matches(&self, message: &MessageId) -> bool {
+    fn matches(&self, message: &MessageIdentifier) -> bool {
         &self.message == message
     }
 
@@ -2062,13 +2069,13 @@ pub struct RouterObservationFacts {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterObservationSlot {
-    pub message_id: MessageId,
+    pub message_identifier: MessageIdentifier,
     pub slot: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterObservationTraceEvent {
-    pub message_id: MessageId,
+    pub message_identifier: MessageIdentifier,
     pub step: RouterTraceStep,
 }
 
@@ -2098,7 +2105,7 @@ impl kameo::message::Message<ReadRouterObservationFacts> for RouterRoot {
             .signal_slots
             .iter()
             .map(|record| RouterObservationSlot {
-                message_id: record.message.clone(),
+                message_identifier: record.message.clone(),
                 slot: record.slot.into_u64(),
             })
             .collect();
@@ -2107,7 +2114,7 @@ impl kameo::message::Message<ReadRouterObservationFacts> for RouterRoot {
             .events()
             .iter()
             .map(|event| RouterObservationTraceEvent {
-                message_id: event.message().clone(),
+                message_identifier: event.message().clone(),
                 step: event.step(),
             })
             .collect();
@@ -2132,7 +2139,7 @@ impl RouterTrace {
         Self { events: Vec::new() }
     }
 
-    fn record(&mut self, message: MessageId, step: RouterTraceStep) {
+    fn record(&mut self, message: MessageIdentifier, step: RouterTraceStep) {
         self.events.push(RouterTraceEvent { message, step });
     }
 
@@ -2155,12 +2162,12 @@ impl Default for RouterTrace {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterTraceEvent {
-    message: MessageId,
+    message: MessageIdentifier,
     step: RouterTraceStep,
 }
 
 impl RouterTraceEvent {
-    pub fn message(&self) -> &MessageId {
+    pub fn message(&self) -> &MessageIdentifier {
         &self.message
     }
 

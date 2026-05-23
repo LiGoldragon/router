@@ -8,7 +8,7 @@ use signal_persona_origin::{ChannelIdentifier, MessageOrigin};
 
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
-    MessageId, Result,
+    MessageIdentifier, Result,
 };
 
 const ROUTER_SCHEMA: Schema = Schema {
@@ -130,7 +130,11 @@ impl RouterTables {
         })?)
     }
 
-    pub fn insert_delivery_attempt(&self, sequence: u64, message: &MessageId) -> Result<()> {
+    pub fn insert_delivery_attempt(
+        &self,
+        sequence: u64,
+        message: &MessageIdentifier,
+    ) -> Result<()> {
         let attempt = StoredDeliveryAttempt::new(sequence, message);
         self.database.write(|transaction| {
             DELIVERY_ATTEMPTS.insert(transaction, sequence, &attempt)?;
@@ -142,7 +146,7 @@ impl RouterTables {
     pub fn insert_delivery_result(
         &self,
         sequence: u64,
-        message: &MessageId,
+        message: &MessageIdentifier,
         delivered: bool,
     ) -> Result<()> {
         let result = StoredDeliveryResult::new(sequence, message, delivered);
@@ -268,7 +272,7 @@ pub struct StoredDeliveryAttempt {
 }
 
 impl StoredDeliveryAttempt {
-    fn new(sequence: u64, message: &MessageId) -> Self {
+    fn new(sequence: u64, message: &MessageIdentifier) -> Self {
         Self {
             sequence,
             message: message.as_str().to_string(),
@@ -285,7 +289,7 @@ pub struct StoredDeliveryResult {
 }
 
 impl StoredDeliveryResult {
-    fn new(sequence: u64, message: &MessageId, delivered: bool) -> Self {
+    fn new(sequence: u64, message: &MessageIdentifier, delivered: bool) -> Self {
         Self {
             sequence,
             message: message.as_str().to_string(),

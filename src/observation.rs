@@ -120,10 +120,10 @@ impl RouterObservationPlane {
             .signal_slots
             .iter()
             .find(|record| record.slot == slot_value)?;
-        let message_id = slot_record.message_id.as_str();
+        let message_identifier = slot_record.message_identifier.as_str();
         let mut status = RouterDeliveryStatus::Accepted;
         for event in &facts.trace_events {
-            if event.message_id.as_str() != message_id {
+            if event.message_identifier.as_str() != message_identifier {
                 continue;
             }
             status = match event.step {

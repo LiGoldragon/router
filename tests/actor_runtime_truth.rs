@@ -12,7 +12,7 @@ use persona_router::{
     ApplyRouterInput, ApplySignalMessage, ChannelAuthority, ChannelClock, ChannelDecision,
     ChannelEpochSeconds, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport,
     EngineStructuralChannels, GrantChannel, GrantRouteChannel, HarnessDelivery, HarnessRegistry,
-    InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageId,
+    InstallRouteStructuralChannels, InstallStructuralChannels, Message, MessageIdentifier,
     MindAdjudicationDeny, MindChannelGrant, ObserveChannelTime, ReadChannelAuthorityStatus,
     ReadChannelPersistence, ReadHarnessRegistryStatus, ReadRouterChannelPersistence,
     ReadRouterMindAdjudicationOutbox, ReadRouterTrace, RegisterActor, RetractChannel, RouteMessage,
@@ -406,7 +406,7 @@ fn router_actor_cannot_use_non_kameo_runtime() {
 async fn router_cannot_emit_delivery_before_commit() {
     let operator = ActorIdentifier::new("operator");
     let responder = ActorIdentifier::new("responder");
-    let message_id = MessageId::new("m-order");
+    let message_identifier = MessageIdentifier::new("m-order");
     let router = RouterFixture::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -422,7 +422,7 @@ async fn router_cannot_emit_delivery_before_commit() {
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: message_id.clone(),
+                id: message_identifier.clone(),
                 thread: ThreadId::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
@@ -443,7 +443,7 @@ async fn router_cannot_emit_delivery_before_commit() {
     let message_steps = trace
         .events()
         .iter()
-        .filter(|event| event.message() == &message_id)
+        .filter(|event| event.message() == &message_identifier)
         .map(|event| event.step())
         .collect::<Vec<_>>();
     let commit_index = message_steps
@@ -466,7 +466,7 @@ async fn router_cannot_emit_delivery_before_commit() {
 async fn unknown_channel_cannot_reach_delivery_actor() {
     let operator = ActorIdentifier::new("operator");
     let responder = ActorIdentifier::new("responder");
-    let message_id = MessageId::new("m-channel");
+    let message_identifier = MessageIdentifier::new("m-channel");
     let router = RouterFixture::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -482,7 +482,7 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: message_id.clone(),
+                id: message_identifier.clone(),
                 thread: ThreadId::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
@@ -503,7 +503,7 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
     let message_steps = trace
         .events()
         .iter()
-        .filter(|event| event.message() == &message_id)
+        .filter(|event| event.message() == &message_identifier)
         .map(|event| event.step())
         .collect::<Vec<_>>();
     assert!(message_steps.contains(&RouterTraceStep::MessageCommitted));
@@ -616,7 +616,7 @@ async fn one_shot_channel_cannot_authorize_second_message() {
         .into_result()
         .expect("one shot grant is stored");
     let message = Message {
-        id: MessageId::new("m-one"),
+        id: MessageIdentifier::new("m-one"),
         thread: ThreadId::new("direct-operator-responder"),
         from: operator.clone(),
         to: responder.clone(),
@@ -677,7 +677,7 @@ async fn retracted_channel_cannot_authorize_message() {
     let decision = authority
         .ask(CheckChannel {
             message: Message {
-                id: MessageId::new("m-retracted"),
+                id: MessageIdentifier::new("m-retracted"),
                 thread: ThreadId::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
@@ -717,7 +717,7 @@ async fn expired_channel_cannot_authorize_message() {
         .into_result()
         .expect("grant succeeds");
     let message = Message {
-        id: MessageId::new("m-expires"),
+        id: MessageIdentifier::new("m-expires"),
         thread: ThreadId::new("direct-operator-responder"),
         from: operator,
         to: responder,
@@ -779,7 +779,7 @@ async fn channel_authority_persists_grants_and_adjudication_requests() {
     authority
         .ask(CheckChannel {
             message: Message {
-                id: MessageId::new("m-adjudicate"),
+                id: MessageIdentifier::new("m-adjudicate"),
                 thread: ThreadId::new("direct-operator-reviewer"),
                 from: operator,
                 to: reviewer,
@@ -819,7 +819,7 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
         ChannelLifetime::Persistent,
     );
     let request = persona_router::AdjudicationRequest {
-        message: MessageId::new("m-table"),
+        message: MessageIdentifier::new("m-table"),
         from: ActorIdentifier::new("operator"),
         to: ActorIdentifier::new("reviewer"),
         kind: persona_router::ChannelKind::DirectMessage,
@@ -879,7 +879,7 @@ async fn router_runtime_wires_channel_authority_to_router_tables() {
     router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: MessageId::new("m-runtime-table"),
+                id: MessageIdentifier::new("m-runtime-table"),
                 thread: ThreadId::new("direct-operator-reviewer"),
                 from: operator,
                 to: reviewer,
@@ -905,7 +905,7 @@ async fn router_root_persists_delivery_attempt_and_result_records() {
     let store = TemporaryRouterStore::new("delivery-tables");
     let operator = ActorIdentifier::new("operator");
     let responder = ActorIdentifier::new("responder");
-    let message_id = MessageId::new("m-delivery-table");
+    let message_identifier = MessageIdentifier::new("m-delivery-table");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let inspection = tables.clone();
     let router = RouterFixture::start_with_tables(tables).await;
@@ -932,7 +932,7 @@ async fn router_root_persists_delivery_attempt_and_result_records() {
     router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: message_id.clone(),
+                id: message_identifier.clone(),
                 thread: ThreadId::new("direct-operator-responder"),
                 from: operator,
                 to: responder,
@@ -951,10 +951,10 @@ async fn router_root_persists_delivery_attempt_and_result_records() {
         .expect("delivery results read");
     assert_eq!(attempts.len(), 1);
     assert_eq!(attempts[0].sequence, 1);
-    assert_eq!(attempts[0].message, message_id.as_str());
+    assert_eq!(attempts[0].message, message_identifier.as_str());
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].sequence, 1);
-    assert_eq!(results[0].message, message_id.as_str());
+    assert_eq!(results[0].message, message_identifier.as_str());
     assert!(!results[0].delivered);
 
     router.stop().await;
@@ -1016,7 +1016,7 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let inspection = tables.clone();
     let router = RouterFixture::start_with_tables(tables).await;
-    let message_id = MessageId::new("m-mind-grant");
+    let message_identifier = MessageIdentifier::new("m-mind-grant");
 
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -1036,7 +1036,7 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
     let parked = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: message_id.clone(),
+                id: message_identifier.clone(),
                 thread: ThreadId::new("direct-router-harness"),
                 from: ActorIdentifier::new("router"),
                 to: ActorIdentifier::new("harness"),
@@ -1088,16 +1088,16 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
     assert_eq!(channels[0].from, "router");
     assert_eq!(channels[0].to, "harness");
     assert_eq!(attempts.len(), 1);
-    assert_eq!(attempts[0].message, message_id.as_str());
+    assert_eq!(attempts[0].message, message_identifier.as_str());
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].message, message_id.as_str());
+    assert_eq!(results[0].message, message_identifier.as_str());
     assert!(results[0].delivered);
 
     let trace = router.trace().await.expect("router trace is readable");
     let message_steps = trace
         .events()
         .iter()
-        .filter(|event| event.message() == &message_id)
+        .filter(|event| event.message() == &message_identifier)
         .map(|event| event.step())
         .collect::<Vec<_>>();
     let adjudication_index = message_steps
@@ -1122,7 +1122,7 @@ async fn router_delivers_to_harness_daemon_socket_through_signal_contract() {
     let router = RouterFixture::start().await;
     let sender = ActorIdentifier::new("operator");
     let recipient = ActorIdentifier::new("responder");
-    let message_id = MessageId::new("m-harness-socket");
+    let message_identifier = MessageIdentifier::new("m-harness-socket");
 
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -1143,7 +1143,7 @@ async fn router_delivers_to_harness_daemon_socket_through_signal_contract() {
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: message_id,
+                id: message_identifier,
                 thread: ThreadId::new("direct-operator-responder"),
                 from: sender,
                 to: recipient,
@@ -1175,7 +1175,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let inspection = tables.clone();
     let router = RouterFixture::start_with_tables(tables).await;
-    let message_id = MessageId::new("m-mind-deny");
+    let message_identifier = MessageIdentifier::new("m-mind-deny");
 
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -1195,7 +1195,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
     router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: message_id.clone(),
+                id: message_identifier.clone(),
                 thread: ThreadId::new("direct-router-harness"),
                 from: ActorIdentifier::new("router"),
                 to: ActorIdentifier::new("harness"),
@@ -1210,7 +1210,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
         .apply(RouterInput::ApplyMindAdjudicationDeny(
             ApplyMindAdjudicationDeny {
                 deny: MindAdjudicationDeny {
-                    request: AdjudicationRequestId::new(message_id.as_str()),
+                    request: AdjudicationRequestId::new(message_identifier.as_str()),
                     reason: TextBody::new("denied by mind"),
                 },
             },
@@ -1233,7 +1233,7 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
     let message_steps = trace
         .events()
         .iter()
-        .filter(|event| event.message() == &message_id)
+        .filter(|event| event.message() == &message_identifier)
         .map(|event| event.step())
         .collect::<Vec<_>>();
     assert!(message_steps.contains(&RouterTraceStep::AdjudicationRequested));
@@ -1481,7 +1481,7 @@ async fn delivery_error_cannot_drop_pending_message() {
     let output = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
-                id: MessageId::new("m-error"),
+                id: MessageIdentifier::new("m-error"),
                 thread: ThreadId::new("direct-operator-responder"),
                 from: operator,
                 to: responder,

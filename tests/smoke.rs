@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use persona_router::{
-    Message, MessageBody, MessageId, PendingDelivery, RouterBootstrapOperation, RouterConnection,
-    RouterDaemon, RouterInput, RouterOutput, SocketMode, SupervisionFrameCodec,
+    Message, MessageBody, MessageIdentifier, PendingDelivery, RouterBootstrapOperation,
+    RouterConnection, RouterDaemon, RouterInput, RouterOutput, SocketMode, SupervisionFrameCodec,
     SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
@@ -65,7 +65,7 @@ impl Drop for SocketFixture {
 #[test]
 fn pending_delivery_keeps_recipient() {
     let message = Message::new(
-        MessageId::new("m-abc"),
+        MessageIdentifier::new("m-abc"),
         "operator",
         "responder",
         MessageBody::new("hello"),

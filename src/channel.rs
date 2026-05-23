@@ -491,7 +491,7 @@ impl ChannelCheckOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdjudicationRequest {
-    pub message: crate::MessageId,
+    pub message: crate::MessageIdentifier,
     pub from: ActorIdentifier,
     pub to: ActorIdentifier,
     pub kind: ChannelKind,
