@@ -1,4 +1,4 @@
-# persona-router skill
+# router skill
 
 Work here when the change concerns delivery routing, pending deliveries, gate
 decisions, or the router daemon surface.

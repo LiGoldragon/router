@@ -5,7 +5,7 @@ This repository follows the primary workspace orchestration protocol.
 
 ## Purpose
 
-`persona-router` owns message routing, pending delivery, delivery gates, and
+`router` owns message routing, pending delivery, delivery gates, and
 runtime harness actors. The router is the place where queued work becomes a
 delivered harness prompt.
 
