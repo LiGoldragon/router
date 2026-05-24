@@ -1,4 +1,4 @@
-//! Witness that persona-router actor source does not share locks
+//! Witness that router actor source does not share locks
 //! between actors.
 //!
 //! Per `~/primary/skills/actor-systems.md` §"No shared locks":

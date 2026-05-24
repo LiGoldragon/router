@@ -12,7 +12,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use persona_router::{
+use router::{
     Actor, ActorIdentifier, ActorRef, ApplyRouterInput, ApplyRouterObservation, ChannelLifetime,
     EngineStructuralChannels, GrantChannel, GrantRouteChannel, InstallRouteStructuralChannels,
     InstallStructuralChannels, ReadRouterObservationPlaneStatus, RegisterActor, RouterConnection,
@@ -29,7 +29,7 @@ use signal_message::{
 };
 use signal_persona::TimestampNanos;
 use signal_persona_origin::{ChannelIdentifier, ConnectionClass, EngineIdentifier, MessageOrigin};
-use signal_persona_router::{
+use signal_router::{
     RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus, RouterFrame,
     RouterFrameBody, RouterMessageTraceQuery, RouterObservationScope,
     RouterObservationUnimplementedReason, RouterReply, RouterRequest, RouterSummaryQuery,
@@ -46,7 +46,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "persona-router-observation-{name}-{}-{now}.redb",
+            "router-observation-{name}-{}-{now}.redb",
             std::process::id()
         ));
         Self { path }
@@ -80,34 +80,31 @@ impl ObservationFixture {
         }
     }
 
-    async fn apply(&self, input: RouterInput) -> persona_router::Result<RouterOutput> {
+    async fn apply(&self, input: RouterInput) -> router::Result<RouterOutput> {
         self.runtime
             .ask(ApplyRouterInput { input })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
-    async fn apply_signal(
-        &self,
-        input: SignalMessageInput,
-    ) -> persona_router::Result<MessageReply> {
+    async fn apply_signal(&self, input: SignalMessageInput) -> router::Result<MessageReply> {
         self.runtime
-            .ask(persona_router::ApplySignalMessage { input })
+            .ask(router::ApplySignalMessage { input })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
-    async fn observe(&self, request: RouterRequest) -> persona_router::Result<RouterReply> {
+    async fn observe(&self, request: RouterRequest) -> router::Result<RouterReply> {
         self.runtime
             .ask(ApplyRouterObservation { request })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
-    async fn observation_plane_status(&self) -> persona_router::RouterObservationPlaneStatus {
+    async fn observation_plane_status(&self) -> router::RouterObservationPlaneStatus {
         self.runtime
             .ask(ReadRouterObservationPlaneStatus {
                 requester: ActorIdentifier::new("operator"),
@@ -517,7 +514,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
     router.stop().await;
 }
 
-/// Architectural-truth witness per `/git/.../persona-router/ARCHITECTURE.md`
+/// Architectural-truth witness per `/git/.../router/ARCHITECTURE.md`
 /// §"Constraint Tests" — `Router daemon restart with the same --store
 /// path surfaces the pre-restart pending-adjudication state through the
 /// typed observation plane.`

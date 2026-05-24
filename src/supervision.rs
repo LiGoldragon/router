@@ -27,7 +27,7 @@ pub struct SupervisionProfile {
 impl SupervisionProfile {
     pub fn router() -> Self {
         Self {
-            name: ComponentName::new("persona-router"),
+            name: ComponentName::new("router"),
             kind: ComponentKind::Router,
             health: ComponentHealth::Running,
         }

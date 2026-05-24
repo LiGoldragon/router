@@ -29,7 +29,7 @@ use signal_mind::{
     TextBody as MindTextBody,
 };
 use signal_persona_origin::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
-use signal_persona_router::{
+use signal_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, RouterBootstrapDocument,
     RouterBootstrapOperation, RouterDaemonConfiguration, RouterFrame as SignalRouterFrame,
@@ -150,7 +150,7 @@ impl RouterDaemon {
         if let Some(bootstrap) = &self.bootstrap {
             bootstrap.apply(&runtime, &router)?;
         }
-        eprintln!("persona-router-daemon socket={}", self.socket.display());
+        eprintln!("router-daemon socket={}", self.socket.display());
         for stream in listener.incoming() {
             let stream = stream?;
             Self::handle_connection(&runtime, &router, stream, self.ingress.clone())?;
@@ -2368,9 +2368,7 @@ impl RouterInput {
         }
     }
 
-    fn actor_identifier_from_bootstrap(
-        actor: signal_persona_router::ActorIdentifier,
-    ) -> ActorIdentifier {
+    fn actor_identifier_from_bootstrap(actor: signal_router::ActorIdentifier) -> ActorIdentifier {
         ActorIdentifier::new(actor.as_str())
     }
 

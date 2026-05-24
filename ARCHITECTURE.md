@@ -1,15 +1,15 @@
-# persona-router — architecture
+# router — architecture
 
 *Delivery reducer and pending-delivery state for Persona.*
 
-`persona-router` decides where Persona messages are delivered. It consumes
+`router` decides where Persona messages are delivered. It consumes
 typed frames from the message boundary, keeps pending deliveries, owns live
 authorized-channel state, and eventually persists router state in its own Sema
 database.
 
 > **Scope.** "Sema" here means today's `sema` library (rename
 > pending → `sema-db`). The eventual `Sema` is broader; today's
-> persona-router is a realization step on the eventually-self-hosting
+> router is a realization step on the eventually-self-hosting
 > stack. See `~/primary/ESSENCE.md` §"Today and eventually".
 
 ---
@@ -22,7 +22,7 @@ terminal byte transport, or contract definitions.
 ```mermaid
 flowchart LR
     "signal-message" -->|"message request frame"| "RouterRuntime"
-    "signal-persona-router" -->|"observation query frame"| "RouterRuntime"
+    "signal-router" -->|"observation query frame"| "RouterRuntime"
     "RouterRuntime" -->|"apply input"| "RouterRoot"
     "RouterRuntime" -->|"apply observation"| "RouterObservationPlane"
     "RouterObservationPlane" -->|"read facts"| "RouterRoot"
@@ -38,7 +38,7 @@ flowchart LR
 
 ## 1 · Component Surface
 
-`persona-router` exposes:
+`router` exposes:
 
 - a library surface for delivery decisions;
 - a router daemon surface for isolated development;
@@ -57,7 +57,7 @@ flowchart LR
 - a Signal-frame daemon ingress for `signal-message`
   `StampedMessageSubmission` and `InboxQuery` frames;
 - a startup bootstrap reader for manager-written
-  `signal-persona-router::RouterBootstrapDocument` line projections. The
+  `signal-router::RouterBootstrapDocument` line projections. The
   router no longer owns a private duplicate of the bootstrap record
   vocabulary; it converts the contract records into internal
   `RouterInput` values at the daemon boundary;
@@ -78,7 +78,7 @@ flowchart LR
   the live mind socket once the mind daemon's transport lands;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
-- a Kameo `RouterObservationPlane` that answers `signal-persona-router`
+- a Kameo `RouterObservationPlane` that answers `signal-router`
   observation queries (`RouterSummaryQuery`, `RouterMessageTraceQuery`,
   `RouterChannelStateQuery`) by reading `RouterRoot` facts and
   `RouterTables` channel records; replies are typed `RouterReply` records.
@@ -429,7 +429,7 @@ This repo does not own:
   as an explicit external endpoint in channel records.
 - Router authorization is channel-table authorization plus mind
   adjudication for misses.
-- Router observation queries (`signal-persona-router::RouterRequest`)
+- Router observation queries (`signal-router::RouterRequest`)
   are answered by `RouterObservationPlane`, which reads `RouterRoot`
   observation facts through its mailbox and reads channel records from
   router-owned Sema tables when present.
@@ -476,7 +476,7 @@ This repo does not own:
 - Channel and adjudication records persisted under one router schema
   version do not deserialise under a different version. `RouterTables::open`
   hard-fails on schema mismatch.
-- Router bootstrap records come from `signal-persona-router`; the router
+- Router bootstrap records come from `signal-router`; the router
   accepts the current line-oriented startup file only by decoding contract
   `RouterBootstrapOperation` values and converting them into internal actor
   inputs.
@@ -489,7 +489,7 @@ src/adjudication.rs     Kameo mind-adjudication outbox for parked messages
 src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
-src/observation.rs      Kameo router observation plane (signal-persona-router queries)
+src/observation.rs      Kameo router observation plane (signal-router queries)
 src/delivery.rs         pending-delivery records
 src/message.rs          transitional router message records
 src/tables.rs           router-owned Sema schema and message/channel/adjudication/delivery tables
@@ -520,12 +520,12 @@ tests/                  router smoke and actor-density truth tests
 | RouterRoot persists accepted Signal messages before delivery retry. | `nix flake check .#router-root-persists-accepted-signal-message-before-delivery-attempt` |
 | RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix flake check .#router-root-persists-delivery-attempt-and-result-records` |
 | Router engine setup can install first-stack structural channels through the actor tree. | `nix flake check .#router-installs-structural-channels-for-engine-setup` |
-| Router bootstrap startup vocabulary is owned by `signal-persona-router`, not by private local parser records. | `cargo test --test smoke router_bootstrap_decodes_registered_harness_socket_endpoint` and `signal-persona-router`'s `bootstrap_document_owns_line_vocabulary_for_manager_and_router` witness. |
+| Router bootstrap startup vocabulary is owned by `signal-router`, not by private local parser records. | `cargo test --test smoke router_bootstrap_decodes_registered_harness_socket_endpoint` and `signal-router`'s `bootstrap_document_owns_line_vocabulary_for_manager_and_router` witness. |
 | A typed mind channel grant installs a row before a parked message is retried for delivery. | `nix flake check .#mind-channel-grant-installs-row-before-parked-message-delivers` |
 | A typed mind adjudication deny removes a parked message without delivery. | `nix flake check .#mind-adjudication-deny-removes-parked-message-without-delivery` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
-| Router daemon answers `signal-persona-router::RouterSummaryQuery` from the observation plane actor. | `nix flake check .#router-daemon-answers-router-summary-query` |
-| Router daemon connection path accepts length-prefixed `signal-persona-router::RouterFrame` Match requests and writes typed Router replies without bypassing `RouterObservationPlane`. | `nix flake check .#router-daemon-accepts-router-observation-frames` |
+| Router daemon answers `signal-router::RouterSummaryQuery` from the observation plane actor. | `nix flake check .#router-daemon-answers-router-summary-query` |
+| Router daemon connection path accepts length-prefixed `signal-router::RouterFrame` Match requests and writes typed Router replies without bypassing `RouterObservationPlane`. | `nix flake check .#router-daemon-accepts-router-observation-frames` |
 | Router summary counts derive from RouterRoot's accepted/pending/failed facts. | `nix flake check .#router-summary-query-counts-accepted-pending-and-failed-messages` |
 | Router message trace replies report `Deferred` for parked messages and `MessageTraceMissing` for unknown slots — no `Unknown` sentinel. | `nix flake check .#router-message-trace-query-reports-deferred-status-for-parked-message` |
 | Router channel state replies read installed-vs-missing-vs-disabled from router-owned Sema tables. | `nix flake check .#router-channel-state-query-reads-router-tables` |
@@ -539,6 +539,6 @@ tests/                  router smoke and actor-density truth tests
 - `~/primary/skills/subscription-lifecycle.md` — canonical
   five-state FSM future router-side subscriptions implement.
 - `../signal-message/ARCHITECTURE.md`
-- `../signal-persona-router/ARCHITECTURE.md`
+- `../signal-router/ARCHITECTURE.md`
 - `../harness/ARCHITECTURE.md`
 - `../sema/ARCHITECTURE.md`

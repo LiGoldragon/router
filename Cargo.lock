@@ -304,28 +304,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
-name = "persona-router"
-version = "0.1.0"
-dependencies = [
- "kameo",
- "nota-codec",
- "nota-config",
- "rkyv",
- "sema",
- "signal-core",
- "signal-engine-management",
- "signal-frame",
- "signal-harness",
- "signal-message",
- "signal-mind",
- "signal-persona",
- "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",
- "signal-persona-router",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -424,6 +402,28 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "router"
+version = "0.1.0"
+dependencies = [
+ "kameo",
+ "nota-codec",
+ "nota-config",
+ "rkyv",
+ "sema",
+ "signal-core",
+ "signal-engine-management",
+ "signal-frame",
+ "signal-harness",
+ "signal-message",
+ "signal-mind",
+ "signal-persona",
+ "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",
+ "signal-router",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -543,7 +543,7 @@ dependencies = [
 [[package]]
 name = "signal-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git#cbd1542c8554f0c110a079f68ae2dc8c1cfb3f9d"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#cbd1542c8554f0c110a079f68ae2dc8c1cfb3f9d"
 dependencies = [
  "nota-codec",
  "nota-config",
@@ -600,9 +600,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-persona-router"
+name = "signal-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-router.git#ac2f6b250f25f0beaba8a10bd56aee60f722acbb"
+source = "git+https://github.com/LiGoldragon/signal-router.git#f554389d1a0e073df4e2e56194d0bfec2f212d37"
 dependencies = [
  "nota-codec",
  "nota-config",

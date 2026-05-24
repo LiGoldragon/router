@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-router="${ROUTER_BIN:?ROUTER_BIN must point at the persona-router-daemon binary}"
+router="${ROUTER_BIN:?ROUTER_BIN must point at the router-daemon binary}"
 workspace="$(mktemp -d)"
 socket="$workspace/router.sock"
 

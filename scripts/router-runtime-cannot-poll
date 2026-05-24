@@ -8,6 +8,6 @@ if rg --line-number \
   'tokio::time::interval|tokio::time::sleep|std::thread::sleep|thread::sleep' \
   "$source_root"
 then
-  echo "persona-router runtime must react to pushed events, not timer polling" >&2
+  echo "router runtime must react to pushed events, not timer polling" >&2
   exit 1
 fi

@@ -1,4 +1,4 @@
-# persona-router
+# router
 
 Persona message router and delivery state machine.
 

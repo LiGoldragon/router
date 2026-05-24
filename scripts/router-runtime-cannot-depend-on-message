@@ -23,6 +23,6 @@ then
 fi
 
 if [[ "$violations" -ne 0 ]]; then
-  echo "persona-router must not depend on message; it consumes signal-message and owns router state" >&2
+  echo "router must not depend on message; it consumes signal-message and owns router state" >&2
   exit 1
 fi

@@ -1,9 +1,9 @@
 use nota_config::ConfigurationSource;
-use persona_router::RouterCommandLine;
-use persona_router::router::RouterDaemon;
-use signal_persona_router::RouterDaemonConfiguration;
+use router::RouterCommandLine;
+use router::router::RouterDaemon;
+use signal_router::RouterDaemonConfiguration;
 
-fn main() -> persona_router::Result<()> {
+fn main() -> router::Result<()> {
     // The supervised production launch passes a typed
     // `RouterDaemonConfiguration` as argv[1]. The same binary also
     // serves the CLI (and standalone `daemon --socket --store ...`)

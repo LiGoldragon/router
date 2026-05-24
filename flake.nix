@@ -43,7 +43,7 @@
             pkgs.runCommand name { } ''
               set -euo pipefail
 
-              export ROUTER_BIN=${self.packages.${system}.default}/bin/persona-router-daemon
+              export ROUTER_BIN=${self.packages.${system}.default}/bin/router-daemon
               ${pkgs.bash}/bin/bash ${script}
 
               touch "$out"
@@ -82,8 +82,8 @@
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              pname = "persona-router";
-              meta.mainProgram = "persona-router-daemon";
+              pname = "router";
+              meta.mainProgram = "router-daemon";
             }
           );
         }
@@ -291,7 +291,7 @@
       apps = forSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/persona-router-daemon";
+          program = "${self.packages.${system}.default}/bin/router-daemon";
         };
       });
 

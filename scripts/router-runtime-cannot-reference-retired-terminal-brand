@@ -14,6 +14,6 @@ if rg --line-number \
   'WezTerm|wezterm|WEZTERM|persona-wezterm|persona_wezterm|WezTermPane' \
   "$source_root"
 then
-  echo "active persona-router runtime still references retired terminal-brand infrastructure" >&2
+  echo "active router runtime still references retired terminal-brand infrastructure" >&2
   exit 1
 fi

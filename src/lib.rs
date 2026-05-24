@@ -53,7 +53,7 @@ pub use router::{
     RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
     SignalMessageInput, SignalMessageOutcome, SocketMode, Status, StructuralChannelsInstalled,
 };
-pub use signal_persona_router::{
+pub use signal_router::{
     GrantDirectMessage, InstallStructuralChannels as InstallStructuralChannelsBootstrap,
     RouterBootstrapOperation,
 };

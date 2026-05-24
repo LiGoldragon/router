@@ -3,7 +3,7 @@ use kameo::error::Infallible;
 use kameo::message::Context;
 use signal_message::MessageSlot;
 use signal_persona_origin::ChannelIdentifier;
-use signal_persona_router::{
+use signal_router::{
     RouterChannelState, RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus,
     RouterMessageTrace, RouterMessageTraceMissing, RouterMessageTraceQuery,
     RouterObservationUnimplemented, RouterObservationUnimplementedReason, RouterReply,
@@ -82,7 +82,7 @@ impl RouterObservationPlane {
         self.channel_state_query_count = self.channel_state_query_count.saturating_add(1);
         let Some(tables) = &self.tables else {
             return Ok(RouterReply::Unimplemented(RouterObservationUnimplemented {
-                scope: signal_persona_router::RouterObservationScope::ChannelState,
+                scope: signal_router::RouterObservationScope::ChannelState,
                 reason: RouterObservationUnimplementedReason::RouterStoreUnavailable,
             }));
         };

@@ -4,7 +4,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use persona_router::{
+use router::{
     Message, MessageBody, MessageIdentifier, PendingDelivery, RouterBootstrapOperation,
     RouterConnection, RouterDaemon, RouterInput, RouterOutput, SocketMode, SupervisionFrameCodec,
     SupervisionListener, SupervisionProfile, SupervisionSocketMode,
@@ -39,10 +39,8 @@ impl SocketFixture {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is after Unix epoch")
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!(
-            "persona-router-{name}-{}-{now}",
-            std::process::id()
-        ));
+        let directory =
+            std::env::temp_dir().join(format!("router-{name}-{}-{now}", std::process::id()));
         let socket = directory.join("router.sock");
         Self { directory, socket }
     }
@@ -87,7 +85,7 @@ fn router_input_decodes_status_requester() {
 
 #[test]
 fn router_output_encodes_delivery_changed() {
-    let output = RouterOutput::DeliveryChanged(persona_router::DeliveryChanged {
+    let output = RouterOutput::DeliveryChanged(router::DeliveryChanged {
         delivered: 1,
         pending: 0,
     });
@@ -226,7 +224,7 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
     send_supervision_request(
         &mut stream,
         SupervisionRequest::Announce(Presence {
-            expected_component: SupervisionComponentName::new("persona-router"),
+            expected_component: SupervisionComponentName::new("router"),
             expected_kind: ComponentKind::Router,
             engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
         }),
@@ -237,14 +235,14 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
     assert!(matches!(
         identity,
         SupervisionReply::Identified(identity)
-            if identity.name.as_str() == "persona-router"
+            if identity.name.as_str() == "router"
                 && identity.kind == ComponentKind::Router
     ));
 
     send_supervision_request(
         &mut stream,
         SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(
-            SupervisionComponentName::new("persona-router"),
+            SupervisionComponentName::new("router"),
         )),
     );
     let readiness = codec
@@ -255,7 +253,7 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
     send_supervision_request(
         &mut stream,
         SupervisionRequest::Query(SupervisionQuery::HealthStatus(
-            SupervisionComponentName::new("persona-router"),
+            SupervisionComponentName::new("router"),
         )),
     );
     let health = codec.read_reply(&mut stream).expect("health reply decodes");

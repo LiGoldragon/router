@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
-use persona_router::{
+use router::{
     Actor, ActorIdentifier, ActorRef, ApplyMindAdjudicationDeny, ApplyMindChannelGrant,
     ApplyRouterInput, ApplySignalMessage, ChannelAuthority, ChannelClock, ChannelDecision,
     ChannelEpochSeconds, ChannelLifetime, CheckChannel, EndpointKind, EndpointTransport,
@@ -58,11 +58,11 @@ impl RouterFixture {
         }
     }
 
-    async fn apply(&self, input: RouterInput) -> persona_router::Result<RouterOutput> {
+    async fn apply(&self, input: RouterInput) -> router::Result<RouterOutput> {
         self.runtime
             .ask(ApplyRouterInput { input })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
@@ -78,46 +78,41 @@ impl RouterFixture {
         .expect("channel grant passes through router actor");
     }
 
-    async fn trace(&self) -> persona_router::Result<RouterTrace> {
+    async fn trace(&self) -> router::Result<RouterTrace> {
         self.runtime
             .ask(ReadRouterTrace { since: 0 })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
-    async fn channel_persistence(
-        &self,
-    ) -> persona_router::Result<persona_router::ChannelPersistenceSnapshot> {
+    async fn channel_persistence(&self) -> router::Result<router::ChannelPersistenceSnapshot> {
         self.runtime
             .ask(ReadRouterChannelPersistence {
                 requester: ActorIdentifier::new("operator"),
             })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
     async fn mind_adjudication_outbox(
         &self,
-    ) -> persona_router::Result<persona_router::MindAdjudicationOutboxSnapshot> {
+    ) -> router::Result<router::MindAdjudicationOutboxSnapshot> {
         self.runtime
             .ask(ReadRouterMindAdjudicationOutbox {
                 requester: ActorIdentifier::new("operator"),
             })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
-    async fn apply_signal(
-        &self,
-        input: SignalMessageInput,
-    ) -> persona_router::Result<MessageReply> {
+    async fn apply_signal(&self, input: SignalMessageInput) -> router::Result<MessageReply> {
         self.runtime
             .ask(ApplySignalMessage { input })
             .await
-            .map_err(|error| persona_router::Error::ActorCall(error.to_string()))?
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
             .into_result()
     }
 
@@ -203,10 +198,8 @@ impl TemporaryRouterStore {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is after Unix epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "persona-router-{name}-{}-{now}.redb",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("router-{name}-{}-{now}.redb", std::process::id()));
         Self { path }
     }
 
@@ -232,7 +225,7 @@ impl TerminalAcceptanceSocket {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "persona-router-terminal-{name}-{}-{now}.sock",
+            "router-terminal-{name}-{}-{now}.sock",
             std::process::id()
         ));
         let listener = UnixListener::bind(&path).expect("terminal acceptance socket binds");
@@ -290,7 +283,7 @@ impl HarnessAcceptanceSocket {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "persona-router-harness-{name}-{}-{now}.sock",
+            "router-harness-{name}-{}-{now}.sock",
             std::process::id()
         ));
         let listener = UnixListener::bind(&path).expect("harness acceptance socket binds");
@@ -818,11 +811,11 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
         ActorIdentifier::new("responder"),
         ChannelLifetime::Persistent,
     );
-    let request = persona_router::AdjudicationRequest {
+    let request = router::AdjudicationRequest {
         message: MessageIdentifier::new("m-table"),
         from: ActorIdentifier::new("operator"),
         to: ActorIdentifier::new("reviewer"),
-        kind: persona_router::ChannelKind::DirectMessage,
+        kind: router::ChannelKind::DirectMessage,
     };
     tables
         .insert_channel(
@@ -1470,7 +1463,7 @@ async fn delivery_error_cannot_drop_pending_message() {
                 pid: 42,
                 endpoint: Some(EndpointTransport {
                     kind: EndpointKind::PtySocket,
-                    target: "/tmp/persona-router-missing-terminal.sock".to_string(),
+                    target: "/tmp/router-missing-terminal.sock".to_string(),
                     aux: None,
                 }),
             },

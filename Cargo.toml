@@ -1,19 +1,19 @@
 [package]
-name         = "persona-router"
+name         = "router"
 version      = "0.1.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
-repository   = "https://github.com/LiGoldragon/persona-router"
+repository   = "https://github.com/LiGoldragon/router"
 description  = "Persona message router and delivery state machine."
 publish      = false
 
 [lib]
-name = "persona_router"
+name = "router"
 path = "src/lib.rs"
 
 [[bin]]
-name = "persona-router-daemon"
+name = "router-daemon"
 path = "src/main.rs"
 
 [dependencies]
@@ -28,8 +28,8 @@ signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git
 signal-persona-origin   = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
 signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git" }
-signal-message = { git = "https://github.com/LiGoldragon/signal-message.git" }
-signal-persona-router = { git = "https://github.com/LiGoldragon/signal-persona-router.git" }
+signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }
