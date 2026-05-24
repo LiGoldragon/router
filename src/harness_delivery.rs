@@ -9,7 +9,7 @@ use kameo::reply::DelegatedReply;
 use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
-use signal_persona_harness::{
+use signal_harness::{
     HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest, MessageBody,
     MessageDelivery, MessageSender, MessageSlot,
 };

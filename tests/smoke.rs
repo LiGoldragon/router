@@ -10,19 +10,19 @@ use persona_router::{
     SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
+use signal_engine_management::{
+    ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
+    EngineManagementProtocolVersion, Presence, TimestampNanos,
+};
+use signal_engine_management::{
+    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
+    Query as SupervisionQuery, Reply as SupervisionReply,
+};
 use signal_frame::{
     ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
     LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
 };
-use signal_persona::engine_management::{
-    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
-    Query as SupervisionQuery, Reply as SupervisionReply,
-};
-use signal_persona::{
-    ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
-    EngineManagementProtocolVersion, Presence, TimestampNanos,
-};
-use signal_persona_message::{
+use signal_message::{
     Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
     MessageRequest, MessageSubmission, StampedMessageSubmission,
 };
@@ -157,7 +157,7 @@ fn constraint_router_daemon_applies_spawn_envelope_socket_mode() {
 }
 
 #[test]
-fn router_connection_decodes_signal_persona_message_frame() {
+fn router_connection_decodes_signal_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
     let request = MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
         submission: MessageSubmission {

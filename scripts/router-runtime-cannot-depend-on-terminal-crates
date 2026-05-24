@@ -19,6 +19,6 @@ then
 fi
 
 if [[ "$violations" -ne 0 ]]; then
-  echo "persona-router must not talk to terminal crates directly; delivery goes through persona-harness" >&2
+  echo "persona-router must not talk to terminal crates directly; delivery goes through harness" >&2
   exit 1
 fi

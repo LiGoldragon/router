@@ -21,7 +21,7 @@ terminal byte transport, or contract definitions.
 
 ```mermaid
 flowchart LR
-    "signal-persona-message" -->|"message request frame"| "RouterRuntime"
+    "signal-message" -->|"message request frame"| "RouterRuntime"
     "signal-persona-router" -->|"observation query frame"| "RouterRuntime"
     "RouterRuntime" -->|"apply input"| "RouterRoot"
     "RouterRuntime" -->|"apply observation"| "RouterObservationPlane"
@@ -32,7 +32,7 @@ flowchart LR
     "RouterRoot" -->|"typed adjudication request"| "MindAdjudicationOutbox"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
-    "HarnessDelivery" -->|"typed terminal delivery request"| "persona-harness"
+    "HarnessDelivery" -->|"typed terminal delivery request"| "harness"
     "RouterRoot" -->|"router-owned records"| "router Sema"
 ```
 
@@ -46,15 +46,15 @@ flowchart LR
   Signal traffic only. Frames arriving from in-engine
   components tag as `MessageOrigin::Internal(ComponentName)`.
   External engine-owner ingress arrives through
-  `persona-message`'s `message.sock` (mode 0660) and
+  `message`'s `message.sock` (mode 0660) and
   is forwarded to router with `MessageOrigin::External(...)`
   already minted by the message daemon from SO_PEERCRED.
   The daemon applies the `PERSONA_SOCKET_MODE` value carried by the
   Persona spawn envelope before the socket is reported usable.
-- a daemon-client CLI surface that accepts one NOTA `signal-persona-message`
+- a daemon-client CLI surface that accepts one NOTA `signal-message`
   projection record, sends one Signal frame to the daemon, and prints one NOTA
   reply. The CLI does not mint the message sender;
-- a Signal-frame daemon ingress for `signal-persona-message`
+- a Signal-frame daemon ingress for `signal-message`
   `StampedMessageSubmission` and `InboxQuery` frames;
 - a startup bootstrap reader for manager-written
   `signal-persona-router::RouterBootstrapDocument` line projections. The
@@ -69,11 +69,11 @@ flowchart LR
   adjudication-pending records;
 - a router actor operation for installing the current first-stack structural
   channels during Persona engine setup;
-- a router actor operation for applying typed `signal-persona-mind` channel
+- a router actor operation for applying typed `signal-mind` channel
   grants and retrying parked messages through the normal delivery path;
 - a Kameo `MindAdjudicationOutbox` that owns typed
-  `signal-persona-mind` adjudication requests. Transitional: this in-memory
-  outbox plus the typed `signal-persona-mind::AdjudicationRequest` projection
+  `signal-mind` adjudication requests. Transitional: this in-memory
+  outbox plus the typed `signal-mind::AdjudicationRequest` projection
   is the current shape; the destination is router→mind via Signal frames on
   the live mind socket once the mind daemon's transport lands;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
@@ -83,7 +83,7 @@ flowchart LR
   `RouterChannelStateQuery`) by reading `RouterRoot` facts and
   `RouterTables` channel records; replies are typed `RouterReply` records.
   The daemon connection path accepts `RouterFrame` Match requests on
-  `router.sock` alongside the existing stamped `signal-persona-message`
+  `router.sock` alongside the existing stamped `signal-message`
   ingress frames, then dispatches observation requests through
   `RouterRuntime` to `RouterObservationPlane`. Subscription push for
   channel-state and delivery deltas follows the canonical five-state
@@ -92,15 +92,15 @@ flowchart LR
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
 
-`persona-message` is not part of the router runtime graph. It is the
-message-ingress component: its CLI talks to the `persona-message` daemon, and
-that daemon forwards typed `signal-persona-message` requests into this daemon.
+`message` is not part of the router runtime graph. It is the
+message-ingress component: its CLI talks to the `message` daemon, and
+that daemon forwards typed `signal-message` requests into this daemon.
 The router owns the transitional in-memory message records until those records
 move behind router-owned Sema tables.
 
 ## 1.5 · Supervision-relation reception
 
-The router daemon answers `signal-persona::SupervisionRequest` from a
+The router daemon answers `signal-engine-management::Operation` from a
 canonical `SupervisionPhase` Kameo actor alongside `RouterRoot`. The phase
 actor carries `component_name`, `component_kind`,
 `supervision_protocol_version`, and a cached `ComponentHealth` pushed from
@@ -132,7 +132,7 @@ the blocking terminal/probe calls they require.
 Durable router state lives in the router actor's own Sema database through a
 router-owned Sema layer over the `sema` library; no shared database actor owns
 router transitions. Terminal byte movement and verification are delegated
-through `persona-harness` and then through `persona-terminal`, which owns the
+through `harness` and then through `persona-terminal`, which owns the
 terminal transport adapter around `terminal-cell`.
 
 Stored router records are typed contract records from the relation-specific
@@ -160,7 +160,7 @@ channel records `AdjudicationRequested` without reaching `HarnessDelivery`; a
 named table test writes channel and adjudication records through `RouterTables`
 and reads them back from router-owned Sema.
 
-The current router can consume a typed `signal-persona-mind::ChannelGrant` and
+The current router can consume a typed `signal-mind::ChannelGrant` and
 project it into the temporary `ActorIdentifier` channel table. The grant is installed
 through `RouterRoot -> ChannelAuthority`; only then does `RouterRoot` retry
 parked messages. This is the first live feedback-loop witness for the mind
@@ -168,8 +168,8 @@ choreography path. Transitional: the channel table is keyed by `ChannelTriple`
 using `ActorIdentifier` plus a `ChannelKind::DirectMessage` projection, so the grant
 collapses `ChannelMessageKind` into the router's current `DirectMessage` kind.
 Destination: the full `ChannelEndpoint` + `ChannelMessageKind` typed key per
-the `signal-persona-mind` contract.
-The router can also consume `signal-persona-mind::AdjudicationDeny` for a
+the `signal-mind` contract.
+The router can also consume `signal-mind::AdjudicationDeny` for a
 parked message and remove that message without touching the delivery actor.
 
 When the remaining router-owned Sema tables are wired into `RouterRoot`, these
@@ -184,7 +184,7 @@ adjudication requests, delivery attempts, and delivery results are written
 through the current runtime actor path. Pending delivery and
 delivered/failed/deferred status records still need to be wired into
 `RouterRoot`. Successful delivery is another router state transition: after
-`persona-harness` reports the terminal effect, the router commits the delivery
+`harness` reports the terminal effect, the router commits the delivery
 status update before post-delivery subscription events are emitted.
 
 Every accepted message carries a typed `IngressContext` from the accepted
@@ -192,9 +192,9 @@ socket relation. Origin is provenance, not an auth proof. The production daemon
 default is the internal `message -> router` relation; owner/operator
 origin is only a named test fixture, never hidden in frame decoding. Router
 policy is the authorized-channel table: messages on an active channel flow;
-messages without one are parked and queued for persona-mind adjudication. In
+messages without one are parked and queued for mind adjudication. In
 current code that queue is in `ChannelAuthority`, and `MindAdjudicationOutbox`
-projects parked messages into typed `signal-persona-mind::AdjudicationRequest`
+projects parked messages into typed `signal-mind::AdjudicationRequest`
 records. It is an outbox actor, not the final live mind socket transport.
 
 Future development may add router garbage collection. GC is a router-state
@@ -208,7 +208,7 @@ the router's live delivery truth.
 
 Channel-state changes in the router are not the router's decision.
 They are **`Mutate` orders received from a higher authority** — today
-from `persona-mind` (`ChannelGrant`, `ChannelExtend`, `ChannelRetract`,
+from `mind` (`ChannelGrant`, `ChannelExtend`, `ChannelRetract`,
 `AdjudicationDeny`); when `persona-orchestrate` lands (per
 `reports/second-designer-assistant/4-persona-orchestrate-control-plane-2026-05-17.md`
 and bead `primary-699g`), routed through orchestrate's spawn /
@@ -233,7 +233,7 @@ The verb on the *outbound* path (router → mind) is different:
   *request to adjudicate*, not an order — `Assert`/`Match`-shaped, not
   `Mutate`.
 - `RouterSummaryQuery` / `RouterMessageTraceQuery` /
-  `RouterChannelStateQuery` from `persona-introspect` are `Match`
+  `RouterChannelStateQuery` from `introspect` are `Match`
   (one-shot reads). Future subscriptions for channel-state and
   delivery deltas are `Subscribe`.
 
@@ -244,7 +244,7 @@ down-tree* via Mutate-received-from-authority. The router never issues
 `Mutate` orders to peers; it is downstream of the authority chain, not
 in it.
 
-`signal-persona-message`-shaped `StampedMessageSubmission` arriving on
+`signal-message`-shaped `StampedMessageSubmission` arriving on
 `router.sock` is `Assert` (a new typed message fact entered the
 system) — a peer-direction write, not an authority order. Routing /
 delivery is the router's decision; that's why message ingress is
@@ -256,7 +256,7 @@ The `ChannelMessageKind` enum is the closed set of typed message
 flavors the router authorizes. Today the variants are:
 
 - `MessageIngressSubmission` — external/owner submission entering
-  through `persona-message`; distinguished from internal direct
+  through `message`; distinguished from internal direct
   delivery so the structural channel
   `Internal(Message) → Internal(Router)` carries it explicitly.
 - `MessageSubmission` — generic internal submission (not the
@@ -277,7 +277,7 @@ flavors the router authorizes. Today the variants are:
 The set is closed because every typed message that crosses a
 channel has authority semantics — who may send it, what destination
 shape it may target, what duration the channel can carry it for.
-A typed enum gives the channel-grant authority (`persona-mind`)
+A typed enum gives the channel-grant authority (`mind`)
 and the router enforcement layer a finite vocabulary to bind
 against. Opening this enum to free identifiers would make
 channel-grant policy unenumerable.
@@ -293,7 +293,7 @@ escalation, `DeliveryNotification` for subscriber feedback).
 New variants are added only when a new wire shape lands; this is
 not a generic data-carrying channel.
 
-Channel-grant authority lives in `persona-mind`: mind decides
+Channel-grant authority lives in `mind`: mind decides
 which `(source, destination, kind)` tuples are authorized for
 which channel durations. The router enforces — it commits
 authorized channels and rejects (or escalates) unauthorized
@@ -336,7 +336,7 @@ delivered) for a closed set of reasons. Today's set:
 - **Channel inactive** — the channel matching `(source,
   destination, kind)` is not present in the channel table. The
   router parks the message and emits an
-  `AdjudicationRequest` to `persona-mind` for the missed channel.
+  `AdjudicationRequest` to `mind` for the missed channel.
   After mind adjudication: a `ChannelGrant` results in delivery;
   an `AdjudicationDeny` retires the message without delivery.
 - **Recipient not found** — the destination has no registered
@@ -379,7 +379,7 @@ This repo owns:
 
 - delivery reducer logic;
 - pending-delivery records;
-- transitional router message records that are not owned by `persona-message`;
+- transitional router message records that are not owned by `message`;
 - live authorized-channel records and adjudication-pending records;
 - typed mind-adjudication outbox records for parked messages;
 - router-owned Sema table layout for channels, channel indexes,
@@ -389,13 +389,13 @@ This repo owns:
 
 This repo does not own:
 
-- message or system `Frame` record definitions (`signal-persona-message`,
+- message or system `Frame` record definitions (`signal-message`,
   future relation contracts);
 - focus/window/input backend implementation;
 - terminal byte movement (`persona-terminal`);
 - direct dependencies on terminal crates;
-- terminal adapter execution (`persona-harness`);
-- harness lifecycle internals (`persona-harness`);
+- terminal adapter execution (`harness`);
+- harness lifecycle internals (`harness`);
 - the Sema database of any other Persona component;
 - state owned by other actors.
 
@@ -417,17 +417,17 @@ This repo does not own:
   retried for delivery.
 - A typed mind adjudication deny can remove a parked message without attempting
   delivery.
-- `signal-persona-message` frames enter through `RouterRuntime` and
+- `signal-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
 - Message provenance for submissions comes from
-  `StampedMessageSubmission.origin`, minted by `persona-message`; router socket
+  `StampedMessageSubmission.origin`, minted by `message`; router socket
   ingress context identifies only the internal component connection.
 - Plain `MessageSubmission` is not a router-ingress payload; the router returns
   typed `MessageRequestUnimplemented` instead of committing it.
 - Router frame decoding does not stamp hidden `operator` or `Owner` origin.
 - Owner/operator origin may appear only as explicit fixture ingress in tests or
   as an explicit external endpoint in channel records.
-- Router authorization is channel-table authorization plus persona-mind
+- Router authorization is channel-table authorization plus mind
   adjudication for misses.
 - Router observation queries (`signal-persona-router::RouterRequest`)
   are answered by `RouterObservationPlane`, which reads `RouterRoot`
@@ -436,7 +436,7 @@ This repo does not own:
 - Router observation replies are typed `RouterReply` records; no caller
   reads `router.redb` directly to assemble an observation answer.
 - A message with no active channel does not reach `HarnessDelivery`.
-- A message with no active channel emits a typed `signal-persona-mind`
+- A message with no active channel emits a typed `signal-mind`
   adjudication request.
 - Accepted Signal messages persist to router-owned Sema before delivery retry.
 - One-shot and retracted channels cannot keep authorizing messages.
@@ -448,7 +448,7 @@ This repo does not own:
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration state enters through `HarnessRegistry`.
 - Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
-  execution stays behind `persona-harness`.
+  execution stays behind `harness`.
 - Prompt cleanliness and human input interleaving are terminal-cell /
   persona-terminal input-gate concerns, not router concerns.
 - Every delivery attempt produces typed observable state: delivered, deferred,
@@ -502,9 +502,9 @@ tests/                  router smoke and actor-density truth tests
 | Constraint | Test |
 |---|---|
 | Router CLI requests enter the daemon as Signal frames, not a NOTA line socket protocol. | `nix flake check .#router-cli-sends-signal-to-daemon-and-prints-nota-reply` |
-| Router daemon ingress accepts `signal-persona-message` frames. | `nix flake check .#router-daemon-accepts-signal-persona-message-only` |
+| Router daemon ingress accepts `signal-message` frames. | `nix flake check .#router-daemon-accepts-signal-message-only` |
 | Router daemon ingress derives sender/origin from `RouterIngressContext`, not hidden owner/operator stamping. | `nix flake check .#router-ingress-cannot-stamp-hidden-owner-origin` |
-| Router does not depend on the `persona-message` runtime crate. | `nix flake check .#router-runtime-cannot-depend-on-persona-message` |
+| Router does not depend on the `message` runtime crate. | `nix flake check .#router-runtime-cannot-depend-on-message` |
 | Router does not depend on terminal crates directly. | `nix flake check .#router-runtime-cannot-depend-on-terminal-crates` |
 | Router runtime reacts to pushed events instead of timer polling. | `nix flake check .#router-runtime-cannot-poll` |
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix flake check .#router-runtime-cannot-reference-retired-terminal-brand` |
@@ -538,7 +538,7 @@ tests/                  router smoke and actor-density truth tests
 
 - `~/primary/skills/subscription-lifecycle.md` — canonical
   five-state FSM future router-side subscriptions implement.
-- `../signal-persona-message/ARCHITECTURE.md`
+- `../signal-message/ARCHITECTURE.md`
 - `../signal-persona-router/ARCHITECTURE.md`
-- `../persona-harness/ARCHITECTURE.md`
+- `../harness/ARCHITECTURE.md`
 - `../sema/ARCHITECTURE.md`

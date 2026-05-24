@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema::{Schema, SchemaVersion, Sema, Table};
-use signal_persona_message::MessageSlot;
+use signal_message::MessageSlot;
 use signal_persona_origin::{ChannelIdentifier, MessageOrigin};
 
 use crate::{

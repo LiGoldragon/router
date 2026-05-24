@@ -102,19 +102,19 @@
             }
           );
           router-cli-sends-signal-to-daemon-and-prints-nota-reply = context.routerConstraintCheck "router-cli-sends-signal-to-daemon-and-prints-nota-reply" ./scripts/router-cli-sends-signal-to-daemon-and-prints-nota-reply;
-          router-runtime-cannot-depend-on-persona-message =
-            context.sourceConstraintCheck "router-runtime-cannot-depend-on-persona-message" ./scripts/router-runtime-cannot-depend-on-persona-message;
+          router-runtime-cannot-depend-on-message =
+            context.sourceConstraintCheck "router-runtime-cannot-depend-on-message" ./scripts/router-runtime-cannot-depend-on-message;
           router-runtime-cannot-depend-on-terminal-crates =
             context.sourceConstraintCheck "router-runtime-cannot-depend-on-terminal-crates" ./scripts/router-runtime-cannot-depend-on-terminal-crates;
           router-runtime-cannot-poll =
             context.sourceConstraintCheck "router-runtime-cannot-poll" ./scripts/router-runtime-cannot-poll;
           router-runtime-cannot-reference-retired-terminal-brand =
             context.sourceConstraintCheck "router-runtime-cannot-reference-retired-terminal-brand" ./scripts/router-runtime-cannot-reference-retired-terminal-brand;
-          router-daemon-accepts-signal-persona-message-only = context.craneLib.cargoTest (
+          router-daemon-accepts-signal-message-only = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test smoke router_connection_decodes_signal_persona_message_frame -- --exact";
+              cargoTestExtraArgs = "--test smoke router_connection_decodes_signal_message_frame -- --exact";
             }
           );
           router-daemon-applies-spawn-envelope-socket-mode = context.craneLib.cargoTest (

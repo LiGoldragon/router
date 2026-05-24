@@ -23,11 +23,12 @@ nota-config           = { git = "https://github.com/LiGoldragon/nota-config.git"
 rkyv                  = "0.8"
 sema                  = { git = "https://github.com/LiGoldragon/sema.git" }
 signal-core           = { git = "https://github.com/LiGoldragon/signal-core.git" }
+signal-engine-management = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
 signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona-origin   = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
-signal-persona-harness = { git = "https://github.com/LiGoldragon/signal-persona-harness.git" }
-signal-persona-mind   = { git = "https://github.com/LiGoldragon/signal-persona-mind.git" }
-signal-persona-message = { git = "https://github.com/LiGoldragon/signal-persona-message.git" }
+signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git" }
+signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git" }
+signal-message = { git = "https://github.com/LiGoldragon/signal-message.git" }
 signal-persona-router = { git = "https://github.com/LiGoldragon/signal-persona-router.git" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 thiserror             = "2"

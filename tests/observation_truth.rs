@@ -3,7 +3,7 @@
 //! These tests prove that `RouterRequest` queries reach the
 //! `RouterObservationPlane` actor through `RouterRuntime`'s mailbox and that
 //! the typed reply is derived from `RouterRoot` facts and `RouterTables`
-//! reads. The introspect peer-query work in `signal-persona-introspect`
+//! reads. The introspect peer-query work in `signal-introspect`
 //! depends on this contract.
 
 use std::fs;
@@ -23,11 +23,11 @@ use signal_core::{
     AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
     SessionEpoch, SignalVerb, SubReply,
 };
-use signal_persona::TimestampNanos;
-use signal_persona_message::{
+use signal_message::{
     MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageReply, MessageRequest,
     MessageSlot, MessageSubmission, StampedMessageSubmission,
 };
+use signal_persona::TimestampNanos;
 use signal_persona_origin::{ChannelIdentifier, ConnectionClass, EngineIdentifier, MessageOrigin};
 use signal_persona_router::{
     RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus, RouterFrame,

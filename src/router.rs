@@ -12,7 +12,7 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
     SignalVerb, SubReply,
 };
-use signal_persona_message::{
+use signal_message::{
     Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
     MessageBody as SignalMessageBody, MessageKind, MessageOperationKind,
@@ -23,7 +23,7 @@ use signal_persona_message::{
     StampedMessageSubmission, SubmissionAcceptance as SignalSubmissionAcceptance,
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
-use signal_persona_mind::{
+use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration as MindChannelDuration,
     ChannelEndpoint as MindChannelEndpoint, ChannelMessageKind as MindChannelMessageKind,
     TextBody as MindTextBody,

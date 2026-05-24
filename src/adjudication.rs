@@ -1,7 +1,7 @@
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use signal_persona_mind::{
+use signal_mind::{
     AdjudicationRequest as MindAdjudicationRequest, AdjudicationRequestIdentifier, ChannelEndpoint,
     ChannelMessageKind, TextBody,
 };

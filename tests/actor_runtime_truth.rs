@@ -20,17 +20,17 @@ use persona_router::{
     RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadIdentifier, UseChannel,
 };
 use signal_core::{NonEmpty, Reply, SubReply};
-use signal_persona::TimestampNanos;
-use signal_persona_harness::{
+use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
 };
-use signal_persona_message::{
+use signal_message::{
     MessageBody, MessageKind, MessageOperationKind, MessageRecipient, MessageReply, MessageRequest,
     MessageSubmission, MessageUnimplementedReason, StampedMessageSubmission,
 };
-use signal_persona_mind::{
+use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
+use signal_persona::TimestampNanos;
 use signal_persona_origin::{
     ComponentInstanceName, ComponentName, ConnectionClass, InternalComponentInstanceOrigin,
     MessageOrigin,

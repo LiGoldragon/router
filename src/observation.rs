@@ -1,7 +1,7 @@
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use signal_persona_message::MessageSlot;
+use signal_message::MessageSlot;
 use signal_persona_origin::ChannelIdentifier;
 use signal_persona_router::{
     RouterChannelState, RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus,
