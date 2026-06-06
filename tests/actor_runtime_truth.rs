@@ -199,7 +199,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path =
-            std::env::temp_dir().join(format!("router-{name}-{}-{now}.redb", std::process::id()));
+            std::env::temp_dir().join(format!("router-{name}-{}-{now}.sema", std::process::id()));
         Self { path }
     }
 

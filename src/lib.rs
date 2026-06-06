@@ -16,12 +16,13 @@ pub use adjudication::{
 };
 pub use channel::{
     AdjudicationRequest, ChannelAuthority, ChannelAuthoritySnapshot, ChannelCheckOutcome,
-    ChannelClock, ChannelClockSnapshot, ChannelDecision, ChannelEpochSeconds, ChannelGrantOutcome,
-    ChannelKind, ChannelLifetime, ChannelPersistenceOutcome, ChannelPersistenceSnapshot,
-    ChannelRecord, ChannelStatus, ChannelTriple, CheckChannel, EngineStructuralChannels,
+    ChannelClock, ChannelClockSnapshot, ChannelDecision, ChannelEpochSeconds,
+    ChannelExtensionOutcome, ChannelGrantOutcome, ChannelKind, ChannelLifetime,
+    ChannelPersistenceOutcome, ChannelPersistenceSnapshot, ChannelRecord, ChannelRetractionOutcome,
+    ChannelStatus, ChannelTriple, CheckChannel, EngineStructuralChannels, ExtendChannel,
     GrantChannel, InstallStructuralChannels, ObserveChannelTime, ReadChannelAuthorityStatus,
-    ReadChannelPersistence, RetractChannel, StructuralChannelInstallation,
-    StructuralChannelInstallationOutcome, UseChannel,
+    ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier,
+    StructuralChannelInstallation, StructuralChannelInstallationOutcome, UseChannel,
 };
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, Result};
@@ -40,18 +41,19 @@ pub use observation::{
     RouterObservationPlane, RouterObservationPlaneStatus,
 };
 pub use router::{
-    ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput, ApplySignalMessage,
-    ChannelGranted, ChannelRetracted, DeliveryChanged, GrantRouteChannel,
-    InstallRouteStructuralChannels, MindAdjudicationDeny, MindAdjudicationDenyApplied,
-    MindChannelGrant, MindChannelGrantApplied, ReadRouterChannelPersistence,
-    ReadRouterMindAdjudicationOutbox, ReadRouterObservationFacts, ReadRouterTrace, RegisterActor,
-    Registered, RetractRouteChannel, RouteMessage, RouterApplyOutcome, RouterBootstrap,
-    RouterChannelPersistenceOutcome, RouterCommandLine, RouterConnection, RouterDaemon,
-    RouterDaemonInput, RouterIngressContext, RouterInput, RouterMindAdjudicationOutboxOutcome,
-    RouterObservationFacts, RouterObservationFrameCodec, RouterObservationSlot,
-    RouterObservationTraceEvent, RouterOutput, RouterRoot, RouterRuntime, RouterStatus,
-    RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
-    SignalMessageInput, SignalMessageOutcome, SocketMode, Status, StructuralChannelsInstalled,
+    ApplyMetaRouterPolicy, ApplyMindAdjudicationDeny, ApplyMindChannelGrant, ApplyRouterInput,
+    ApplySignalMessage, ChannelGranted, ChannelRetracted, DeliveryChanged, GrantRouteChannel,
+    InstallRouteStructuralChannels, MetaRouterPolicyOutcome, MindAdjudicationDeny,
+    MindAdjudicationDenyApplied, MindChannelGrant, MindChannelGrantApplied,
+    ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox, ReadRouterObservationFacts,
+    ReadRouterTrace, RegisterActor, Registered, RetractRouteChannel, RouteMessage,
+    RouterApplyOutcome, RouterBootstrap, RouterChannelPersistenceOutcome, RouterCommandLine,
+    RouterConnection, RouterDaemon, RouterDaemonInput, RouterIngressContext, RouterInput,
+    RouterMetaConnection, RouterMindAdjudicationOutboxOutcome, RouterObservationFacts,
+    RouterObservationFrameCodec, RouterObservationSlot, RouterObservationTraceEvent, RouterOutput,
+    RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
+    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
+    Status, StructuralChannelsInstalled,
 };
 pub use signal_router::{
     GrantDirectMessage, InstallStructuralChannels as InstallStructuralChannelsBootstrap,

@@ -12,8 +12,6 @@ database.
 > router is a realization step on the eventually-self-hosting
 > stack. See `~/primary/ESSENCE.md` §"Today and eventually".
 
----
-
 ## 0 · TL;DR
 
 The router owns routing policy and delivery state. It does not own OS backends,
@@ -23,7 +21,9 @@ terminal byte transport, or contract definitions.
 flowchart LR
     "signal-message" -->|"message request frame"| "RouterRuntime"
     "signal-router" -->|"observation query frame"| "RouterRuntime"
+    "meta-signal-router" -->|"channel policy frame"| "RouterRuntime"
     "RouterRuntime" -->|"apply input"| "RouterRoot"
+    "RouterRuntime" -->|"apply meta policy"| "RouterRoot"
     "RouterRuntime" -->|"apply observation"| "RouterObservationPlane"
     "RouterObservationPlane" -->|"read facts"| "RouterRoot"
     "RouterObservationPlane" -->|"read channel records"| "router Sema"
@@ -42,7 +42,7 @@ flowchart LR
 
 - a library surface for delivery decisions;
 - a router daemon surface for isolated development;
-- a single socket `router.sock` at mode 0600 — internal
+- a working socket `router.sock` at mode 0600 — internal
   Signal traffic only. Frames arriving from in-engine
   components tag as `MessageOrigin::Internal(ComponentName)`.
   External engine-owner ingress arrives through
@@ -51,6 +51,12 @@ flowchart LR
   already minted by the message daemon from SO_PEERCRED.
   The daemon applies the `PERSONA_SOCKET_MODE` value carried by the
   Persona spawn envelope before the socket is reported usable.
+- a separate meta-policy socket at mode 0600 for
+  `meta-signal-router` channel-authority orders (`Grant`, `Extend`,
+  `Revoke`, `Deny`). The meta socket uses triad-runtime's
+  length-prefixed process envelope around contract-local
+  `meta-signal-router` frames, and routes to `RouterRoot` through
+  `ApplyMetaRouterPolicy`;
 - a daemon-client CLI surface that accepts one NOTA `signal-message`
   projection record, sends one Signal frame to the daemon, and prints one NOTA
   reply. The CLI does not mint the message sender;
@@ -71,6 +77,12 @@ flowchart LR
   channels during Persona engine setup;
 - a router actor operation for applying typed `signal-mind` channel
   grants and retrying parked messages through the normal delivery path;
+- a router actor operation for applying typed `meta-signal-router`
+  channel-policy orders. `Grant` installs a channel through
+  `ChannelAuthority`, `Extend` updates channel lifetime by
+  daemon-minted identifier, `Revoke` tombstones the channel by
+  daemon-minted identifier, and `Deny` closes a parked adjudication
+  request;
 - a Kameo `MindAdjudicationOutbox` that owns typed
   `signal-mind` adjudication requests. Transitional: this in-memory
   outbox plus the typed `signal-mind::AdjudicationRequest` projection
@@ -116,7 +128,7 @@ component traffic at the channel level.
 A schema-version guard runs at `RouterTables::open()` (per
 `~/primary/skills/rust/storage-and-wire.md` §"Schema discipline"): the
 manager-known `RouterSchemaVersion` is compared against the value stored in
-`router.redb`'s `meta` table; mismatch fails closed. Schema bumps land as
+`router.sema`'s `meta` table; mismatch fails closed. Schema bumps land as
 coordinated upgrades.
 
 ## 2 · State and Ownership
@@ -174,7 +186,7 @@ parked message and remove that message without touching the delivery actor.
 
 When the remaining router-owned Sema tables are wired into `RouterRoot`, these
 trace witnesses graduate into chained artifact witnesses where one step writes
-the router redb and another step reads committed message, channel,
+the router SEMA store and another step reads committed message, channel,
 adjudication, and delivery state through the authoritative table layer.
 
 Current router-owned durable table names are `messages`, `channels`,
@@ -207,12 +219,10 @@ the router's live delivery truth.
 ## 2.5 · Authority direction — channel grants are inbound `Mutate` orders
 
 Channel-state changes in the router are not the router's decision.
-They are **`Mutate` orders received from a higher authority** — today
-from `mind` (`ChannelGrant`, `ChannelExtend`, `ChannelRetract`,
-`AdjudicationDeny`); when `persona-orchestrate` lands (per
-`reports/second-designer-assistant/4-persona-orchestrate-control-plane-2026-05-17.md`
-and bead `primary-699g`), routed through orchestrate's spawn /
-permission pipeline before reaching the router.
+They are **`Mutate` orders received from a higher authority** through
+`meta-signal-router` — `Grant`, `Extend`, `Revoke`, and `Deny`.
+Mind decides at the cognitive level, Orchestrate carries the authority
+to call Router's meta policy socket, and Router commits the order.
 
 The router's discipline on receipt:
 
@@ -434,7 +444,7 @@ This repo does not own:
   observation facts through its mailbox and reads channel records from
   router-owned Sema tables when present.
 - Router observation replies are typed `RouterReply` records; no caller
-  reads `router.redb` directly to assemble an observation answer.
+  reads `router.sema` directly to assemble an observation answer.
 - A message with no active channel does not reach `HarnessDelivery`.
 - A message with no active channel emits a typed `signal-mind`
   adjudication request.
@@ -465,7 +475,7 @@ This repo does not own:
   stream end. Per-subscription `StreamingReplyHandler` actors own each
   open subscription; a slow subscriber cannot block siblings.
 - `ChannelAuthority` persists `adjudication_pending` records to
-  `router.redb` through `RouterTables` when the daemon launches with a
+  `router.sema` through `RouterTables` when the daemon launches with a
   `--store` argument. The `MindAdjudicationOutbox` in-memory projection
   is a derived view, not the durable record.
 - Router daemon restart with the same `--store` path observes the same
@@ -484,7 +494,7 @@ This repo does not own:
 ## Code Map
 
 ```text
-src/router.rs           Kameo router runtime/root, Signal daemon protocol, pending retry
+src/router.rs           Kameo router runtime/root, working + meta Signal daemon protocol, pending retry
 src/adjudication.rs     Kameo mind-adjudication outbox for parked messages
 src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
@@ -503,6 +513,9 @@ tests/                  router smoke and actor-density truth tests
 |---|---|
 | Router CLI requests enter the daemon as Signal frames, not a NOTA line socket protocol. | `nix flake check .#router-cli-sends-signal-to-daemon-and-prints-nota-reply` |
 | Router daemon ingress accepts `signal-message` frames. | `nix flake check .#router-daemon-accepts-signal-message-only` |
+| Router daemon binds a separate meta socket at restricted meta-policy mode. | `cargo test --test smoke constraint_router_daemon_applies_meta_socket_mode` |
+| Router meta socket accepts `meta-signal-router` frames and rejects working `signal-message` frames. | `cargo test --test smoke router_meta_connection` |
+| Meta channel-policy orders mutate router channel state and remain visible through the ordinary observation surface. | `cargo test --test observation_truth meta_grant_installs_channel_visible_to_working_observation`, `cargo test --test observation_truth meta_extend_updates_channel_lifetime_in_router_tables`, and `cargo test --test observation_truth meta_revoke_disables_channel_visible_to_working_observation` |
 | Router daemon ingress derives sender/origin from `RouterIngressContext`, not hidden owner/operator stamping. | `nix flake check .#router-ingress-cannot-stamp-hidden-owner-origin` |
 | Router does not depend on the `message` runtime crate. | `nix flake check .#router-runtime-cannot-depend-on-message` |
 | Router does not depend on terminal crates directly. | `nix flake check .#router-runtime-cannot-depend-on-terminal-crates` |

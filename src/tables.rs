@@ -75,6 +75,44 @@ impl RouterTables {
         Ok(())
     }
 
+    pub fn replace_channel_lifetime(
+        &self,
+        channel_identifier: &ChannelIdentifier,
+        lifetime: ChannelLifetime,
+    ) -> Result<bool> {
+        let channel_key = channel_identifier.as_str();
+        let Some(mut channel) = self
+            .database
+            .read(|transaction| CHANNELS.get(transaction, channel_key))?
+        else {
+            return Ok(false);
+        };
+        channel.lifetime = lifetime;
+        Ok(self.database.write(|transaction| {
+            CHANNELS.insert(transaction, channel_key, &channel)?;
+            Ok(true)
+        })?)
+    }
+
+    pub fn replace_channel_status(
+        &self,
+        channel_identifier: &ChannelIdentifier,
+        status: ChannelStatus,
+    ) -> Result<bool> {
+        let channel_key = channel_identifier.as_str();
+        let Some(mut channel) = self
+            .database
+            .read(|transaction| CHANNELS.get(transaction, channel_key))?
+        else {
+            return Ok(false);
+        };
+        channel.status = status;
+        Ok(self.database.write(|transaction| {
+            CHANNELS.insert(transaction, channel_key, &channel)?;
+            Ok(true)
+        })?)
+    }
+
     pub fn insert_adjudication(&self, request: &AdjudicationRequest) -> Result<()> {
         let stored = StoredAdjudicationRequest::from_request(request);
         let key = stored.message.clone();
@@ -234,7 +272,7 @@ impl StoredChannelRecord {
     }
 
     fn triple_key(&self) -> String {
-        format!("{}|{}|{}", self.from, self.to, self.kind.as_table_token())
+        format!("{}|{}|{}", self.from, self.to, self.kind.table_token())
     }
 }
 
@@ -299,11 +337,11 @@ impl StoredDeliveryResult {
 }
 
 trait ChannelKindTableToken {
-    fn as_table_token(self) -> &'static str;
+    fn table_token(self) -> &'static str;
 }
 
 impl ChannelKindTableToken for ChannelKind {
-    fn as_table_token(self) -> &'static str {
+    fn table_token(self) -> &'static str {
         match self {
             Self::DirectMessage => "direct-message",
         }

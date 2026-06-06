@@ -12,12 +12,20 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use meta_signal_router::{
+    ChannelDuration as MetaChannelDuration, ChannelEndpoint as MetaChannelEndpoint,
+    ChannelExtension as MetaChannelExtension, ChannelGrant as MetaChannelGrant,
+    ChannelMessageKind as MetaChannelMessageKind, ChannelRevocation as MetaChannelRevocation,
+    ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass, Input as MetaInput,
+    Output as MetaOutput,
+};
 use router::{
-    Actor, ActorIdentifier, ActorRef, ApplyRouterInput, ApplyRouterObservation, ChannelLifetime,
-    EngineStructuralChannels, GrantChannel, GrantRouteChannel, InstallRouteStructuralChannels,
-    InstallStructuralChannels, ReadRouterObservationPlaneStatus, RegisterActor, RouterConnection,
-    RouterDaemonInput, RouterIngressContext, RouterInput, RouterObservationFrameCodec,
-    RouterOutput, RouterRuntime, RouterTables, SignalMessageInput,
+    Actor, ActorIdentifier, ActorRef, ApplyMetaRouterPolicy, ApplyRouterInput,
+    ApplyRouterObservation, ChannelLifetime, EngineStructuralChannels, GrantChannel,
+    GrantRouteChannel, InstallRouteStructuralChannels, InstallStructuralChannels,
+    ReadRouterObservationPlaneStatus, RegisterActor, RouterConnection, RouterDaemonInput,
+    RouterIngressContext, RouterInput, RouterObservationFrameCodec, RouterOutput, RouterRuntime,
+    RouterTables, SignalMessageInput,
 };
 use signal_core::{
     AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
@@ -46,7 +54,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "router-observation-{name}-{}-{now}.redb",
+            "router-observation-{name}-{}-{now}.sema",
             std::process::id()
         ));
         Self { path }
@@ -96,6 +104,14 @@ impl ObservationFixture {
             .into_result()
     }
 
+    async fn apply_meta(&self, input: MetaInput) -> router::Result<MetaOutput> {
+        self.runtime
+            .ask(ApplyMetaRouterPolicy { input })
+            .await
+            .map_err(|error| router::Error::ActorCall(error.to_string()))?
+            .into_result()
+    }
+
     async fn observe(&self, request: RouterRequest) -> router::Result<RouterReply> {
         self.runtime
             .ask(ApplyRouterObservation { request })
@@ -132,6 +148,133 @@ fn router_exchange() -> ExchangeIdentifier {
         ExchangeLane::Connector,
         LaneSequence::first(),
     )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn meta_grant_installs_channel_visible_to_working_observation() {
+    let store = TemporaryRouterStore::new("meta-grant-channel-state");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let router = ObservationFixture::start_with_tables(tables).await;
+
+    let output = router
+        .apply_meta(MetaInput::Grant(MetaChannelGrant {
+            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            kinds: vec![MetaChannelMessageKind::MessageSubmission],
+            duration: MetaChannelDuration::Permanent,
+        }))
+        .await
+        .expect("meta grant passes through router runtime");
+    let MetaOutput::ChannelGranted(granted) = output else {
+        panic!("expected meta channel grant reply, got {output:?}");
+    };
+    let channel = granted.into_payload();
+
+    let reply = router
+        .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
+            engine: engine_identifier(),
+            channel: ChannelIdentifier::new(channel),
+        }))
+        .await
+        .expect("working observation reads channel created by meta grant");
+    let RouterReply::ChannelState(state) = reply else {
+        panic!("expected channel state reply, got {reply:?}");
+    };
+    assert_eq!(state.status, RouterChannelStatus::Installed);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn meta_revoke_disables_channel_visible_to_working_observation() {
+    let store = TemporaryRouterStore::new("meta-revoke-channel-state");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let router = ObservationFixture::start_with_tables(tables).await;
+
+    let grant = router
+        .apply_meta(MetaInput::Grant(MetaChannelGrant {
+            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            kinds: vec![MetaChannelMessageKind::MessageSubmission],
+            duration: MetaChannelDuration::Permanent,
+        }))
+        .await
+        .expect("meta grant passes through router runtime");
+    let MetaOutput::ChannelGranted(granted) = grant else {
+        panic!("expected meta channel grant reply, got {grant:?}");
+    };
+    let channel = granted.into_payload();
+
+    let revoke = router
+        .apply_meta(MetaInput::Revoke(MetaChannelRevocation {
+            channel: channel.clone(),
+            reason: "operator closed the channel".to_string(),
+        }))
+        .await
+        .expect("meta revoke passes through router runtime");
+    assert!(
+        matches!(revoke, MetaOutput::ChannelRevoked(_)),
+        "expected meta channel revoked reply, got {revoke:?}"
+    );
+
+    let reply = router
+        .observe(RouterRequest::ChannelState(RouterChannelStateQuery {
+            engine: engine_identifier(),
+            channel: ChannelIdentifier::new(channel),
+        }))
+        .await
+        .expect("working observation reads channel disabled by meta revoke");
+    let RouterReply::ChannelState(state) = reply else {
+        panic!("expected channel state reply, got {reply:?}");
+    };
+    assert_eq!(state.status, RouterChannelStatus::Disabled);
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn meta_extend_updates_channel_lifetime_in_router_tables() {
+    let store = TemporaryRouterStore::new("meta-extend-channel-lifetime");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let router = ObservationFixture::start_with_tables(tables.clone()).await;
+
+    let grant = router
+        .apply_meta(MetaInput::Grant(MetaChannelGrant {
+            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            kinds: vec![MetaChannelMessageKind::MessageSubmission],
+            duration: MetaChannelDuration::Permanent,
+        }))
+        .await
+        .expect("meta grant passes through router runtime");
+    let MetaOutput::ChannelGranted(granted) = grant else {
+        panic!("expected meta channel grant reply, got {grant:?}");
+    };
+    let channel = granted.into_payload();
+
+    let extend = router
+        .apply_meta(MetaInput::Extend(MetaChannelExtension {
+            channel: channel.clone(),
+            duration: MetaChannelDuration::TimeBound(21_000_000_000),
+        }))
+        .await
+        .expect("meta extend passes through router runtime");
+    assert!(
+        matches!(extend, MetaOutput::ChannelExtended(_)),
+        "expected meta channel extended reply, got {extend:?}"
+    );
+
+    let records = tables.channel_records().expect("channel records read");
+    let record = records
+        .iter()
+        .find(|record| record.id == channel)
+        .expect("extended channel record exists");
+    assert_eq!(
+        record.lifetime,
+        ChannelLifetime::ExpiresAt(router::ChannelEpochSeconds::new(21))
+    );
+
+    router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -521,20 +664,20 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 ///
 /// The shape: open `RouterTables` synchronously at a fresh path,
 /// persist a channel by writing directly through the table handle, drop
-/// the handle so the redb flock releases synchronously, reopen
+/// the handle so the store flock releases synchronously, reopen
 /// `RouterTables` at the same path, wire the reopened handle into a
 /// runtime, and observe the channel state through the typed observation
 /// plane. The second `RouterTables::open` cannot share memory with the
-/// first; the only path between them is the redb file.
+/// first; the only path between them is the SEMA file.
 ///
 /// `RouterTables` is a synchronous handle on `Arc<Sema>`; dropping it
 /// is the canonical flock release for the in-process witness. The
 /// stronger cross-process witness (writer derivation outputs
-/// `router.redb`; reader derivation opens it from a separate process)
+/// `router.sema`; reader derivation opens it from a separate process)
 /// is the destination shape — see `~/primary/skills/architectural-
 /// truth-tests.md` §"Nix-chained tests — the strongest witness". This
 /// in-process witness is sufficient for the per-table-handle boundary
-/// because the actor runtime never touches the redb file directly; only
+/// because the actor runtime never touches the SEMA file directly; only
 /// `RouterTables` does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_daemon_restart_surfaces_persisted_adjudication_through_observation_plane() {
@@ -563,10 +706,10 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
                 .any(|record| record.id == channel_identifier.as_str()),
             "channel persisted before first-handle drop"
         );
-        // Scope ends: `tables_first` drops; the redb flock releases.
+        // Scope ends: `tables_first` drops; the store flock releases.
     }
 
-    // Second "daemon": open fresh `RouterTables` against the same redb
+    // Second "daemon": open fresh `RouterTables` against the same SEMA file
     // file the prior handle wrote. The second handle cannot share
     // in-process state with the first — it can only observe what was
     // committed to disk by the prior daemon.
@@ -578,7 +721,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
         restored_channels
             .iter()
             .any(|record| record.id == channel_identifier.as_str()),
-        "prior-daemon channel survives the redb reopen"
+        "prior-daemon channel survives the SEMA file reopen"
     );
 
     // Wire the reopened tables into an observation-plane runtime and

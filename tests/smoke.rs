@@ -4,10 +4,17 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use meta_signal_router::{
+    ChannelDuration as MetaChannelDuration, ChannelEndpoint as MetaChannelEndpoint,
+    ChannelGrant as MetaChannelGrant, ChannelIdentifier as MetaChannelIdentifier,
+    ChannelMessageKind as MetaChannelMessageKind, ComponentName as MetaComponentName,
+    ConnectionClass as MetaConnectionClass, GrantedChannel as MetaGrantedChannel,
+    Input as MetaInput, Output as MetaOutput,
+};
 use router::{
     Message, MessageBody, MessageIdentifier, PendingDelivery, RouterBootstrapOperation,
-    RouterConnection, RouterDaemon, RouterInput, RouterOutput, SocketMode, SupervisionFrameCodec,
-    SupervisionListener, SupervisionProfile, SupervisionSocketMode,
+    RouterConnection, RouterDaemon, RouterInput, RouterMetaConnection, RouterOutput, SocketMode,
+    SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
 use signal_engine_management::{
@@ -27,6 +34,7 @@ use signal_message::{
     MessageRequest, MessageSubmission, StampedMessageSubmission,
 };
 use signal_persona_origin::{ComponentName, MessageOrigin};
+use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
 struct SocketFixture {
     directory: PathBuf,
@@ -51,6 +59,10 @@ impl SocketFixture {
 
     fn supervision_socket(&self) -> PathBuf {
         self.directory.join("router-supervision.sock")
+    }
+
+    fn meta_socket(&self) -> PathBuf {
+        self.directory.join("router-meta.sock")
     }
 }
 
@@ -108,7 +120,7 @@ fn router_bootstrap_decodes_direct_message_channel_grant() {
 #[test]
 fn router_bootstrap_decodes_registered_pty_endpoint() {
     let operation = RouterBootstrapOperation::from_nota(
-        r#"(RegisterActor ((responder 42 (Some (PtySocket "/tmp/responder.terminal.sock" None)))))"#,
+        "(RegisterActor ((responder 42 (Some (PtySocket [/tmp/responder.terminal.sock] None)))))",
     )
     .expect("bootstrap actor registration decodes");
 
@@ -124,7 +136,7 @@ fn router_bootstrap_decodes_registered_pty_endpoint() {
 #[test]
 fn router_bootstrap_decodes_registered_harness_socket_endpoint() {
     let operation = RouterBootstrapOperation::from_nota(
-        r#"(RegisterActor ((responder 42 (Some (HarnessSocket "/tmp/responder.harness.sock" None)))))"#,
+        "(RegisterActor ((responder 42 (Some (HarnessSocket [/tmp/responder.harness.sock] None)))))",
     )
     .expect("bootstrap harness socket registration decodes");
 
@@ -147,6 +159,26 @@ fn constraint_router_daemon_applies_spawn_envelope_socket_mode() {
 
     let mode = std::fs::metadata(fixture.socket())
         .expect("router socket metadata is readable")
+        .permissions()
+        .mode()
+        & 0o777;
+
+    assert_eq!(mode, 0o600);
+}
+
+#[test]
+fn constraint_router_daemon_applies_meta_socket_mode() {
+    let fixture = SocketFixture::new("meta-socket-mode");
+    let meta_socket = fixture.meta_socket();
+    let _listener = RouterDaemon::from_socket(fixture.socket().to_path_buf())
+        .with_meta_socket(meta_socket.clone())
+        .with_meta_socket_mode(SocketMode::from_octal(0o600))
+        .bind_meta_listener()
+        .expect("router daemon binds meta listener")
+        .expect("meta listener is configured");
+
+    let mode = std::fs::metadata(&meta_socket)
+        .expect("router meta socket metadata is readable")
         .permissions()
         .mode()
         & 0o777;
@@ -197,6 +229,79 @@ fn router_connection_decodes_signal_message_frame() {
                 && stamped.submission.body.as_str() == "socket frame"
                 && stamped.origin == MessageOrigin::Internal(ComponentName::Message)
     ));
+}
+
+#[test]
+fn router_meta_connection_decodes_and_replies_meta_signal_frame() {
+    let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+    let input = MetaInput::Grant(MetaChannelGrant {
+        source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+        destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
+        kinds: vec![MetaChannelMessageKind::MessageSubmission],
+        duration: MetaChannelDuration::Permanent,
+    });
+    let codec = LengthPrefixedCodec::default();
+    codec
+        .write_body(
+            &mut client,
+            &RuntimeFrameBody::new(
+                input
+                    .encode_signal_frame()
+                    .expect("meta input signal frame encodes"),
+            ),
+        )
+        .expect("client writes meta frame");
+    let mut connection = RouterMetaConnection::from_stream(server);
+
+    let decoded = connection
+        .read_input()
+        .expect("router reads meta signal input");
+    assert_eq!(decoded, input);
+
+    let output = MetaOutput::ChannelGranted(MetaGrantedChannel::new(MetaChannelIdentifier::from(
+        "channel-aab",
+    )));
+    connection
+        .write_output(output.clone())
+        .expect("router writes meta signal output");
+    let reply_body = codec
+        .read_body(&mut client)
+        .expect("client reads meta reply body");
+    let (_route, recovered) =
+        MetaOutput::decode_signal_frame(reply_body.bytes()).expect("meta output decodes");
+    assert_eq!(recovered, output);
+}
+
+#[test]
+fn router_meta_connection_rejects_working_signal_message_frame() {
+    let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+    let request = MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+        submission: MessageSubmission {
+            recipient: MessageRecipient::new("responder"),
+            kind: MessageKind::Send,
+            body: SignalMessageBody::new("wrong socket"),
+        },
+        origin: MessageOrigin::Internal(ComponentName::Message),
+        stamped_at: TimestampNanos::new(1),
+    });
+    let frame = Frame::new(FrameBody::Request {
+        exchange: test_exchange(),
+        request: Request::from_payload(request),
+    });
+    client
+        .write_all(
+            frame
+                .encode_length_prefixed()
+                .expect("signal frame encodes")
+                .as_slice(),
+        )
+        .expect("client writes wrong-socket frame");
+    let mut connection = RouterMetaConnection::from_stream(server);
+
+    assert!(
+        connection.read_input().is_err(),
+        "meta listener must not accept a working signal-message frame"
+    );
 }
 
 #[test]

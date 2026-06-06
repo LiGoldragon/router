@@ -92,6 +92,28 @@ impl ChannelAuthority {
         true
     }
 
+    fn retract_by_identifier(&mut self, retraction: RetractChannelByIdentifier) -> Result<bool> {
+        let Some(channel) = self.channel_record_mut(&retraction.channel) else {
+            return Ok(false);
+        };
+        channel.status = ChannelStatus::Retracted;
+        if let Some(tables) = &self.tables {
+            tables.replace_channel_status(&retraction.channel, ChannelStatus::Retracted)?;
+        }
+        Ok(true)
+    }
+
+    fn extend(&mut self, extension: ExtendChannel) -> Result<bool> {
+        let Some(channel) = self.channel_record_mut(&extension.channel) else {
+            return Ok(false);
+        };
+        channel.lifetime = extension.lifetime;
+        if let Some(tables) = &self.tables {
+            tables.replace_channel_lifetime(&extension.channel, extension.lifetime)?;
+        }
+        Ok(true)
+    }
+
     fn check(&mut self, message: &Message) -> Result<ChannelDecision> {
         self.check_count = self.check_count.saturating_add(1);
         let triple = ChannelTriple::direct_message(message.from.clone(), message.to.clone());
@@ -135,6 +157,15 @@ impl ChannelAuthority {
         ChannelClockSnapshot {
             now: self.clock.now(),
         }
+    }
+
+    fn channel_record_mut(
+        &mut self,
+        channel_identifier: &ChannelIdentifier,
+    ) -> Option<&mut ChannelRecord> {
+        self.channels
+            .values_mut()
+            .find(|record| &record.id == channel_identifier)
     }
 
     fn adjudication_request(
@@ -437,6 +468,36 @@ impl ChannelGrantOutcome {
     }
 }
 
+#[derive(Debug, kameo::Reply)]
+pub struct ChannelExtensionOutcome {
+    result: Result<bool>,
+}
+
+impl ChannelExtensionOutcome {
+    fn new(result: Result<bool>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<bool> {
+        self.result
+    }
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct ChannelRetractionOutcome {
+    result: Result<bool>,
+}
+
+impl ChannelRetractionOutcome {
+    fn new(result: Result<bool>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<bool> {
+        self.result
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetractChannel {
     pub triple: ChannelTriple,
@@ -447,6 +508,29 @@ impl RetractChannel {
         Self {
             triple: ChannelTriple::direct_message(from, to),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetractChannelByIdentifier {
+    pub channel: ChannelIdentifier,
+}
+
+impl RetractChannelByIdentifier {
+    pub fn new(channel: ChannelIdentifier) -> Self {
+        Self { channel }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtendChannel {
+    pub channel: ChannelIdentifier,
+    pub lifetime: ChannelLifetime,
+}
+
+impl ExtendChannel {
+    pub fn new(channel: ChannelIdentifier, lifetime: ChannelLifetime) -> Self {
+        Self { channel, lifetime }
     }
 }
 
@@ -569,6 +653,30 @@ impl kameo::message::Message<RetractChannel> for ChannelAuthority {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.retract(message)
+    }
+}
+
+impl kameo::message::Message<RetractChannelByIdentifier> for ChannelAuthority {
+    type Reply = ChannelRetractionOutcome;
+
+    async fn handle(
+        &mut self,
+        message: RetractChannelByIdentifier,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        ChannelRetractionOutcome::new(self.retract_by_identifier(message))
+    }
+}
+
+impl kameo::message::Message<ExtendChannel> for ChannelAuthority {
+    type Reply = ChannelExtensionOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ExtendChannel,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        ChannelExtensionOutcome::new(self.extend(message))
     }
 }
 

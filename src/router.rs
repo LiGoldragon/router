@@ -3,10 +3,22 @@ use std::io::{BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::thread::JoinHandle;
 
 use kameo::actor::{ActorRef, Spawn};
 use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
+use meta_signal_router::{
+    AdjudicationDenial as MetaAdjudicationDenial, ChannelDuration as MetaChannelDuration,
+    ChannelEndpoint as MetaChannelEndpoint, ChannelExtension as MetaChannelExtension,
+    ChannelGrant as MetaChannelGrant, ChannelMessageKind as MetaChannelMessageKind,
+    ChannelOrderRejectionReason as MetaChannelOrderRejectionReason,
+    ChannelRevocation as MetaChannelRevocation, ComponentName as MetaComponentName,
+    ConnectionClass as MetaConnectionClass, DeniedAdjudication as MetaDeniedAdjudication,
+    ExtendedChannel as MetaExtendedChannel, GrantedChannel as MetaGrantedChannel,
+    Input as MetaInput, OperationKind as MetaOperationKind, Output as MetaOutput,
+    RejectedChannelOrder as MetaRejectedChannelOrder, RevokedChannel as MetaRevokedChannel,
+};
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
@@ -28,7 +40,10 @@ use signal_mind::{
     ChannelEndpoint as MindChannelEndpoint, ChannelMessageKind as MindChannelMessageKind,
     TextBody as MindTextBody,
 };
-use signal_persona_origin::{ComponentName, ConnectionClass, IngressContext, MessageOrigin};
+use signal_persona_origin::{
+    ChannelIdentifier as OriginChannelIdentifier, ComponentName, ConnectionClass, IngressContext,
+    MessageOrigin,
+};
 use signal_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, RouterBootstrapDocument,
@@ -42,9 +57,10 @@ use crate::adjudication::{
     RecordMindAdjudication,
 };
 use crate::channel::{
-    ChannelAuthority, ChannelDecision, ChannelLifetime, ChannelPersistenceSnapshot, CheckChannel,
-    EngineStructuralChannels, GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus,
-    ReadChannelPersistence, RetractChannel, UseChannel,
+    ChannelAuthority, ChannelDecision, ChannelEpochSeconds, ChannelLifetime,
+    ChannelPersistenceSnapshot, CheckChannel, EngineStructuralChannels, ExtendChannel,
+    GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus, ReadChannelPersistence,
+    RetractChannel, RetractChannelByIdentifier, UseChannel,
 };
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
@@ -61,6 +77,7 @@ use crate::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
     Result, RouterTables, ThreadIdentifier,
 };
+use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
 fn synthetic_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
@@ -73,9 +90,11 @@ fn synthetic_exchange() -> ExchangeIdentifier {
 #[derive(Debug)]
 pub struct RouterDaemon {
     socket: PathBuf,
+    meta_socket: Option<PathBuf>,
     tables: Option<RouterTables>,
     ingress: RouterIngressContext,
     socket_mode: Option<SocketMode>,
+    meta_socket_mode: Option<SocketMode>,
     bootstrap: Option<RouterBootstrap>,
     supervision: Option<SupervisionListener>,
 }
@@ -96,10 +115,16 @@ impl RouterDaemon {
         );
         Ok(Self {
             socket: PathBuf::from(configuration.router_socket_path.as_str()),
+            meta_socket: Some(PathBuf::from(
+                configuration.meta_router_socket_path.as_str(),
+            )),
             tables: Some(tables),
             ingress: RouterIngressContext::message(),
             socket_mode: Some(SocketMode::from_octal(
                 configuration.router_socket_mode.into_u32(),
+            )),
+            meta_socket_mode: Some(SocketMode::from_octal(
+                configuration.meta_router_socket_mode.into_u32(),
             )),
             bootstrap,
             supervision: Some(supervision),
@@ -109,9 +134,11 @@ impl RouterDaemon {
     pub fn from_socket(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),
+            meta_socket: None,
             tables: None,
             ingress: RouterIngressContext::message(),
             socket_mode: None,
+            meta_socket_mode: None,
             bootstrap: None,
             supervision: None,
         }
@@ -132,6 +159,16 @@ impl RouterDaemon {
         self
     }
 
+    pub fn with_meta_socket(mut self, socket: impl Into<PathBuf>) -> Self {
+        self.meta_socket = Some(socket.into());
+        self
+    }
+
+    pub fn with_meta_socket_mode(mut self, socket_mode: SocketMode) -> Self {
+        self.meta_socket_mode = Some(socket_mode);
+        self
+    }
+
     pub fn with_bootstrap_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.bootstrap = Some(RouterBootstrap::from_path(path));
         self
@@ -144,12 +181,16 @@ impl RouterDaemon {
     pub fn run(self) -> Result<()> {
         let supervision = self.supervision.clone();
         let listener = self.bind_listener()?;
+        let meta_listener = self.bind_meta_listener()?;
         let _supervision = supervision.map(SupervisionListener::spawn).transpose()?;
         let runtime = tokio::runtime::Runtime::new()?;
         let router = runtime.block_on(RouterRuntime::start_with_optional_tables(self.tables));
         if let Some(bootstrap) = &self.bootstrap {
             bootstrap.apply(&runtime, &router)?;
         }
+        let _meta_server = meta_listener.map(|listener| {
+            RouterMetaServer::new(listener, runtime.handle().clone(), router.clone()).spawn()
+        });
         eprintln!("router-daemon socket={}", self.socket.display());
         for stream in listener.incoming() {
             let stream = stream?;
@@ -159,18 +200,16 @@ impl RouterDaemon {
     }
 
     pub fn bind_listener(&self) -> Result<UnixListener> {
-        if let Some(parent) = self.socket.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let _ = std::fs::remove_file(&self.socket);
-        let listener = UnixListener::bind(&self.socket)?;
-        if let Some(socket_mode) = self.socket_mode {
-            std::fs::set_permissions(
-                &self.socket,
-                std::fs::Permissions::from_mode(socket_mode.as_octal()),
-            )?;
-        }
-        Ok(listener)
+        RouterSocketBinding::new(self.socket.clone(), self.socket_mode).bind()
+    }
+
+    pub fn bind_meta_listener(&self) -> Result<Option<UnixListener>> {
+        let Some(socket) = &self.meta_socket else {
+            return Ok(None);
+        };
+        Ok(Some(
+            RouterSocketBinding::new(socket.clone(), self.meta_socket_mode).bind()?,
+        ))
     }
 
     fn handle_connection(
@@ -196,6 +235,76 @@ impl RouterDaemon {
                 connection.write_router_observation_reply(output)?;
             }
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouterSocketBinding {
+    socket: PathBuf,
+    mode: Option<SocketMode>,
+}
+
+impl RouterSocketBinding {
+    fn new(socket: PathBuf, mode: Option<SocketMode>) -> Self {
+        Self { socket, mode }
+    }
+
+    fn bind(&self) -> Result<UnixListener> {
+        if let Some(parent) = self.socket.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let _ = std::fs::remove_file(&self.socket);
+        let listener = UnixListener::bind(&self.socket)?;
+        if let Some(socket_mode) = self.mode {
+            std::fs::set_permissions(
+                &self.socket,
+                std::fs::Permissions::from_mode(socket_mode.as_octal()),
+            )?;
+        }
+        Ok(listener)
+    }
+}
+
+struct RouterMetaServer {
+    listener: UnixListener,
+    runtime: tokio::runtime::Handle,
+    router: ActorRef<RouterRuntime>,
+}
+
+impl RouterMetaServer {
+    fn new(
+        listener: UnixListener,
+        runtime: tokio::runtime::Handle,
+        router: ActorRef<RouterRuntime>,
+    ) -> Self {
+        Self {
+            listener,
+            runtime,
+            router,
+        }
+    }
+
+    fn spawn(self) -> JoinHandle<Result<()>> {
+        std::thread::spawn(move || self.run())
+    }
+
+    fn run(self) -> Result<()> {
+        for stream in self.listener.incoming() {
+            self.handle_stream(stream?)?;
+        }
+        Ok(())
+    }
+
+    fn handle_stream(&self, stream: UnixStream) -> Result<()> {
+        let mut connection = RouterMetaConnection::from_stream(stream);
+        let input = connection.read_input()?;
+        let output = self
+            .runtime
+            .block_on(async { self.router.ask(ApplyMetaRouterPolicy { input }).await })
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
+        connection.write_output(output)?;
         Ok(())
     }
 }
@@ -244,7 +353,7 @@ impl RouterConnection {
                     exchange: received.exchange,
                     verb: received.verb,
                 });
-                return Ok(RouterDaemonInput::SignalMessage(received.input));
+                Ok(RouterDaemonInput::SignalMessage(received.input))
             }
             Err(signal_error) => match self.try_router_observation_input(&bytes) {
                 Ok(received) => {
@@ -313,6 +422,33 @@ impl RouterConnection {
         let frame =
             SignalRouterFrame::decode_length_prefixed(bytes).map_err(|error| error.to_string())?;
         received_router_observation_from_frame(frame).map_err(|error| error.to_string())
+    }
+}
+
+pub struct RouterMetaConnection {
+    stream: BufReader<UnixStream>,
+    codec: LengthPrefixedCodec,
+}
+
+impl RouterMetaConnection {
+    pub fn from_stream(stream: UnixStream) -> Self {
+        Self {
+            stream: BufReader::new(stream),
+            codec: LengthPrefixedCodec::default(),
+        }
+    }
+
+    pub fn read_input(&mut self) -> Result<MetaInput> {
+        let body = self.codec.read_body(&mut self.stream)?;
+        let (_route, input) = MetaInput::decode_signal_frame(body.bytes())?;
+        Ok(input)
+    }
+
+    pub fn write_output(&mut self, output: MetaOutput) -> Result<()> {
+        let frame = output.encode_signal_frame()?;
+        self.codec
+            .write_body(self.stream.get_mut(), &RuntimeFrameBody::new(frame))?;
+        Ok(())
     }
 }
 
@@ -779,6 +915,11 @@ pub struct ApplySignalMessage {
     pub input: SignalMessageInput,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyMetaRouterPolicy {
+    pub input: MetaInput,
+}
+
 #[derive(Debug, kameo::Reply)]
 pub struct RouterApplyOutcome {
     result: Result<RouterOutput>,
@@ -805,6 +946,21 @@ impl SignalMessageOutcome {
     }
 
     pub fn into_result(self) -> Result<SignalMessageReply> {
+        self.result
+    }
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct MetaRouterPolicyOutcome {
+    result: Result<MetaOutput>,
+}
+
+impl MetaRouterPolicyOutcome {
+    fn new(result: Result<MetaOutput>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<MetaOutput> {
         self.result
     }
 }
@@ -870,6 +1026,27 @@ impl kameo::message::Message<ApplySignalMessage> for RouterRuntime {
             Err(error) => Err(error),
         };
         SignalMessageOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ApplyMetaRouterPolicy> for RouterRuntime {
+    type Reply = MetaRouterPolicyOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyMetaRouterPolicy,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.applied_input_count = self.applied_input_count.saturating_add(1);
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(MetaRouterPolicyOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        MetaRouterPolicyOutcome::new(result)
     }
 }
 
@@ -1083,6 +1260,182 @@ impl RouterRoot {
         }
     }
 
+    async fn apply_meta(&mut self, input: MetaInput) -> Result<MetaOutput> {
+        match input {
+            MetaInput::Grant(grant) => self.apply_meta_grant(grant).await,
+            MetaInput::Extend(extension) => self.apply_meta_extension(extension).await,
+            MetaInput::Revoke(revocation) => self.apply_meta_revocation(revocation).await,
+            MetaInput::Deny(denial) => Ok(self.apply_meta_denial(denial)),
+        }
+    }
+
+    async fn apply_meta_grant(&mut self, grant: MetaChannelGrant) -> Result<MetaOutput> {
+        let channel = match Self::channel_grant_from_meta(grant) {
+            Ok(channel) => channel,
+            Err(reason) => {
+                return Ok(Self::meta_order_rejected(MetaOperationKind::Grant, reason));
+            }
+        };
+        let identifier = self
+            .channels
+            .ask(channel)
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
+        Ok(MetaOutput::ChannelGranted(MetaGrantedChannel::new(
+            identifier.as_str().to_string(),
+        )))
+    }
+
+    async fn apply_meta_extension(
+        &mut self,
+        extension: MetaChannelExtension,
+    ) -> Result<MetaOutput> {
+        let channel = extension.channel;
+        let extended = self
+            .channels
+            .ask(ExtendChannel::new(
+                OriginChannelIdentifier::new(channel.as_str()),
+                Self::meta_channel_lifetime(extension.duration),
+            ))
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
+        if extended {
+            Ok(MetaOutput::ChannelExtended(MetaExtendedChannel::new(
+                channel,
+            )))
+        } else {
+            Ok(Self::meta_order_rejected(
+                MetaOperationKind::Extend,
+                MetaChannelOrderRejectionReason::ChannelMissing,
+            ))
+        }
+    }
+
+    async fn apply_meta_revocation(
+        &mut self,
+        revocation: MetaChannelRevocation,
+    ) -> Result<MetaOutput> {
+        let channel = revocation.channel;
+        let revoked = self
+            .channels
+            .ask(RetractChannelByIdentifier::new(
+                OriginChannelIdentifier::new(channel.as_str()),
+            ))
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
+        if revoked {
+            Ok(MetaOutput::ChannelRevoked(MetaRevokedChannel::new(channel)))
+        } else {
+            Ok(Self::meta_order_rejected(
+                MetaOperationKind::Revoke,
+                MetaChannelOrderRejectionReason::ChannelMissing,
+            ))
+        }
+    }
+
+    fn apply_meta_denial(&mut self, denial: MetaAdjudicationDenial) -> MetaOutput {
+        let request = denial.request;
+        let rejected = self.reject_pending_adjudication(&MindAdjudicationDeny {
+            request: AdjudicationRequestIdentifier::new(request.as_str()),
+            reason: MindTextBody::new(denial.reason),
+        });
+        if rejected > 0 {
+            MetaOutput::AdjudicationDenied(MetaDeniedAdjudication::new(request))
+        } else {
+            Self::meta_order_rejected(
+                MetaOperationKind::Deny,
+                MetaChannelOrderRejectionReason::AdjudicationRequestMissing,
+            )
+        }
+    }
+
+    fn channel_grant_from_meta(
+        grant: MetaChannelGrant,
+    ) -> std::result::Result<GrantChannel, MetaChannelOrderRejectionReason> {
+        if !Self::meta_channel_kinds_fit_direct_message(grant.kinds.as_slice()) {
+            return Err(MetaChannelOrderRejectionReason::PolicyRefused);
+        }
+        Ok(GrantChannel::direct_message(
+            Self::meta_endpoint_actor_identifier(&grant.source),
+            Self::meta_endpoint_actor_identifier(&grant.destination),
+            Self::meta_channel_lifetime(grant.duration),
+        ))
+    }
+
+    fn meta_channel_kinds_fit_direct_message(kinds: &[MetaChannelMessageKind]) -> bool {
+        !kinds.is_empty()
+            && kinds.iter().all(|kind| {
+                matches!(
+                    kind,
+                    MetaChannelMessageKind::MessageIngressSubmission
+                        | MetaChannelMessageKind::MessageSubmission
+                        | MetaChannelMessageKind::MessageDelivery
+                )
+            })
+    }
+
+    fn meta_channel_lifetime(duration: MetaChannelDuration) -> ChannelLifetime {
+        match duration {
+            MetaChannelDuration::OneShot => ChannelLifetime::OneShot,
+            MetaChannelDuration::Permanent => ChannelLifetime::Persistent,
+            MetaChannelDuration::TimeBound(until) => {
+                ChannelLifetime::ExpiresAt(ChannelEpochSeconds::new(until / 1_000_000_000))
+            }
+        }
+    }
+
+    fn meta_endpoint_actor_identifier(endpoint: &MetaChannelEndpoint) -> ActorIdentifier {
+        match endpoint {
+            MetaChannelEndpoint::Internal(component) => {
+                Self::meta_component_actor_identifier(component)
+            }
+            MetaChannelEndpoint::External(connection) => {
+                Self::meta_connection_actor_identifier(connection)
+            }
+        }
+    }
+
+    fn meta_component_actor_identifier(component: &MetaComponentName) -> ActorIdentifier {
+        match component {
+            MetaComponentName::Mind => ActorIdentifier::new("mind"),
+            MetaComponentName::Message => ActorIdentifier::new("message"),
+            MetaComponentName::Router => ActorIdentifier::new("router"),
+            MetaComponentName::Terminal => ActorIdentifier::new("terminal"),
+            MetaComponentName::Harness => ActorIdentifier::new("harness"),
+            MetaComponentName::System => ActorIdentifier::new("system"),
+            MetaComponentName::Introspect => ActorIdentifier::new("introspect"),
+            MetaComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
+            MetaComponentName::Spirit => ActorIdentifier::new("spirit"),
+        }
+    }
+
+    fn meta_connection_actor_identifier(connection: &MetaConnectionClass) -> ActorIdentifier {
+        match connection {
+            MetaConnectionClass::Owner => ActorIdentifier::new("owner"),
+            MetaConnectionClass::NonOwnerUser(user) => {
+                ActorIdentifier::new(format!("non-owner-user-{user}"))
+            }
+            MetaConnectionClass::System(principal) => {
+                ActorIdentifier::new(format!("system-{principal}"))
+            }
+            MetaConnectionClass::OtherPersona(engine) => ActorIdentifier::new(format!(
+                "other-persona-{}-{}",
+                engine.engine_identifier, engine.host
+            )),
+            MetaConnectionClass::Network(peer) => ActorIdentifier::new(format!("network-{peer}")),
+        }
+    }
+
+    fn meta_order_rejected(
+        operation: MetaOperationKind,
+        reason: MetaChannelOrderRejectionReason,
+    ) -> MetaOutput {
+        MetaOutput::ChannelOrderRejected(MetaRejectedChannelOrder { operation, reason })
+    }
+
     async fn apply_stamped_message_submission(
         &mut self,
         stamped: StampedMessageSubmission,
@@ -1241,11 +1594,11 @@ impl RouterRoot {
                 continue;
             }
             let delivery_sequence = self.next_delivery_sequence();
-            if let Some(tables) = &self.tables {
-                if let Err(error) = tables.insert_delivery_attempt(delivery_sequence, &message.id) {
-                    self.restore_pending_after_error(next, Some(pending), messages);
-                    return Err(error);
-                }
+            if let Some(tables) = &self.tables
+                && let Err(error) = tables.insert_delivery_attempt(delivery_sequence, &message.id)
+            {
+                self.restore_pending_after_error(next, Some(pending), messages);
+                return Err(error);
             }
             self.trace
                 .record(message.id.clone(), RouterTraceStep::DeliveryAttempted);
@@ -1275,13 +1628,12 @@ impl RouterRoot {
                     return Err(error);
                 }
             };
-            if let Some(tables) = &self.tables {
-                if let Err(error) =
+            if let Some(tables) = &self.tables
+                && let Err(error) =
                     tables.insert_delivery_result(delivery_sequence, &message.id, delivery_result)
-                {
-                    self.restore_pending_after_error(next, Some(pending), messages);
-                    return Err(error);
-                }
+            {
+                self.restore_pending_after_error(next, Some(pending), messages);
+                return Err(error);
             }
             if delivery_result {
                 let _ = self
@@ -1882,6 +2234,18 @@ impl kameo::message::Message<ApplySignalMessage> for RouterRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         SignalMessageOutcome::new(self.apply_signal(message.input).await)
+    }
+}
+
+impl kameo::message::Message<ApplyMetaRouterPolicy> for RouterRoot {
+    type Reply = MetaRouterPolicyOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyMetaRouterPolicy,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        MetaRouterPolicyOutcome::new(self.apply_meta(message.input).await)
     }
 }
 
