@@ -8,7 +8,7 @@ use nota_codec::NotaEnum;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_persona_origin::ChannelIdentifier;
 
-use crate::{ActorIdentifier, Message, Result, RouterTables};
+use crate::{ActorIdentifier, Message, MessageIdentifier, Result, RouterTables};
 
 #[derive(Debug)]
 pub struct ChannelAuthority {
@@ -110,6 +110,22 @@ impl ChannelAuthority {
         channel.lifetime = extension.lifetime;
         if let Some(tables) = &self.tables {
             tables.replace_channel_lifetime(&extension.channel, extension.lifetime)?;
+        }
+        Ok(true)
+    }
+
+    fn clear_adjudication_request(&mut self, clear: ClearAdjudicationRequest) -> Result<bool> {
+        let Some(position) = self
+            .adjudication_requests
+            .iter()
+            .position(|request| request.message == clear.message)
+        else {
+            return Ok(false);
+        };
+        let request = self.adjudication_requests.remove(position);
+        self.adjudication_keys.remove(&request.triple());
+        if let Some(tables) = &self.tables {
+            tables.remove_adjudication(&request.message)?;
         }
         Ok(true)
     }
@@ -498,6 +514,21 @@ impl ChannelRetractionOutcome {
     }
 }
 
+#[derive(Debug, kameo::Reply)]
+pub struct ChannelAdjudicationClearOutcome {
+    result: Result<bool>,
+}
+
+impl ChannelAdjudicationClearOutcome {
+    fn new(result: Result<bool>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> Result<bool> {
+        self.result
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetractChannel {
     pub triple: ChannelTriple,
@@ -553,6 +584,17 @@ pub struct CheckChannel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClearAdjudicationRequest {
+    pub message: MessageIdentifier,
+}
+
+impl ClearAdjudicationRequest {
+    pub fn new(message: MessageIdentifier) -> Self {
+        Self { message }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelDecision {
     Authorized { channel: ChannelIdentifier },
     NeedsAdjudication(AdjudicationRequest),
@@ -579,6 +621,16 @@ pub struct AdjudicationRequest {
     pub from: ActorIdentifier,
     pub to: ActorIdentifier,
     pub kind: ChannelKind,
+}
+
+impl AdjudicationRequest {
+    fn triple(&self) -> ChannelTriple {
+        ChannelTriple {
+            from: self.from.clone(),
+            to: self.to.clone(),
+            kind: self.kind,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -677,6 +729,18 @@ impl kameo::message::Message<ExtendChannel> for ChannelAuthority {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         ChannelExtensionOutcome::new(self.extend(message))
+    }
+}
+
+impl kameo::message::Message<ClearAdjudicationRequest> for ChannelAuthority {
+    type Reply = ChannelAdjudicationClearOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ClearAdjudicationRequest,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        ChannelAdjudicationClearOutcome::new(self.clear_adjudication_request(message))
     }
 }
 

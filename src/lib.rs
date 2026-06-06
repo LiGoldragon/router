@@ -15,12 +15,13 @@ pub use adjudication::{
     ReadMindAdjudicationOutbox, RecordMindAdjudication,
 };
 pub use channel::{
-    AdjudicationRequest, ChannelAuthority, ChannelAuthoritySnapshot, ChannelCheckOutcome,
-    ChannelClock, ChannelClockSnapshot, ChannelDecision, ChannelEpochSeconds,
-    ChannelExtensionOutcome, ChannelGrantOutcome, ChannelKind, ChannelLifetime,
-    ChannelPersistenceOutcome, ChannelPersistenceSnapshot, ChannelRecord, ChannelRetractionOutcome,
-    ChannelStatus, ChannelTriple, CheckChannel, EngineStructuralChannels, ExtendChannel,
-    GrantChannel, InstallStructuralChannels, ObserveChannelTime, ReadChannelAuthorityStatus,
+    AdjudicationRequest, ChannelAdjudicationClearOutcome, ChannelAuthority,
+    ChannelAuthoritySnapshot, ChannelCheckOutcome, ChannelClock, ChannelClockSnapshot,
+    ChannelDecision, ChannelEpochSeconds, ChannelExtensionOutcome, ChannelGrantOutcome,
+    ChannelKind, ChannelLifetime, ChannelPersistenceOutcome, ChannelPersistenceSnapshot,
+    ChannelRecord, ChannelRetractionOutcome, ChannelStatus, ChannelTriple, CheckChannel,
+    ClearAdjudicationRequest, EngineStructuralChannels, ExtendChannel, GrantChannel,
+    InstallStructuralChannels, ObserveChannelTime, ReadChannelAuthorityStatus,
     ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier,
     StructuralChannelInstallation, StructuralChannelInstallationOutcome, UseChannel,
 };

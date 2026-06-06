@@ -53,14 +53,14 @@ use signal_router::{
 };
 
 use crate::adjudication::{
-    MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot, ReadMindAdjudicationOutbox,
-    RecordMindAdjudication,
+    ClearMindAdjudication, MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot,
+    ReadMindAdjudicationOutbox, RecordMindAdjudication,
 };
 use crate::channel::{
     ChannelAuthority, ChannelDecision, ChannelEpochSeconds, ChannelLifetime,
-    ChannelPersistenceSnapshot, CheckChannel, EngineStructuralChannels, ExtendChannel,
-    GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus, ReadChannelPersistence,
-    RetractChannel, RetractChannelByIdentifier, UseChannel,
+    ChannelPersistenceSnapshot, CheckChannel, ClearAdjudicationRequest, EngineStructuralChannels,
+    ExtendChannel, GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus,
+    ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier, UseChannel,
 };
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
@@ -291,7 +291,14 @@ impl RouterMetaServer {
 
     fn run(self) -> Result<()> {
         for stream in self.listener.incoming() {
-            self.handle_stream(stream?)?;
+            match stream {
+                Ok(stream) => {
+                    if let Err(error) = self.handle_stream(stream) {
+                        eprintln!("router-meta connection failed: {error}");
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
         Ok(())
     }
@@ -1233,7 +1240,7 @@ impl RouterRoot {
                 ))
             }
             RouterInput::ApplyMindAdjudicationDeny(input) => {
-                let rejected = self.reject_pending_adjudication(&input.deny);
+                let rejected = self.deny_adjudication(&input.deny).await?;
                 Ok(RouterOutput::MindAdjudicationDenyApplied(
                     MindAdjudicationDenyApplied {
                         rejected,
@@ -1265,7 +1272,7 @@ impl RouterRoot {
             MetaInput::Grant(grant) => self.apply_meta_grant(grant).await,
             MetaInput::Extend(extension) => self.apply_meta_extension(extension).await,
             MetaInput::Revoke(revocation) => self.apply_meta_revocation(revocation).await,
-            MetaInput::Deny(denial) => Ok(self.apply_meta_denial(denial)),
+            MetaInput::Deny(denial) => self.apply_meta_denial(denial).await,
         }
     }
 
@@ -1336,19 +1343,23 @@ impl RouterRoot {
         }
     }
 
-    fn apply_meta_denial(&mut self, denial: MetaAdjudicationDenial) -> MetaOutput {
+    async fn apply_meta_denial(&mut self, denial: MetaAdjudicationDenial) -> Result<MetaOutput> {
         let request = denial.request;
-        let rejected = self.reject_pending_adjudication(&MindAdjudicationDeny {
-            request: AdjudicationRequestIdentifier::new(request.as_str()),
-            reason: MindTextBody::new(denial.reason),
-        });
+        let rejected = self
+            .deny_adjudication(&MindAdjudicationDeny {
+                request: AdjudicationRequestIdentifier::new(request.as_str()),
+                reason: MindTextBody::new(denial.reason),
+            })
+            .await?;
         if rejected > 0 {
-            MetaOutput::AdjudicationDenied(MetaDeniedAdjudication::new(request))
+            Ok(MetaOutput::AdjudicationDenied(MetaDeniedAdjudication::new(
+                request,
+            )))
         } else {
-            Self::meta_order_rejected(
+            Ok(Self::meta_order_rejected(
                 MetaOperationKind::Deny,
                 MetaChannelOrderRejectionReason::AdjudicationRequestMissing,
-            )
+            ))
         }
     }
 
@@ -1677,6 +1688,28 @@ impl RouterRoot {
         }
         next.extend(remaining);
         self.pending = next;
+    }
+
+    async fn deny_adjudication(&mut self, deny: &MindAdjudicationDeny) -> Result<u64> {
+        let rejected = self.reject_pending_adjudication(deny);
+        if rejected == 0 {
+            return Ok(0);
+        }
+        let request = deny.request.clone();
+        self.mind_adjudication
+            .ask(ClearMindAdjudication {
+                request: request.clone(),
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?;
+        self.channels
+            .ask(ClearAdjudicationRequest::new(MessageIdentifier::new(
+                request.as_str(),
+            )))
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
+        Ok(rejected)
     }
 
     fn reject_pending_adjudication(&mut self, deny: &MindAdjudicationDeny) -> u64 {
@@ -2859,6 +2892,7 @@ impl NotaEncode for RouterOutput {
 mod receiver_validation_tests {
     use super::*;
     use signal_core::{Operation, RequestRejectionReason};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn router_input_rejects_mismatched_signal_verb() {
@@ -2885,5 +2919,60 @@ mod receiver_validation_tests {
             }
             other => panic!("expected typed signal request rejection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn meta_server_survives_bad_connection_before_valid_grant() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        let socket = std::env::temp_dir().join(format!(
+            "router-meta-server-survives-{}-{now}.sock",
+            std::process::id()
+        ));
+        let listener = UnixListener::bind(&socket).expect("meta listener binds");
+        let runtime = tokio::runtime::Runtime::new().expect("runtime starts");
+        let router = runtime.block_on(RouterRuntime::start());
+        let _server = RouterMetaServer::new(listener, runtime.handle().clone(), router).spawn();
+
+        let mut bad = UnixStream::connect(&socket).expect("bad client connects");
+        let bad_frame = SignalMessageFrame::new(FrameBody::Request {
+            exchange: synthetic_exchange(),
+            request: Request::from_payload(SignalMessageRequest::InboxQuery(SignalInboxQuery {
+                recipient: SignalMessageRecipient::new("operator"),
+            })),
+        });
+        bad.write_all(
+            bad_frame
+                .encode_length_prefixed()
+                .expect("bad signal frame encodes")
+                .as_slice(),
+        )
+        .expect("bad signal frame writes");
+        drop(bad);
+
+        let codec = LengthPrefixedCodec::default();
+        let mut good = UnixStream::connect(&socket).expect("valid client connects after bad one");
+        let grant = MetaInput::Grant(MetaChannelGrant {
+            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            kinds: vec![MetaChannelMessageKind::MessageSubmission],
+            duration: MetaChannelDuration::Permanent,
+        });
+        codec
+            .write_body(
+                &mut good,
+                &RuntimeFrameBody::new(grant.encode_signal_frame().expect("meta frame encodes")),
+            )
+            .expect("valid meta frame writes");
+        let reply = codec.read_body(&mut good).expect("valid meta reply reads");
+        let (_route, output) =
+            MetaOutput::decode_signal_frame(reply.bytes()).expect("meta reply decodes");
+        assert!(
+            matches!(output, MetaOutput::ChannelGranted(_)),
+            "expected granted channel reply after bad connection, got {output:?}"
+        );
+        let _ = std::fs::remove_file(socket);
     }
 }

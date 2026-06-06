@@ -52,6 +52,13 @@ impl MindAdjudicationOutbox {
             last_reader: self.last_reader.clone(),
         }
     }
+
+    fn clear(&mut self, clear: ClearMindAdjudication) -> bool {
+        let before = self.requests.len();
+        self.requests
+            .retain(|request| request.request != clear.request);
+        before != self.requests.len()
+    }
 }
 
 impl Default for MindAdjudicationOutbox {
@@ -74,6 +81,11 @@ pub struct MindAdjudicationReceipt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadMindAdjudicationOutbox {
     pub requester: ActorIdentifier,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClearMindAdjudication {
+    pub request: AdjudicationRequestIdentifier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
@@ -117,5 +129,17 @@ impl kameo::message::Message<ReadMindAdjudicationOutbox> for MindAdjudicationOut
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.snapshot(message)
+    }
+}
+
+impl kameo::message::Message<ClearMindAdjudication> for MindAdjudicationOutbox {
+    type Reply = bool;
+
+    async fn handle(
+        &mut self,
+        message: ClearMindAdjudication,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.clear(message)
     }
 }

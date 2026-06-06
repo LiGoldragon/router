@@ -13,19 +13,19 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use meta_signal_router::{
-    ChannelDuration as MetaChannelDuration, ChannelEndpoint as MetaChannelEndpoint,
-    ChannelExtension as MetaChannelExtension, ChannelGrant as MetaChannelGrant,
-    ChannelMessageKind as MetaChannelMessageKind, ChannelRevocation as MetaChannelRevocation,
-    ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass, Input as MetaInput,
-    Output as MetaOutput,
+    AdjudicationDenial as MetaAdjudicationDenial, ChannelDuration as MetaChannelDuration,
+    ChannelEndpoint as MetaChannelEndpoint, ChannelExtension as MetaChannelExtension,
+    ChannelGrant as MetaChannelGrant, ChannelMessageKind as MetaChannelMessageKind,
+    ChannelRevocation as MetaChannelRevocation, ComponentName as MetaComponentName,
+    ConnectionClass as MetaConnectionClass, Input as MetaInput, Output as MetaOutput,
 };
 use router::{
     Actor, ActorIdentifier, ActorRef, ApplyMetaRouterPolicy, ApplyRouterInput,
     ApplyRouterObservation, ChannelLifetime, EngineStructuralChannels, GrantChannel,
-    GrantRouteChannel, InstallRouteStructuralChannels, InstallStructuralChannels,
-    ReadRouterObservationPlaneStatus, RegisterActor, RouterConnection, RouterDaemonInput,
-    RouterIngressContext, RouterInput, RouterObservationFrameCodec, RouterOutput, RouterRuntime,
-    RouterTables, SignalMessageInput,
+    GrantRouteChannel, InstallRouteStructuralChannels, InstallStructuralChannels, Message,
+    MessageIdentifier, ReadRouterObservationPlaneStatus, RegisterActor, RouterConnection,
+    RouterDaemonInput, RouterIngressContext, RouterInput, RouterObservationFrameCodec,
+    RouterOutput, RouterRuntime, RouterTables, SignalMessageInput, Status, ThreadIdentifier,
 };
 use signal_core::{
     AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
@@ -272,6 +272,77 @@ async fn meta_extend_updates_channel_lifetime_in_router_tables() {
     assert_eq!(
         record.lifetime,
         ChannelLifetime::ExpiresAt(router::ChannelEpochSeconds::new(21))
+    );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn meta_deny_clears_pending_adjudication_from_runtime_and_tables() {
+    let store = TemporaryRouterStore::new("meta-deny-adjudication");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let router = ObservationFixture::start_with_tables(tables.clone()).await;
+    let message = Message {
+        id: MessageIdentifier::new("message-meta-deny"),
+        thread: ThreadIdentifier::new("direct-router-harness"),
+        from: ActorIdentifier::new("router"),
+        to: ActorIdentifier::new("harness"),
+        body: "deny through meta".to_string(),
+        attachments: Vec::new(),
+    };
+
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorIdentifier::new("harness"),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("harness registration passes through router actor");
+    router
+        .apply(RouterInput::RouteMessage(router::RouteMessage {
+            message: message.clone(),
+        }))
+        .await
+        .expect("unknown channel parks for adjudication");
+    assert_eq!(
+        tables
+            .adjudication_records()
+            .expect("adjudication records read")
+            .len(),
+        1
+    );
+
+    let deny = router
+        .apply_meta(MetaInput::Deny(MetaAdjudicationDenial {
+            request: message.id.as_str().to_string(),
+            reason: "meta policy refused the delivery".to_string(),
+        }))
+        .await
+        .expect("meta deny passes through router runtime");
+    assert!(
+        matches!(deny, MetaOutput::AdjudicationDenied(_)),
+        "expected meta adjudication denied reply, got {deny:?}"
+    );
+
+    let status = router
+        .apply(RouterInput::Status(Status {
+            requester: ActorIdentifier::new("operator"),
+        }))
+        .await
+        .expect("status reads post-deny facts");
+    let RouterOutput::Status(status) = status else {
+        panic!("expected status reply, got {status:?}");
+    };
+    assert_eq!(status.pending, 0);
+    assert_eq!(status.adjudication_pending, 0);
+    assert!(
+        tables
+            .adjudication_records()
+            .expect("adjudication records read after deny")
+            .is_empty()
     );
 
     router.stop().await;

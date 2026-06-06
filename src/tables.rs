@@ -123,6 +123,12 @@ impl RouterTables {
         Ok(())
     }
 
+    pub fn remove_adjudication(&self, message: &MessageIdentifier) -> Result<bool> {
+        Ok(self
+            .database
+            .write(|transaction| ADJUDICATION_PENDING.remove(transaction, message.as_str()))?)
+    }
+
     pub fn insert_message(
         &self,
         message: &Message,
