@@ -1,0 +1,41 @@
+{
+  SignalInput router_crate:signal:Input
+  SignalOutput router_crate:signal:Output
+  MessageIngress router_crate:signal:MessageIngress
+  MessageAcceptance router_crate:signal:MessageAcceptance
+  AdjudicationQueued router_crate:signal:AdjudicationQueued
+  ErrorReport router_crate:signal:ErrorReport
+  SemaWriteInput router_crate:sema:WriteInput
+  SemaReadInput router_crate:sema:ReadInput
+  SemaWriteOutput router_crate:sema:WriteOutput
+  SemaReadOutput router_crate:sema:ReadOutput
+}
+[SignalArrived SemaWriteCompleted SemaReadCompleted EffectCompleted]
+[ReplyToSignal CommandSemaWrite CommandSemaRead CommandEffect Continue]
+{
+  SignalArrived SignalInput
+  SemaWriteCompleted SemaWriteOutput
+  SemaReadCompleted SemaReadOutput
+  EffectCompleted NexusEffectResult
+
+  ReplyToSignal SignalOutput
+  CommandSemaWrite SemaWriteInput
+  CommandSemaRead SemaReadInput
+  CommandEffect NexusEffectCommand
+  Continue NexusWork
+
+  NexusWork [(SignalArrived SignalArrived) (SemaWriteCompleted SemaWriteCompleted) (SemaReadCompleted SemaReadCompleted) (EffectCompleted EffectCompleted)]
+  NexusAction [(ReplyToSignal ReplyToSignal) (CommandSemaWrite CommandSemaWrite) (CommandSemaRead CommandSemaRead) (CommandEffect CommandEffect) (Continue Continue)]
+
+  DeliveryCommand [(AttemptDelivery AttemptDelivery) (RequestAdjudication RequestAdjudication)]
+  AttemptDelivery MessageIngress
+  RequestAdjudication MessageIngress
+  NexusEffectCommand [(DeliverToHarness DeliverToHarness) (AskMindForChannel AskMindForChannel)]
+  DeliverToHarness DeliveryCommand
+  AskMindForChannel MessageIngress
+
+  DeliverySucceeded MessageAcceptance
+  DeliveryParked AdjudicationQueued
+  DeliveryFailed ErrorReport
+  NexusEffectResult [(DeliverySucceeded DeliverySucceeded) (DeliveryParked DeliveryParked) (DeliveryFailed DeliveryFailed)]
+}

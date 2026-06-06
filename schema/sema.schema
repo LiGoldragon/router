@@ -1,0 +1,34 @@
+{
+  MessageIngress router_crate:signal:MessageIngress
+  RouterObservation router_crate:signal:RouterObservation
+  MessageAcceptance router_crate:signal:MessageAcceptance
+  AdjudicationQueued router_crate:signal:AdjudicationQueued
+  ErrorReport router_crate:signal:ErrorReport
+}
+[WriteInput ReadInput]
+[WriteOutput ReadOutput]
+{
+  WriteInput [(RecordAcceptedMessage RecordAcceptedMessage) (RecordChannelPolicy RecordChannelPolicy) (RecordDeliveryResult RecordDeliveryResult) (RecordAdjudicationRequest RecordAdjudicationRequest)]
+  RecordAcceptedMessage MessageIngress
+  RecordChannelPolicy ChannelPolicyChange
+  RecordDeliveryResult DeliveryResult
+  RecordAdjudicationRequest MessageIngress
+
+  ReadInput [(ReadRouterObservation ReadRouterObservation) (ReadChannelState ReadChannelState)]
+  ReadRouterObservation RouterObservation
+  ReadChannelState ChannelIdentifier
+
+  WriteOutput [(Committed CommitReceipt) (WriteRejected ErrorReport)]
+  ReadOutput [(RouterObserved RouterObservationResult) (ReadRejected ErrorReport)]
+
+  ChannelIdentifier String
+  CommitSequence Integer
+  CommitReceipt { CommitSequence * }
+  ChannelPolicyChange [(Grant GrantChannel) (Extend ExtendChannel) (Revoke RevokeChannel) (Deny DenyAdjudication)]
+  GrantChannel ChannelIdentifier
+  ExtendChannel ChannelIdentifier
+  RevokeChannel ChannelIdentifier
+  DenyAdjudication ChannelIdentifier
+  DeliveryResult [(Delivered MessageAcceptance) (Parked AdjudicationQueued) (Failed ErrorReport)]
+  RouterObservationResult { CommitSequence * }
+}

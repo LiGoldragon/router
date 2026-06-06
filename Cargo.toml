@@ -21,7 +21,8 @@ kameo                 = { version = "0.20", default-features = false, features =
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main" }
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
 nota-config           = { git = "https://github.com/LiGoldragon/nota-config.git", branch = "main" }
-rkyv                  = "0.8"
+nota-next             = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main", optional = true }
+rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema                  = { git = "https://github.com/LiGoldragon/sema.git" }
 signal-core           = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-engine-management = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
@@ -35,6 +36,13 @@ signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.g
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+
+[features]
+default = []
+nota-text = ["dep:nota-next"]
+
+[build-dependencies]
+schema-rust-next = { git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
 [lints.rust]
 unsafe_code = "forbid"

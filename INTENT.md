@@ -27,6 +27,16 @@ state before post-delivery subscription events. Every accepted message
 carries typed `IngressContext` from the accepted socket relation.
 Origin is provenance, not an auth proof.
 
+Router now carries the schema-derived triad substrate in-tree:
+`schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema`
+generate checked-in modules under `src/schema/` through `schema-rust-next`.
+Those generated nouns make the intended internal feature surface visible:
+message ingress and router observations at Signal, accept/deliver/adjudicate
+decisions at Nexus, and accepted-message/channel/delivery/adjudication storage
+operations at SEMA. The current actor runtime is still the active behavior
+path; the generated daemon module is present as the cutover target rather than
+the live `router-daemon` entry yet.
+
 Key constraints: routing reacts to pushed events (no polling). Authorization is channel-
 table authorization plus mind adjudication for misses. One-shot channels authorize
 exactly one message, then retire. Retracted and expired time-bound channels cannot

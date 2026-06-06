@@ -1,3 +1,5 @@
+extern crate self as router_crate;
+
 pub mod adjudication;
 pub mod channel;
 pub mod delivery;
@@ -9,6 +11,18 @@ pub mod observation;
 pub mod router;
 pub mod supervision;
 pub mod tables;
+
+pub mod schema {
+    #[rustfmt::skip]
+    pub mod signal;
+    #[rustfmt::skip]
+    pub mod sema;
+    #[rustfmt::skip]
+    pub mod nexus;
+    #[rustfmt::skip]
+    #[allow(dead_code)]
+    pub mod daemon;
+}
 
 pub use adjudication::{
     MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot, MindAdjudicationReceipt,

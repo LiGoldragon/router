@@ -100,6 +100,12 @@ flowchart LR
   `RouterRuntime` to `RouterObservationPlane`. Subscription push for
   channel-state and delivery deltas follows the canonical five-state
   lifecycle named in `~/primary/skills/subscription-lifecycle.md`;
+- checked-in generated triad modules under `src/schema/`, produced from
+  `schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema` by
+  `schema-rust-next`. This is the current substrate port: it exposes the
+  router's future Signal/Nexus/SEMA nouns and a generated two-listener daemon
+  spine, while the live behavior path below still runs through the
+  hand-written actor runtime until the adapter cutover;
 - pending-delivery state;
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.

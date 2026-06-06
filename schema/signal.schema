@@ -1,0 +1,29 @@
+{}
+[AcceptMessage ObserveRouter]
+[Accepted Parked Unimplemented Error]
+{
+  AcceptMessage MessageIngress
+  ObserveRouter RouterObservation
+
+  Accepted MessageAcceptance
+  Parked AdjudicationQueued
+  Unimplemented RequestUnimplemented
+  Error ErrorReport
+
+  Recipient String
+  Body String
+  RouteMessageIdentifier Integer
+  ChannelIdentifier String
+  ErrorMessage String
+
+  MessageKind [DirectMessage SystemNotice]
+  MessageIngress { Recipient * Body * MessageKind * }
+  RouterObservation [Summary ChannelState DeliveryTrace PendingAdjudication]
+  MessageAcceptance { RouteMessageIdentifier * }
+  AdjudicationQueued { RouteMessageIdentifier * ChannelIdentifier * }
+
+  OperationKind [AcceptMessage ObserveRouter]
+  UnimplementedReason [NotInPrototypeScope ChannelMissing RouterUnavailable]
+  RequestUnimplemented { OperationKind * UnimplementedReason * }
+  ErrorReport { ErrorMessage * }
+}
