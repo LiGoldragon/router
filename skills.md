@@ -17,8 +17,8 @@ Rules for work here:
 - Depend on `system` for OS/window/input runtime observation
   producers, not for the inter-component record types.
 - Depend on `harness` for harness capabilities.
-- Commit durable router transitions through the router actor's own Sema layer
-  when persistence lands. Do not invent a shared store actor.
+- Commit durable router transitions through the router actor's own
+  `sema-engine` layer. Do not invent a shared store actor.
 - Keep `RouterRuntime` as an actor, not as a non-actor owner around actor refs.
   Public callers talk to `ActorRef<RouterRuntime>`.
 - Keep harness endpoint/focus/prompt facts in `HarnessRegistry`, not in
@@ -42,7 +42,7 @@ Rules for work here:
 When the router daemon launches with a binary `RouterDaemonConfiguration`,
 `ChannelAuthority` attaches `RouterTables` and persists
 `adjudication_pending` records (and channel records, delivery attempts,
-delivery results) into `router.sema`.
+delivery results) into `router.sema` through `sema-engine`.
 The `MindAdjudicationOutbox` in-memory projection is a derived view, not
 the durable record.
 
@@ -60,8 +60,8 @@ the chain.
 The `RouterObservationPlane` answers `RouterRequest` queries by reading
 `RouterRoot` facts through the mailbox and reading channel records from
 `RouterTables`. It never mutates router state; never opens `router.sema`
-directly outside the tables abstraction; never fabricates an answer when
-data is missing. The closed-enum reply set is
+directly outside the engine-backed tables abstraction; never fabricates an
+answer when data is missing. The closed-enum reply set is
 `RouterReply::{Summary, MessageTrace, MessageTraceMissing, ChannelState,
 Unimplemented}` — no `Unknown` variant.
 

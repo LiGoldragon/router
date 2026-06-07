@@ -25,11 +25,12 @@ frames on the working `router.sock`; meta channel-policy orders enter
 on the separate meta socket using `meta-signal-router` frames wrapped
 by the shared triad-runtime length-prefixed codec. Router-owned
 durable state is `router.sema`: accepted messages, channels,
-adjudication-pending records, delivery attempts, and results. Message
-acceptance commits before delivery attempt. Delivery results update
-state before post-delivery subscription events. Every accepted message
-carries typed `IngressContext` from the accepted socket relation.
-Origin is provenance, not an auth proof.
+adjudication-pending records, delivery attempts, and results, opened and
+registered through `sema-engine` rather than a daemon-owned raw storage
+kernel. Message acceptance commits before delivery attempt. Delivery results
+update state before post-delivery subscription events. Every accepted message
+carries typed `IngressContext` from the accepted socket relation. Origin is
+provenance, not an auth proof.
 
 Router now carries the schema-derived triad substrate in-tree:
 `schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema`

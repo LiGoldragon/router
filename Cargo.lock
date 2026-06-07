@@ -436,6 +436,7 @@ dependencies = [
  "rkyv",
  "schema-rust-next",
  "sema",
+ "sema-engine",
  "signal-engine-management",
  "signal-frame",
  "signal-harness",
@@ -496,6 +497,18 @@ source = "git+https://github.com/LiGoldragon/sema.git#09f2a423ecaaa9984d913e6f00
 dependencies = [
  "redb",
  "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "sema-engine"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#e94897338a3c81fe2867a77f380aab77a3bb0874"
+dependencies = [
+ "rkyv",
+ "sema",
+ "signal-frame",
+ "signal-sema",
  "thiserror",
 ]
 

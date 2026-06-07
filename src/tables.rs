@@ -1,8 +1,18 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use rkyv::api::high::HighDeserializer;
+use rkyv::bytecheck::CheckBytes;
+use rkyv::rancor::{self, Strategy};
+use rkyv::validation::Validator;
+use rkyv::validation::archive::ArchiveValidator;
+use rkyv::validation::shared::SharedValidator;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use sema::{Schema, SchemaVersion, Sema, Table};
+use sema::Table;
+use sema_engine::{
+    Assertion, CommitSequence, Engine, EngineOpen, EngineRecord, Mutation, QueryPlan, RecordKey,
+    Retraction, SchemaVersion, TableDescriptor, TableName, TableReference,
+};
 use signal_message::MessageSlot;
 use signal_persona_origin::{ChannelIdentifier, MessageOrigin};
 
@@ -11,23 +21,26 @@ use crate::{
     MessageIdentifier, RouterResult,
 };
 
-const ROUTER_SCHEMA: Schema = Schema {
-    version: SchemaVersion::new(1),
-};
-
-const CHANNELS: Table<&'static str, StoredChannelRecord> = Table::new("channels");
-const CHANNELS_BY_TRIPLE: Table<&'static str, StoredChannelIndex> =
-    Table::new("channels_by_triple");
-const ADJUDICATION_PENDING: Table<&'static str, StoredAdjudicationRequest> =
-    Table::new("adjudication_pending");
-const MESSAGES: Table<&'static str, StoredMessageRecord> = Table::new("messages");
-const DELIVERY_ATTEMPTS: Table<u64, StoredDeliveryAttempt> = Table::new("delivery_attempts");
-const DELIVERY_RESULTS: Table<u64, StoredDeliveryResult> = Table::new("delivery_results");
-const META: Table<&'static str, u64> = Table::new("meta");
+const ROUTER_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1);
+const CHANNELS: TableName = TableName::new("channels");
+const CHANNELS_BY_TRIPLE: Table<String, StoredChannelIndex> = Table::new("channels_by_triple");
+const ADJUDICATION_PENDING: TableName = TableName::new("adjudication_pending");
+const MESSAGES: TableName = TableName::new("messages");
+const DELIVERY_ATTEMPTS: TableName = TableName::new("delivery_attempts");
+const DELIVERY_RESULTS: TableName = TableName::new("delivery_results");
 
 #[derive(Clone)]
 pub struct RouterTables {
-    database: Arc<Sema>,
+    store: Arc<RouterStore>,
+}
+
+struct RouterStore {
+    engine: Engine,
+    channels: TableReference<StoredChannelRecord>,
+    adjudication_pending: TableReference<StoredAdjudicationRequest>,
+    messages: TableReference<StoredMessageRecord>,
+    delivery_attempts: TableReference<StoredDeliveryAttempt>,
+    delivery_results: TableReference<StoredDeliveryResult>,
 }
 
 impl std::fmt::Debug for RouterTables {
@@ -40,20 +53,43 @@ impl std::fmt::Debug for RouterTables {
 
 impl RouterTables {
     pub fn open(path: impl AsRef<Path>) -> RouterResult<Self> {
-        let database = Sema::open_with_schema(path.as_ref(), &ROUTER_SCHEMA)?;
-        database.write(|transaction| {
-            CHANNELS.ensure(transaction)?;
+        let mut engine = Engine::open(EngineOpen::new(
+            path.as_ref().to_path_buf(),
+            ROUTER_SCHEMA_VERSION,
+        ))?;
+        let channels = engine.register_table(TableDescriptor::new(CHANNELS))?;
+        let adjudication_pending =
+            engine.register_table(TableDescriptor::new(ADJUDICATION_PENDING))?;
+        let messages = engine.register_table(TableDescriptor::new(MESSAGES))?;
+        let delivery_attempts = engine.register_table(TableDescriptor::new(DELIVERY_ATTEMPTS))?;
+        let delivery_results = engine.register_table(TableDescriptor::new(DELIVERY_RESULTS))?;
+        engine.storage_kernel().write(|transaction| {
             CHANNELS_BY_TRIPLE.ensure(transaction)?;
-            ADJUDICATION_PENDING.ensure(transaction)?;
-            MESSAGES.ensure(transaction)?;
-            DELIVERY_ATTEMPTS.ensure(transaction)?;
-            DELIVERY_RESULTS.ensure(transaction)?;
-            META.ensure(transaction)?;
             Ok(())
         })?;
         Ok(Self {
-            database: Arc::new(database),
+            store: Arc::new(RouterStore {
+                engine,
+                channels,
+                adjudication_pending,
+                messages,
+                delivery_attempts,
+                delivery_results,
+            }),
         })
+    }
+
+    pub fn current_commit_sequence(&self) -> RouterResult<CommitSequence> {
+        Ok(self.store.engine.current_commit_sequence()?)
+    }
+
+    pub fn registered_table_names(&self) -> Vec<String> {
+        self.store
+            .engine
+            .list_tables()
+            .into_iter()
+            .map(|registration| registration.table_name().to_owned())
+            .collect()
     }
 
     pub fn insert_channel(
@@ -67,9 +103,12 @@ impl RouterTables {
         let index = StoredChannelIndex {
             channel: channel.id.clone(),
         };
-        self.database.write(|transaction| {
-            CHANNELS.insert(transaction, channel_key.as_str(), &channel)?;
-            CHANNELS_BY_TRIPLE.insert(transaction, triple_key.as_str(), &index)?;
+        self.store.engine.storage_kernel().write(|transaction| {
+            self.store
+                .channels
+                .sema_table()
+                .insert(transaction, channel_key, &channel)?;
+            CHANNELS_BY_TRIPLE.insert(transaction, triple_key, &index)?;
             Ok(())
         })?;
         Ok(())
@@ -81,17 +120,14 @@ impl RouterTables {
         lifetime: ChannelLifetime,
     ) -> RouterResult<bool> {
         let channel_key = channel_identifier.as_str();
-        let Some(mut channel) = self
-            .database
-            .read(|transaction| CHANNELS.get(transaction, channel_key))?
-        else {
+        let Some(mut channel) = self.channel_record(channel_key)? else {
             return Ok(false);
         };
         channel.lifetime = lifetime;
-        Ok(self.database.write(|transaction| {
-            CHANNELS.insert(transaction, channel_key, &channel)?;
-            Ok(true)
-        })?)
+        self.store
+            .engine
+            .mutate(Mutation::new(self.store.channels, channel))?;
+        Ok(true)
     }
 
     pub fn replace_channel_status(
@@ -100,33 +136,30 @@ impl RouterTables {
         status: ChannelStatus,
     ) -> RouterResult<bool> {
         let channel_key = channel_identifier.as_str();
-        let Some(mut channel) = self
-            .database
-            .read(|transaction| CHANNELS.get(transaction, channel_key))?
-        else {
+        let Some(mut channel) = self.channel_record(channel_key)? else {
             return Ok(false);
         };
         channel.status = status;
-        Ok(self.database.write(|transaction| {
-            CHANNELS.insert(transaction, channel_key, &channel)?;
-            Ok(true)
-        })?)
+        self.store
+            .engine
+            .mutate(Mutation::new(self.store.channels, channel))?;
+        Ok(true)
     }
 
     pub fn insert_adjudication(&self, request: &AdjudicationRequest) -> RouterResult<()> {
         let stored = StoredAdjudicationRequest::from_request(request);
-        let key = stored.message.clone();
-        self.database.write(|transaction| {
-            ADJUDICATION_PENDING.insert(transaction, key.as_str(), &stored)?;
-            Ok(())
-        })?;
-        Ok(())
+        self.put_record(self.store.adjudication_pending, stored)
     }
 
     pub fn remove_adjudication(&self, message: &MessageIdentifier) -> RouterResult<bool> {
-        Ok(self
-            .database
-            .write(|transaction| ADJUDICATION_PENDING.remove(transaction, message.as_str()))?)
+        match self.store.engine.retract(Retraction::new(
+            self.store.adjudication_pending,
+            RecordKey::new(message.as_str()),
+        )) {
+            Ok(_receipt) => Ok(true),
+            Err(sema_engine::Error::RecordNotFound { .. }) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub fn insert_message(
@@ -136,42 +169,34 @@ impl RouterTables {
         signal_slot: Option<MessageSlot>,
     ) -> RouterResult<()> {
         let stored = StoredMessageRecord::from_message(message, origin, signal_slot);
-        let key = stored.id.clone();
-        self.database.write(|transaction| {
-            MESSAGES.insert(transaction, key.as_str(), &stored)?;
-            Ok(())
-        })?;
-        Ok(())
+        self.put_record(self.store.messages, stored)
     }
 
     pub fn message_records(&self) -> RouterResult<Vec<StoredMessageRecord>> {
-        Ok(self.database.read(|transaction| {
-            Ok(MESSAGES
-                .iter(transaction)?
-                .into_iter()
-                .map(|(_key, message)| message)
-                .collect())
-        })?)
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::all(self.store.messages))?
+            .records()
+            .to_vec())
     }
 
     pub fn channel_records(&self) -> RouterResult<Vec<StoredChannelRecord>> {
-        Ok(self.database.read(|transaction| {
-            Ok(CHANNELS
-                .iter(transaction)?
-                .into_iter()
-                .map(|(_key, channel)| channel)
-                .collect())
-        })?)
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::all(self.store.channels))?
+            .records()
+            .to_vec())
     }
 
     pub fn adjudication_records(&self) -> RouterResult<Vec<StoredAdjudicationRequest>> {
-        Ok(self.database.read(|transaction| {
-            Ok(ADJUDICATION_PENDING
-                .iter(transaction)?
-                .into_iter()
-                .map(|(_key, request)| request)
-                .collect())
-        })?)
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::all(self.store.adjudication_pending))?
+            .records()
+            .to_vec())
     }
 
     pub fn insert_delivery_attempt(
@@ -180,11 +205,7 @@ impl RouterTables {
         message: &MessageIdentifier,
     ) -> RouterResult<()> {
         let attempt = StoredDeliveryAttempt::new(sequence, message);
-        self.database.write(|transaction| {
-            DELIVERY_ATTEMPTS.insert(transaction, sequence, &attempt)?;
-            Ok(())
-        })?;
-        Ok(())
+        self.put_record(self.store.delivery_attempts, attempt)
     }
 
     pub fn insert_delivery_result(
@@ -194,32 +215,82 @@ impl RouterTables {
         delivered: bool,
     ) -> RouterResult<()> {
         let result = StoredDeliveryResult::new(sequence, message, delivered);
-        self.database.write(|transaction| {
-            DELIVERY_RESULTS.insert(transaction, sequence, &result)?;
-            Ok(())
-        })?;
-        Ok(())
+        self.put_record(self.store.delivery_results, result)
     }
 
     pub fn delivery_attempt_records(&self) -> RouterResult<Vec<StoredDeliveryAttempt>> {
-        Ok(self.database.read(|transaction| {
-            Ok(DELIVERY_ATTEMPTS
-                .iter(transaction)?
-                .into_iter()
-                .map(|(_key, attempt)| attempt)
-                .collect())
-        })?)
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::all(self.store.delivery_attempts))?
+            .records()
+            .to_vec())
     }
 
     pub fn delivery_result_records(&self) -> RouterResult<Vec<StoredDeliveryResult>> {
-        Ok(self.database.read(|transaction| {
-            Ok(DELIVERY_RESULTS
-                .iter(transaction)?
-                .into_iter()
-                .map(|(_key, result)| result)
-                .collect())
-        })?)
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::all(self.store.delivery_results))?
+            .records()
+            .to_vec())
     }
+
+    fn channel_record(&self, key: &str) -> RouterResult<Option<StoredChannelRecord>> {
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::key(self.store.channels, RecordKey::new(key)))?
+            .records()
+            .first()
+            .cloned())
+    }
+
+    fn put_record<RecordValue>(
+        &self,
+        table: TableReference<RecordValue>,
+        record: RecordValue,
+    ) -> RouterResult<()>
+    where
+        RecordValue: RouterEngineRecord,
+        RecordValue::Archived: RkyvDeserialize<RecordValue, HighDeserializer<rancor::Error>>
+            + for<'validation> CheckBytes<
+                Strategy<Validator<ArchiveValidator<'validation>, SharedValidator>, rancor::Error>,
+            >,
+    {
+        let key = record.record_key();
+        let exists = !self
+            .store
+            .engine
+            .match_records(QueryPlan::key(table, key.clone()))?
+            .records()
+            .is_empty();
+        if exists {
+            self.store.engine.mutate(Mutation::new(table, record))?;
+        } else {
+            self.store.engine.assert(Assertion::new(table, record))?;
+        }
+        Ok(())
+    }
+}
+
+trait RouterEngineRecord: sema_engine::EngineStoredRecord + Send + Sync + 'static
+where
+    Self::Archived: RkyvDeserialize<Self, HighDeserializer<rancor::Error>>
+        + for<'validation> CheckBytes<
+            Strategy<Validator<ArchiveValidator<'validation>, SharedValidator>, rancor::Error>,
+        >,
+{
+}
+
+impl<RecordValue> RouterEngineRecord for RecordValue
+where
+    RecordValue: sema_engine::EngineStoredRecord + Send + Sync + 'static,
+    RecordValue::Archived: RkyvDeserialize<RecordValue, HighDeserializer<rancor::Error>>
+        + for<'validation> CheckBytes<
+            Strategy<Validator<ArchiveValidator<'validation>, SharedValidator>, rancor::Error>,
+        >,
+{
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -249,6 +320,12 @@ impl StoredMessageRecord {
             origin: origin.clone(),
             signal_slot: signal_slot.map(MessageSlot::into_u64),
         }
+    }
+}
+
+impl EngineRecord for StoredMessageRecord {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.id.clone())
     }
 }
 
@@ -282,6 +359,12 @@ impl StoredChannelRecord {
     }
 }
 
+impl EngineRecord for StoredChannelRecord {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.id.clone())
+    }
+}
+
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
 #[rkyv(derive(Debug))]
 pub struct StoredChannelIndex {
@@ -308,6 +391,12 @@ impl StoredAdjudicationRequest {
     }
 }
 
+impl EngineRecord for StoredAdjudicationRequest {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.message.clone())
+    }
+}
+
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
 #[rkyv(derive(Debug))]
 pub struct StoredDeliveryAttempt {
@@ -321,6 +410,12 @@ impl StoredDeliveryAttempt {
             sequence,
             message: message.as_str().to_string(),
         }
+    }
+}
+
+impl EngineRecord for StoredDeliveryAttempt {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.sequence.to_string())
     }
 }
 
@@ -339,6 +434,12 @@ impl StoredDeliveryResult {
             message: message.as_str().to_string(),
             delivered,
         }
+    }
+}
+
+impl EngineRecord for StoredDeliveryResult {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.sequence.to_string())
     }
 }
 

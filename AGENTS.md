@@ -24,4 +24,4 @@ delivered harness prompt.
   belongs to the harness actor that can perform the delivery.
 - No polling. Blocked deliveries subscribe to pushed system or harness events.
 - Durable router state lives in `router.sema` through the router-owned
-  Sema table layer.
+  `sema-engine` table layer.

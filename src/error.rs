@@ -25,6 +25,9 @@ pub enum Error {
     #[error("router sema: {0}")]
     Sema(#[from] sema::Error),
 
+    #[error("router sema engine: {0}")]
+    SemaEngine(#[from] sema_engine::Error),
+
     #[error("actor call: {0}")]
     ActorCall(String),
 

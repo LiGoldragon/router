@@ -4,13 +4,8 @@
 
 `router` decides where Persona messages are delivered. It consumes
 typed frames from the message boundary, keeps pending deliveries, owns live
-authorized-channel state, and eventually persists router state in its own Sema
-database.
-
-> **Scope.** "Sema" here means today's `sema` library (rename
-> pending → `sema-db`). The eventual `Sema` is broader; today's
-> router is a realization step on the eventually-self-hosting
-> stack. See `~/primary/ESSENCE.md` §"Today and eventually".
+authorized-channel state, and persists router state in its own `router.sema`
+database through `sema-engine`.
 
 ## 0 · TL;DR
 
@@ -26,14 +21,14 @@ flowchart LR
     "RouterRuntime" -->|"apply meta policy"| "RouterRoot"
     "RouterRuntime" -->|"apply observation"| "RouterObservationPlane"
     "RouterObservationPlane" -->|"read facts"| "RouterRoot"
-    "RouterObservationPlane" -->|"read channel records"| "router Sema"
+    "RouterObservationPlane" -->|"read channel records"| "sema-engine"
     "RouterRoot" -->|"registered delivery targets"| "HarnessRegistry"
     "RouterRoot" -->|"channel check / adjudication"| "ChannelAuthority"
     "RouterRoot" -->|"typed adjudication request"| "MindAdjudicationOutbox"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
     "HarnessDelivery" -->|"typed terminal delivery request"| "harness"
-    "RouterRoot" -->|"router-owned records"| "router Sema"
+    "RouterRoot" -->|"router-owned records"| "sema-engine"
 ```
 
 ## 1 · Component Surface
@@ -134,11 +129,10 @@ The router's structural-channels install names a channel from
 `DirectMessage` kind. This distinguishes user-message ingress from internal
 component traffic at the channel level.
 
-A schema-version guard runs at `RouterTables::open()` (per
-`~/primary/skills/rust/storage-and-wire.md` §"Schema discipline"): the
-manager-known `RouterSchemaVersion` is compared against the value stored in
-`router.sema`'s `meta` table; mismatch fails closed. Schema bumps land as
-coordinated upgrades.
+`RouterTables::open()` opens `router.sema` through
+`sema-engine::Engine`, which applies the schema-version guard per
+`~/primary/skills/rust/storage-and-wire.md` §"Schema discipline".
+Schema bumps land as coordinated upgrades.
 
 ## 2 · State and Ownership
 
@@ -150,10 +144,11 @@ registered harness delivery targets. `ChannelAuthority` owns the live
 authorized-channel table, channel use accounting, and deduplicated
 adjudication requests. `HarnessDelivery` owns terminal delivery attempts and
 the blocking terminal/probe calls they require.
-Durable router state lives in the router actor's own Sema database through a
-router-owned Sema layer over the `sema` library; no shared database actor owns
-router transitions. Terminal byte movement and verification are delegated
-through `harness` and then through `terminal`, which owns the
+Durable router state lives in the router actor's own SEMA database through
+`sema-engine::Engine`; no shared database actor owns router transitions and
+the daemon does not open the storage kernel directly. Terminal byte movement
+and verification are delegated through `harness` and then through `terminal`,
+which owns the
 terminal transport adapter around `terminal-cell`.
 The router-to-harness delivery leg speaks the `signal-harness`
 contract on the new `signal-frame` request/reply kernel; it does not
@@ -161,12 +156,14 @@ construct universal verb-classification wrappers for harness delivery.
 
 Stored router records are typed contract records from the relation-specific
 Signal contracts and the `signal-persona-origin` provenance family. The router
-actor decodes Signal frames, commits through router-owned typed Sema tables,
-and emits follow-up frames only after the database commit succeeds.
+actor decodes Signal frames, commits through `RouterTables` into
+sema-engine-registered record families, and emits follow-up frames only after
+the database commit succeeds.
 
 Current MVP code still keeps the live pending queue in memory. Accepted
 messages, channel grants, adjudication requests, delivery attempts, and
-delivery results have a router-owned Sema table layer. `ChannelAuthority` can
+delivery results have a router-owned `sema-engine` table layer.
+`ChannelAuthority` can
 be constructed with that table layer so grants and adjudication requests are
 persisted through the actor path, and `RouterRoot` writes accepted message rows
 before retrying delivery. `RouterRuntime` and the daemon can receive a
@@ -182,7 +179,7 @@ table reads: `MessageCommitted` must appear for a message before any
 `DeliveryAttempted` event for that same message; a message without an active
 channel records `AdjudicationRequested` without reaching `HarnessDelivery`; a
 named table test writes channel and adjudication records through `RouterTables`
-and reads them back from router-owned Sema.
+and reads them back from router-owned SEMA.
 
 The current router can consume a typed `signal-mind::ChannelGrant` and
 project it into the temporary `ActorIdentifier` channel table. The grant is installed
@@ -196,16 +193,15 @@ the `signal-mind` contract.
 The router can also consume `signal-mind::AdjudicationDeny` for a
 parked message and remove that message without touching the delivery actor.
 
-When the remaining router-owned Sema tables are wired into `RouterRoot`, these
-trace witnesses graduate into chained artifact witnesses where one step writes
-the router SEMA store and another step reads committed message, channel,
-adjudication, and delivery state through the authoritative table layer.
-
 Current router-owned durable table names are `messages`, `channels`,
 `channels_by_triple`, `adjudication_pending`, `delivery_attempts`,
-`delivery_results`, and `meta`. Message acceptance, channel grants,
-adjudication requests, delivery attempts, and delivery results are written
-through the current runtime actor path. Pending delivery and
+and `delivery_results`. `channels_by_triple` is the one remaining
+local-index table written through `Engine::storage_kernel()` because the
+current engine commit shape is single-table; the durable record families are
+registered in the engine catalog and single-table writes/read plans go through
+`Engine`. Message acceptance, channel grants, adjudication requests, delivery
+attempts, and delivery results are written through the current runtime actor
+path. Pending delivery and
 delivered/failed/deferred status records still need to be wired into
 `RouterRoot`. Successful delivery is another router state transition: after
 `harness` reports the terminal effect, the router commits the delivery

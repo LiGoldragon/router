@@ -800,6 +800,51 @@ async fn channel_authority_persists_grants_and_adjudication_requests() {
 }
 
 #[test]
+fn router_tables_register_engine_families_and_advance_commit_sequence() {
+    let store = TemporaryRouterStore::new("engine-backed-tables");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let mut table_names = tables.registered_table_names();
+    table_names.sort();
+
+    assert_eq!(
+        table_names,
+        [
+            "adjudication_pending",
+            "channels",
+            "delivery_attempts",
+            "delivery_results",
+            "messages",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        tables
+            .current_commit_sequence()
+            .expect("commit sequence reads"),
+        sema_engine::CommitSequence::genesis()
+    );
+
+    let request = router::AdjudicationRequest {
+        message: MessageIdentifier::new("m-engine"),
+        from: ActorIdentifier::new("operator"),
+        to: ActorIdentifier::new("reviewer"),
+        kind: router::ChannelKind::DirectMessage,
+    };
+    tables
+        .insert_adjudication(&request)
+        .expect("adjudication record persists through sema-engine");
+
+    assert_eq!(
+        tables
+            .current_commit_sequence()
+            .expect("commit sequence reads after write"),
+        sema_engine::CommitSequence::new(1)
+    );
+}
+
+#[test]
 fn router_tables_persist_channel_and_adjudication_record_values() {
     let store = TemporaryRouterStore::new("tables");
     let tables = RouterTables::open(store.path()).expect("router tables open");
