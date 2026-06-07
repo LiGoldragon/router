@@ -1,5 +1,5 @@
-use router::{Result, RouterDaemonCommand};
+use router::{RouterDaemonCommand, RouterResult};
 
-fn main() -> Result<()> {
+fn main() -> RouterResult<()> {
     RouterDaemonCommand::from_environment().run()
 }

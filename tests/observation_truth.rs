@@ -27,6 +27,7 @@ use router::{
     RouterDaemonInput, RouterIngressContext, RouterInput, RouterObservationFrameCodec,
     RouterOutput, RouterRuntime, RouterTables, SignalMessageInput, Status, ThreadIdentifier,
 };
+use signal_engine_management::TimestampNanos;
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
 };
@@ -34,7 +35,6 @@ use signal_message::{
     MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageReply, MessageRequest,
     MessageSlot, MessageSubmission, StampedMessageSubmission,
 };
-use signal_persona::TimestampNanos;
 use signal_persona_origin::{ChannelIdentifier, ConnectionClass, EngineIdentifier, MessageOrigin};
 use signal_router::{
     RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus, RouterFrame,
@@ -87,7 +87,7 @@ impl ObservationFixture {
         }
     }
 
-    async fn apply(&self, input: RouterInput) -> router::Result<RouterOutput> {
+    async fn apply(&self, input: RouterInput) -> router::RouterResult<RouterOutput> {
         self.runtime
             .ask(ApplyRouterInput { input })
             .await
@@ -95,7 +95,7 @@ impl ObservationFixture {
             .into_result()
     }
 
-    async fn apply_signal(&self, input: SignalMessageInput) -> router::Result<MessageReply> {
+    async fn apply_signal(&self, input: SignalMessageInput) -> router::RouterResult<MessageReply> {
         self.runtime
             .ask(router::ApplySignalMessage { input })
             .await
@@ -103,7 +103,7 @@ impl ObservationFixture {
             .into_result()
     }
 
-    async fn apply_meta(&self, input: MetaInput) -> router::Result<MetaOutput> {
+    async fn apply_meta(&self, input: MetaInput) -> router::RouterResult<MetaOutput> {
         self.runtime
             .ask(ApplyMetaRouterPolicy { input })
             .await
@@ -111,7 +111,7 @@ impl ObservationFixture {
             .into_result()
     }
 
-    async fn observe(&self, request: RouterRequest) -> router::Result<RouterReply> {
+    async fn observe(&self, request: RouterRequest) -> router::RouterResult<RouterReply> {
         self.runtime
             .ask(ApplyRouterObservation { request })
             .await

@@ -1,8 +1,17 @@
-use nota_codec::{Decoder, Encoder, NotaEncode, NotaEnum, NotaRecord, NotaTransparent};
+use nota_next::{Block, Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 
 #[derive(
-    Archive, RkyvSerialize, RkyvDeserialize, NotaTransparent, Debug, Clone, PartialEq, Eq, Hash,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+    NotaEncode,
+    NotaDecode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
 )]
 pub struct ActorIdentifier(String);
 
@@ -17,7 +26,16 @@ impl ActorIdentifier {
 }
 
 #[derive(
-    Archive, RkyvSerialize, RkyvDeserialize, NotaTransparent, Debug, Clone, PartialEq, Eq, Hash,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+    NotaEncode,
+    NotaDecode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
 )]
 pub struct MessageIdentifier(String);
 
@@ -48,7 +66,16 @@ impl MessageIdentifier {
 }
 
 #[derive(
-    Archive, RkyvSerialize, RkyvDeserialize, NotaTransparent, Debug, Clone, PartialEq, Eq, Hash,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+    NotaEncode,
+    NotaDecode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
 )]
 pub struct ThreadIdentifier(String);
 
@@ -62,34 +89,76 @@ impl ThreadIdentifier {
     }
 }
 
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Actor {
     pub name: ActorIdentifier,
     pub pid: u32,
     pub endpoint: Option<EndpointTransport>,
 }
 
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaRecord, Debug, Clone, PartialEq, Eq)]
+impl NotaDecode for Actor {
+    fn from_nota_block(block: &Block) -> std::result::Result<Self, NotaDecodeError> {
+        let fields = NotaBlock::new(block).expect_children(Delimiter::Parenthesis, "Actor", 3)?;
+        let pid = NotaBlock::new(&fields[1]).parse_integer()?;
+        let pid = u32::try_from(pid).map_err(|_| NotaDecodeError::InvalidInteger {
+            value: pid.to_string(),
+        })?;
+        Ok(Self {
+            name: ActorIdentifier::from_nota_block(&fields[0])?,
+            pid,
+            endpoint: Option::<EndpointTransport>::from_nota_block(&fields[2])?,
+        })
+    }
+}
+
+impl NotaEncode for Actor {
+    fn to_nota(&self) -> String {
+        Delimiter::Parenthesis.wrap([
+            self.name.to_nota(),
+            self.pid.to_string(),
+            self.endpoint.to_nota(),
+        ])
+    }
+}
+
+#[derive(
+    Archive, RkyvSerialize, RkyvDeserialize, NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq,
+)]
 pub struct EndpointTransport {
     pub kind: EndpointKind,
     pub target: String,
     pub aux: Option<String>,
 }
 
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+    NotaEncode,
+    NotaDecode,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+)]
 pub enum EndpointKind {
     Human,
     HarnessSocket,
     PtySocket,
 }
 
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    Archive, RkyvSerialize, RkyvDeserialize, NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq,
+)]
 pub struct Attachment {
     pub path: String,
     pub media_type: Option<String>,
 }
 
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    Archive, RkyvSerialize, RkyvDeserialize, NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq,
+)]
 pub struct Message {
     pub id: MessageIdentifier,
     pub thread: ThreadIdentifier,
@@ -126,10 +195,8 @@ impl Message {
         self.to.as_str()
     }
 
-    pub fn to_nota(&self) -> nota_codec::Result<String> {
-        let mut encoder = Encoder::new();
-        self.encode(&mut encoder)?;
-        Ok(encoder.into_string())
+    pub fn to_nota(&self) -> String {
+        NotaEncode::to_nota(self)
     }
 }
 
@@ -195,14 +262,4 @@ impl ShortMessageHash {
         }
         text
     }
-}
-
-pub fn expect_end(decoder: &mut Decoder<'_>) -> nota_codec::Result<()> {
-    if let Some(token) = decoder.peek_token()? {
-        return Err(nota_codec::Error::UnexpectedToken {
-            expected: "end of input",
-            got: token,
-        });
-    }
-    Ok(())
 }

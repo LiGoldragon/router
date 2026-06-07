@@ -19,7 +19,8 @@ use router::{
 };
 use signal_engine_management::{
     ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
-    EngineManagementProtocolVersion, Presence, TimestampNanos,
+    EngineManagementProtocolVersion, Presence, SocketMode as WireSocketMode, TimestampNanos,
+    WirePath,
 };
 use signal_engine_management::{
     Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
@@ -34,7 +35,6 @@ use signal_message::{
     Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
     MessageRequest, MessageSubmission, StampedMessageSubmission,
 };
-use signal_persona::{SocketMode as WireSocketMode, WirePath};
 use signal_persona_origin::{ComponentName, MessageOrigin, OwnerIdentity, UnixUserIdentifier};
 use signal_router::RouterBootstrapDocument;
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
@@ -109,7 +109,7 @@ fn router_output_encodes_delivery_changed() {
         pending: 0,
     });
 
-    assert_eq!(output.to_nota().expect("output encodes"), "(1 0)");
+    assert_eq!(output.to_nota(), "(1 0)");
 }
 
 #[test]

@@ -18,9 +18,6 @@ pub mod schema {
     pub mod sema;
     #[rustfmt::skip]
     pub mod nexus;
-    #[rustfmt::skip]
-    #[allow(dead_code)]
-    pub mod daemon;
 }
 
 pub use adjudication::{
@@ -40,7 +37,7 @@ pub use channel::{
 };
 pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
 pub use delivery::{DeliveryDecision, PendingDelivery};
-pub use error::{Error, Result};
+pub use error::{Error, RouterResult};
 pub use harness_delivery::{DeliverHarness, HarnessDelivery, HarnessDeliveryOutcome};
 pub use harness_registry::{
     HarnessDeliveryTarget, HarnessRegistration, HarnessRegistry, ReadHarnessDeliveryTarget,

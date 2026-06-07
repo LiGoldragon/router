@@ -4,11 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use nota_codec::NotaEnum;
+use nota_next::{NotaDecode, NotaEncode};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_persona_origin::ChannelIdentifier;
 
-use crate::{ActorIdentifier, Message, MessageIdentifier, Result, RouterTables};
+use crate::{ActorIdentifier, Message, MessageIdentifier, RouterResult, RouterTables};
 
 #[derive(Debug)]
 pub struct ChannelAuthority {
@@ -60,7 +60,7 @@ impl ChannelAuthority {
         }
     }
 
-    fn authorize(&mut self, grant: GrantChannel) -> Result<ChannelIdentifier> {
+    fn authorize(&mut self, grant: GrantChannel) -> RouterResult<ChannelIdentifier> {
         self.channel_sequence = self.channel_sequence.saturating_add(1);
         let triple = grant.triple();
         let channel_identifier = ChannelIdentifier::new(format!(
@@ -92,7 +92,10 @@ impl ChannelAuthority {
         true
     }
 
-    fn retract_by_identifier(&mut self, retraction: RetractChannelByIdentifier) -> Result<bool> {
+    fn retract_by_identifier(
+        &mut self,
+        retraction: RetractChannelByIdentifier,
+    ) -> RouterResult<bool> {
         let Some(channel) = self.channel_record_mut(&retraction.channel) else {
             return Ok(false);
         };
@@ -103,7 +106,7 @@ impl ChannelAuthority {
         Ok(true)
     }
 
-    fn extend(&mut self, extension: ExtendChannel) -> Result<bool> {
+    fn extend(&mut self, extension: ExtendChannel) -> RouterResult<bool> {
         let Some(channel) = self.channel_record_mut(&extension.channel) else {
             return Ok(false);
         };
@@ -114,7 +117,10 @@ impl ChannelAuthority {
         Ok(true)
     }
 
-    fn clear_adjudication_request(&mut self, clear: ClearAdjudicationRequest) -> Result<bool> {
+    fn clear_adjudication_request(
+        &mut self,
+        clear: ClearAdjudicationRequest,
+    ) -> RouterResult<bool> {
         let Some(position) = self
             .adjudication_requests
             .iter()
@@ -130,7 +136,7 @@ impl ChannelAuthority {
         Ok(true)
     }
 
-    fn check(&mut self, message: &Message) -> Result<ChannelDecision> {
+    fn check(&mut self, message: &Message) -> RouterResult<ChannelDecision> {
         self.check_count = self.check_count.saturating_add(1);
         let triple = ChannelTriple::direct_message(message.from.clone(), message.to.clone());
         let Some(channel) = self.channels.get_mut(&triple) else {
@@ -159,7 +165,7 @@ impl ChannelAuthority {
     fn install_structural_channels(
         &mut self,
         installation: InstallStructuralChannels,
-    ) -> Result<StructuralChannelInstallation> {
+    ) -> RouterResult<StructuralChannelInstallation> {
         let mut installed = 0;
         for grant in installation.channels.into_grants() {
             self.authorize(grant)?;
@@ -188,7 +194,7 @@ impl ChannelAuthority {
         &mut self,
         message: &Message,
         triple: ChannelTriple,
-    ) -> Result<AdjudicationRequest> {
+    ) -> RouterResult<AdjudicationRequest> {
         let request = AdjudicationRequest {
             message: message.id.clone(),
             from: message.from.clone(),
@@ -297,7 +303,17 @@ impl ChannelTriple {
 }
 
 #[derive(
-    Archive, RkyvSerialize, RkyvDeserialize, NotaEnum, Debug, Clone, Copy, PartialEq, Eq, Hash,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+    NotaEncode,
+    NotaDecode,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
 )]
 #[rkyv(derive(Debug))]
 pub enum ChannelKind {
@@ -415,15 +431,15 @@ pub struct StructuralChannelInstallation {
 
 #[derive(Debug, kameo::Reply)]
 pub struct StructuralChannelInstallationOutcome {
-    result: Result<StructuralChannelInstallation>,
+    result: RouterResult<StructuralChannelInstallation>,
 }
 
 impl StructuralChannelInstallationOutcome {
-    fn new(result: Result<StructuralChannelInstallation>) -> Self {
+    fn new(result: RouterResult<StructuralChannelInstallation>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<StructuralChannelInstallation> {
+    pub fn into_result(self) -> RouterResult<StructuralChannelInstallation> {
         self.result
     }
 }
@@ -471,60 +487,60 @@ impl GrantChannel {
 
 #[derive(Debug, kameo::Reply)]
 pub struct ChannelGrantOutcome {
-    result: Result<ChannelIdentifier>,
+    result: RouterResult<ChannelIdentifier>,
 }
 
 impl ChannelGrantOutcome {
-    fn new(result: Result<ChannelIdentifier>) -> Self {
+    fn new(result: RouterResult<ChannelIdentifier>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<ChannelIdentifier> {
+    pub fn into_result(self) -> RouterResult<ChannelIdentifier> {
         self.result
     }
 }
 
 #[derive(Debug, kameo::Reply)]
 pub struct ChannelExtensionOutcome {
-    result: Result<bool>,
+    result: RouterResult<bool>,
 }
 
 impl ChannelExtensionOutcome {
-    fn new(result: Result<bool>) -> Self {
+    fn new(result: RouterResult<bool>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<bool> {
+    pub fn into_result(self) -> RouterResult<bool> {
         self.result
     }
 }
 
 #[derive(Debug, kameo::Reply)]
 pub struct ChannelRetractionOutcome {
-    result: Result<bool>,
+    result: RouterResult<bool>,
 }
 
 impl ChannelRetractionOutcome {
-    fn new(result: Result<bool>) -> Self {
+    fn new(result: RouterResult<bool>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<bool> {
+    pub fn into_result(self) -> RouterResult<bool> {
         self.result
     }
 }
 
 #[derive(Debug, kameo::Reply)]
 pub struct ChannelAdjudicationClearOutcome {
-    result: Result<bool>,
+    result: RouterResult<bool>,
 }
 
 impl ChannelAdjudicationClearOutcome {
-    fn new(result: Result<bool>) -> Self {
+    fn new(result: RouterResult<bool>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<bool> {
+    pub fn into_result(self) -> RouterResult<bool> {
         self.result
     }
 }
@@ -602,15 +618,15 @@ pub enum ChannelDecision {
 
 #[derive(Debug, kameo::Reply)]
 pub struct ChannelCheckOutcome {
-    result: Result<ChannelDecision>,
+    result: RouterResult<ChannelDecision>,
 }
 
 impl ChannelCheckOutcome {
-    fn new(result: Result<ChannelDecision>) -> Self {
+    fn new(result: RouterResult<ChannelDecision>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<ChannelDecision> {
+    pub fn into_result(self) -> RouterResult<ChannelDecision> {
         self.result
     }
 }
@@ -659,15 +675,15 @@ pub struct ChannelPersistenceSnapshot {
 
 #[derive(Debug, kameo::Reply)]
 pub struct ChannelPersistenceOutcome {
-    result: Result<ChannelPersistenceSnapshot>,
+    result: RouterResult<ChannelPersistenceSnapshot>,
 }
 
 impl ChannelPersistenceOutcome {
-    fn new(result: Result<ChannelPersistenceSnapshot>) -> Self {
+    fn new(result: RouterResult<ChannelPersistenceSnapshot>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<ChannelPersistenceSnapshot> {
+    pub fn into_result(self) -> RouterResult<ChannelPersistenceSnapshot> {
         self.result
     }
 }

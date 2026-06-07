@@ -19,7 +19,7 @@ use meta_signal_router::{
     Input as MetaInput, OperationKind as MetaOperationKind, Output as MetaOutput,
     RejectedChannelOrder as MetaRejectedChannelOrder, RevokedChannel as MetaRevokedChannel,
 };
-use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
+use nota_next::{Block, Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
     SubReply,
@@ -67,7 +67,6 @@ use crate::harness_registry::{
     HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
     RegisterHarness,
 };
-use crate::message::expect_end;
 use crate::observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
     RouterObservationPlane, RouterObservationPlaneStatus,
@@ -75,7 +74,7 @@ use crate::observation::{
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
-    Result, RouterTables, ThreadIdentifier,
+    RouterResult, RouterTables, ThreadIdentifier,
 };
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
@@ -103,7 +102,7 @@ impl RouterDaemon {
     /// Canonical constructor — every production launch reads typed
     /// `RouterDaemonConfiguration` from the binary daemon command and
     /// hands the decoded record here.
-    pub fn from_configuration(configuration: RouterDaemonConfiguration) -> Result<Self> {
+    pub fn from_configuration(configuration: RouterDaemonConfiguration) -> RouterResult<Self> {
         let tables = RouterTables::open(PathBuf::from(configuration.store_path.as_str()))?;
         let bootstrap = configuration
             .bootstrap_path
@@ -174,11 +173,11 @@ impl RouterDaemon {
         self
     }
 
-    pub fn with_store_path(self, path: impl Into<PathBuf>) -> Result<Self> {
+    pub fn with_store_path(self, path: impl Into<PathBuf>) -> RouterResult<Self> {
         Ok(self.with_tables(RouterTables::open(path.into())?))
     }
 
-    pub fn run(self) -> Result<()> {
+    pub fn run(self) -> RouterResult<()> {
         let supervision = self.supervision.clone();
         let listener = self.bind_listener()?;
         let meta_listener = self.bind_meta_listener()?;
@@ -199,11 +198,11 @@ impl RouterDaemon {
         Ok(())
     }
 
-    pub fn bind_listener(&self) -> Result<UnixListener> {
+    pub fn bind_listener(&self) -> RouterResult<UnixListener> {
         RouterSocketBinding::new(self.socket.clone(), self.socket_mode).bind()
     }
 
-    pub fn bind_meta_listener(&self) -> Result<Option<UnixListener>> {
+    pub fn bind_meta_listener(&self) -> RouterResult<Option<UnixListener>> {
         let Some(socket) = &self.meta_socket else {
             return Ok(None);
         };
@@ -217,7 +216,7 @@ impl RouterDaemon {
         router: &ActorRef<RouterRuntime>,
         stream: UnixStream,
         ingress: RouterIngressContext,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         let mut connection = RouterConnection::from_stream_with_ingress(stream, ingress);
         match connection.read_input()? {
             RouterDaemonInput::SignalMessage(input) => {
@@ -250,7 +249,7 @@ impl RouterSocketBinding {
         Self { socket, mode }
     }
 
-    fn bind(&self) -> Result<UnixListener> {
+    fn bind(&self) -> RouterResult<UnixListener> {
         if let Some(parent) = self.socket.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -285,11 +284,11 @@ impl RouterMetaServer {
         }
     }
 
-    fn spawn(self) -> JoinHandle<Result<()>> {
+    fn spawn(self) -> JoinHandle<RouterResult<()>> {
         std::thread::spawn(move || self.run())
     }
 
-    fn run(self) -> Result<()> {
+    fn run(self) -> RouterResult<()> {
         for stream in self.listener.incoming() {
             match stream {
                 Ok(stream) => {
@@ -303,7 +302,7 @@ impl RouterMetaServer {
         Ok(())
     }
 
-    fn handle_stream(&self, stream: UnixStream) -> Result<()> {
+    fn handle_stream(&self, stream: UnixStream) -> RouterResult<()> {
         let mut connection = RouterMetaConnection::from_stream(stream);
         let input = connection.read_input()?;
         let output = self
@@ -352,7 +351,7 @@ impl RouterConnection {
         }
     }
 
-    pub fn read_input(&mut self) -> Result<RouterDaemonInput> {
+    pub fn read_input(&mut self) -> RouterResult<RouterDaemonInput> {
         let bytes = self.signal.read_frame_bytes(&mut self.stream)?;
         match self.try_signal_message_input(&bytes) {
             Ok(received) => {
@@ -376,7 +375,7 @@ impl RouterConnection {
         }
     }
 
-    pub fn read_signal_input(&mut self) -> Result<SignalMessageInput> {
+    pub fn read_signal_input(&mut self) -> RouterResult<SignalMessageInput> {
         match self.read_input()? {
             RouterDaemonInput::SignalMessage(input) => Ok(input),
             RouterDaemonInput::RouterObservation(request) => Err(Error::UnexpectedSignalFrame {
@@ -385,7 +384,7 @@ impl RouterConnection {
         }
     }
 
-    pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> Result<()> {
+    pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> RouterResult<()> {
         let stream = self.stream.get_mut();
         let Some(PendingRouterDaemonReply::SignalMessage { exchange }) = self.pending_reply.take()
         else {
@@ -396,7 +395,7 @@ impl RouterConnection {
         self.signal.write_reply(stream, exchange, reply)
     }
 
-    pub fn write_router_observation_reply(&mut self, reply: SignalRouterReply) -> Result<()> {
+    pub fn write_router_observation_reply(&mut self, reply: SignalRouterReply) -> RouterResult<()> {
         let stream = self.stream.get_mut();
         let Some(PendingRouterDaemonReply::RouterObservation { exchange }) =
             self.pending_reply.take()
@@ -441,13 +440,13 @@ impl RouterMetaConnection {
         }
     }
 
-    pub fn read_input(&mut self) -> Result<MetaInput> {
+    pub fn read_input(&mut self) -> RouterResult<MetaInput> {
         let body = self.codec.read_body(&mut self.stream)?;
         let (_route, input) = MetaInput::decode_signal_frame(body.bytes())?;
         Ok(input)
     }
 
-    pub fn write_output(&mut self, output: MetaOutput) -> Result<()> {
+    pub fn write_output(&mut self, output: MetaOutput) -> RouterResult<()> {
         let frame = output.encode_signal_frame()?;
         self.codec
             .write_body(self.stream.get_mut(), &RuntimeFrameBody::new(frame))?;
@@ -572,7 +571,7 @@ impl SignalMessageFrameCodec {
         }
     }
 
-    pub fn read_frame_bytes(&self, reader: &mut impl Read) -> Result<Vec<u8>> {
+    pub fn read_frame_bytes(&self, reader: &mut impl Read) -> RouterResult<Vec<u8>> {
         let mut prefix = [0_u8; 4];
         reader.read_exact(&mut prefix)?;
         let length = u32::from_be_bytes(prefix) as usize;
@@ -586,12 +585,16 @@ impl SignalMessageFrameCodec {
         Ok(bytes)
     }
 
-    pub fn read_frame(&self, reader: &mut impl Read) -> Result<SignalMessageFrame> {
+    pub fn read_frame(&self, reader: &mut impl Read) -> RouterResult<SignalMessageFrame> {
         let bytes = self.read_frame_bytes(reader)?;
         Ok(SignalMessageFrame::decode_length_prefixed(&bytes)?)
     }
 
-    pub fn write_frame(&self, writer: &mut impl Write, frame: &SignalMessageFrame) -> Result<()> {
+    pub fn write_frame(
+        &self,
+        writer: &mut impl Write,
+        frame: &SignalMessageFrame,
+    ) -> RouterResult<()> {
         let bytes = frame.encode_length_prefixed()?;
         writer.write_all(&bytes)?;
         writer.flush()?;
@@ -603,7 +606,7 @@ impl SignalMessageFrameCodec {
         stream: &mut UnixStream,
         exchange: ExchangeIdentifier,
         reply: SignalMessageReply,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         let frame = SignalMessageFrame::new(FrameBody::Reply {
             exchange,
             reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
@@ -630,7 +633,7 @@ impl RouterObservationFrameCodec {
         }
     }
 
-    pub fn read_frame(&self, reader: &mut impl Read) -> Result<SignalRouterFrame> {
+    pub fn read_frame(&self, reader: &mut impl Read) -> RouterResult<SignalRouterFrame> {
         let mut prefix = [0_u8; 4];
         reader.read_exact(&mut prefix)?;
         let length = u32::from_be_bytes(prefix) as usize;
@@ -644,7 +647,11 @@ impl RouterObservationFrameCodec {
         Ok(SignalRouterFrame::decode_length_prefixed(&bytes)?)
     }
 
-    pub fn write_frame(&self, writer: &mut impl Write, frame: &SignalRouterFrame) -> Result<()> {
+    pub fn write_frame(
+        &self,
+        writer: &mut impl Write,
+        frame: &SignalRouterFrame,
+    ) -> RouterResult<()> {
         let bytes = frame.encode_length_prefixed()?;
         writer.write_all(&bytes)?;
         writer.flush()?;
@@ -656,7 +663,7 @@ impl RouterObservationFrameCodec {
         stream: &mut UnixStream,
         exchange: ExchangeIdentifier,
         reply: SignalRouterReply,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         let frame = SignalRouterFrame::new(SignalRouterFrameBody::Reply {
             exchange,
             reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
@@ -718,7 +725,7 @@ impl SignalMessageInput {
     fn from_frame_with_ingress(
         frame: SignalMessageFrame,
         ingress: RouterIngressContext,
-    ) -> Result<ReceivedSignalMessageInput> {
+    ) -> RouterResult<ReceivedSignalMessageInput> {
         match frame.into_body() {
             FrameBody::Request { exchange, request } => {
                 let (request, tail) = request.payloads.into_head_and_tail();
@@ -750,7 +757,7 @@ struct ReceivedSignalMessageInput {
 
 fn received_router_observation_from_frame(
     frame: SignalRouterFrame,
-) -> Result<ReceivedRouterObservationInput> {
+) -> RouterResult<ReceivedRouterObservationInput> {
     match frame.into_body() {
         SignalRouterFrameBody::Request { exchange, request } => {
             let (request, tail) = request.payloads.into_head_and_tail();
@@ -855,13 +862,13 @@ impl RouterRuntime {
         self.started_child_count = 6;
     }
 
-    fn root(&self) -> Result<&ActorRef<RouterRoot>> {
+    fn root(&self) -> RouterResult<&ActorRef<RouterRoot>> {
         self.root.as_ref().ok_or(Error::RuntimeChildNotStarted {
             child: "RouterRoot",
         })
     }
 
-    fn observation(&self) -> Result<&ActorRef<RouterObservationPlane>> {
+    fn observation(&self) -> RouterResult<&ActorRef<RouterObservationPlane>> {
         self.observation
             .as_ref()
             .ok_or(Error::RuntimeChildNotStarted {
@@ -914,45 +921,45 @@ pub struct ApplyMetaRouterPolicy {
 
 #[derive(Debug, kameo::Reply)]
 pub struct RouterApplyOutcome {
-    result: Result<RouterOutput>,
+    result: RouterResult<RouterOutput>,
 }
 
 impl RouterApplyOutcome {
-    fn new(result: Result<RouterOutput>) -> Self {
+    fn new(result: RouterResult<RouterOutput>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<RouterOutput> {
+    pub fn into_result(self) -> RouterResult<RouterOutput> {
         self.result
     }
 }
 
 #[derive(Debug, kameo::Reply)]
 pub struct SignalMessageOutcome {
-    result: Result<SignalMessageReply>,
+    result: RouterResult<SignalMessageReply>,
 }
 
 impl SignalMessageOutcome {
-    fn new(result: Result<SignalMessageReply>) -> Self {
+    fn new(result: RouterResult<SignalMessageReply>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<SignalMessageReply> {
+    pub fn into_result(self) -> RouterResult<SignalMessageReply> {
         self.result
     }
 }
 
 #[derive(Debug, kameo::Reply)]
 pub struct MetaRouterPolicyOutcome {
-    result: Result<MetaOutput>,
+    result: RouterResult<MetaOutput>,
 }
 
 impl MetaRouterPolicyOutcome {
-    fn new(result: Result<MetaOutput>) -> Self {
+    fn new(result: RouterResult<MetaOutput>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<MetaOutput> {
+    pub fn into_result(self) -> RouterResult<MetaOutput> {
         self.result
     }
 }
@@ -1127,7 +1134,7 @@ impl RouterRoot {
         }
     }
 
-    async fn apply(&mut self, input: RouterInput) -> Result<RouterOutput> {
+    async fn apply(&mut self, input: RouterInput) -> RouterResult<RouterOutput> {
         match input {
             RouterInput::RegisterActor(input) => {
                 let actors = self
@@ -1236,7 +1243,10 @@ impl RouterRoot {
         }
     }
 
-    async fn apply_signal(&mut self, input: SignalMessageInput) -> Result<SignalMessageReply> {
+    async fn apply_signal(
+        &mut self,
+        input: SignalMessageInput,
+    ) -> RouterResult<SignalMessageReply> {
         match input.request {
             SignalMessageRequest::Submit(_) => Ok(Self::unimplemented_message_request(
                 MessageOperationKind::Submit,
@@ -1252,7 +1262,7 @@ impl RouterRoot {
         }
     }
 
-    async fn apply_meta(&mut self, input: MetaInput) -> Result<MetaOutput> {
+    async fn apply_meta(&mut self, input: MetaInput) -> RouterResult<MetaOutput> {
         match input {
             MetaInput::Grant(grant) => self.apply_meta_grant(grant).await,
             MetaInput::Extend(extension) => self.apply_meta_extension(extension).await,
@@ -1261,7 +1271,7 @@ impl RouterRoot {
         }
     }
 
-    async fn apply_meta_grant(&mut self, grant: MetaChannelGrant) -> Result<MetaOutput> {
+    async fn apply_meta_grant(&mut self, grant: MetaChannelGrant) -> RouterResult<MetaOutput> {
         let channel = match Self::channel_grant_from_meta(grant) {
             Ok(channel) => channel,
             Err(reason) => {
@@ -1282,7 +1292,7 @@ impl RouterRoot {
     async fn apply_meta_extension(
         &mut self,
         extension: MetaChannelExtension,
-    ) -> Result<MetaOutput> {
+    ) -> RouterResult<MetaOutput> {
         let channel = extension.channel;
         let extended = self
             .channels
@@ -1308,7 +1318,7 @@ impl RouterRoot {
     async fn apply_meta_revocation(
         &mut self,
         revocation: MetaChannelRevocation,
-    ) -> Result<MetaOutput> {
+    ) -> RouterResult<MetaOutput> {
         let channel = revocation.channel;
         let revoked = self
             .channels
@@ -1328,7 +1338,10 @@ impl RouterRoot {
         }
     }
 
-    async fn apply_meta_denial(&mut self, denial: MetaAdjudicationDenial) -> Result<MetaOutput> {
+    async fn apply_meta_denial(
+        &mut self,
+        denial: MetaAdjudicationDenial,
+    ) -> RouterResult<MetaOutput> {
         let request = denial.request;
         let rejected = self
             .deny_adjudication(&MindAdjudicationDeny {
@@ -1435,7 +1448,7 @@ impl RouterRoot {
     async fn apply_stamped_message_submission(
         &mut self,
         stamped: StampedMessageSubmission,
-    ) -> Result<SignalMessageReply> {
+    ) -> RouterResult<SignalMessageReply> {
         if stamped.submission.kind != MessageKind::Send {
             return Ok(Self::unimplemented_message_request(
                 MessageOperationKind::SubmitStamped,
@@ -1507,7 +1520,7 @@ impl RouterRoot {
         message: &Message,
         origin: &MessageOrigin,
         signal_slot: Option<SignalSlot>,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         if let Some(tables) = &self.tables {
             tables.insert_message(message, origin, signal_slot)?;
         }
@@ -1541,7 +1554,7 @@ impl RouterRoot {
             .retain(|slot| !slot.matches(message_identifier));
     }
 
-    async fn retry_pending(&mut self) -> Result<u64> {
+    async fn retry_pending(&mut self) -> RouterResult<u64> {
         let mut delivered = 0;
         let mut next = Vec::new();
         let mut messages = std::mem::take(&mut self.pending).into_iter();
@@ -1675,7 +1688,7 @@ impl RouterRoot {
         self.pending = next;
     }
 
-    async fn deny_adjudication(&mut self, deny: &MindAdjudicationDeny) -> Result<u64> {
+    async fn deny_adjudication(&mut self, deny: &MindAdjudicationDeny) -> RouterResult<u64> {
         let rejected = self.reject_pending_adjudication(deny);
         if rejected == 0 {
             return Ok(0);
@@ -1763,7 +1776,7 @@ impl RouterBootstrap {
         Self { path: path.into() }
     }
 
-    pub fn operations(&self) -> Result<Vec<RouterBootstrapOperation>> {
+    pub fn operations(&self) -> RouterResult<Vec<RouterBootstrapOperation>> {
         let bytes = std::fs::read(&self.path).map_err(|source| Error::BootstrapRead {
             path: self.path.clone(),
             source,
@@ -1779,7 +1792,7 @@ impl RouterBootstrap {
         &self,
         runtime: &tokio::runtime::Runtime,
         router: &ActorRef<RouterRuntime>,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         for operation in self.operations()? {
             let input = RouterInput::from_bootstrap_operation(operation);
             runtime
@@ -1811,14 +1824,14 @@ impl RouterCommandLine {
         }
     }
 
-    pub fn run(&self, output: impl Write) -> Result<()> {
+    pub fn run(&self, output: impl Write) -> RouterResult<()> {
         match self.command()? {
             RouterCommand::Daemon(daemon) => daemon.run(),
             RouterCommand::Client(command) => command.run(output),
         }
     }
 
-    fn command(&self) -> Result<RouterCommand> {
+    fn command(&self) -> RouterResult<RouterCommand> {
         if self
             .arguments
             .first()
@@ -1836,12 +1849,12 @@ impl RouterCommandLine {
         self.client_command()
     }
 
-    fn daemon_command_after_name(&self) -> Result<RouterCommand> {
+    fn daemon_command_after_name(&self) -> RouterResult<RouterCommand> {
         let mut parser = RouterDaemonArguments::new(&self.arguments[1..]);
         Ok(RouterCommand::Daemon(parser.parse()?))
     }
 
-    fn client_command(&self) -> Result<RouterCommand> {
+    fn client_command(&self) -> RouterResult<RouterCommand> {
         let mut parser = RouterClientArguments::new(&self.arguments);
         Ok(RouterCommand::Client(parser.parse()?))
     }
@@ -1866,7 +1879,7 @@ impl<'arguments> RouterDaemonArguments<'arguments> {
         }
     }
 
-    fn parse(&mut self) -> Result<RouterDaemon> {
+    fn parse(&mut self) -> RouterResult<RouterDaemon> {
         while let Some(argument) = self.next() {
             match argument.to_string_lossy().as_ref() {
                 "--socket" => self.socket = Some(PathBuf::from(self.required_value("--socket")?)),
@@ -1902,7 +1915,7 @@ impl<'arguments> RouterDaemonArguments<'arguments> {
         Some(argument)
     }
 
-    fn required_value(&mut self, option: &str) -> Result<&'arguments OsString> {
+    fn required_value(&mut self, option: &str) -> RouterResult<&'arguments OsString> {
         self.next().ok_or_else(|| Error::UnexpectedArgument {
             got: format!("{option} without value"),
         })
@@ -1922,9 +1935,9 @@ struct RouterClientCommand {
 }
 
 impl RouterClientCommand {
-    fn run(self, mut output: impl Write) -> Result<()> {
+    fn run(self, mut output: impl Write) -> RouterResult<()> {
         let reply = RouterSignalClient::new(self.socket).submit(self.input.request())?;
-        let text = RouterSignalOutput::from_signal(reply).to_nota()?;
+        let text = RouterSignalOutput::from_signal(reply).to_nota();
         writeln!(output, "{text}")?;
         Ok(())
     }
@@ -1947,7 +1960,7 @@ impl<'arguments> RouterClientArguments<'arguments> {
         }
     }
 
-    fn parse(&mut self) -> Result<RouterClientCommand> {
+    fn parse(&mut self) -> RouterResult<RouterClientCommand> {
         while let Some(argument) = self.next() {
             match argument.to_string_lossy().as_ref() {
                 "--socket" => self.socket = Some(PathBuf::from(self.required_value("--socket")?)),
@@ -1973,7 +1986,7 @@ impl<'arguments> RouterClientArguments<'arguments> {
         Some(argument)
     }
 
-    fn required_value(&mut self, option: &str) -> Result<&'arguments OsString> {
+    fn required_value(&mut self, option: &str) -> RouterResult<&'arguments OsString> {
         self.next().ok_or_else(|| Error::UnexpectedArgument {
             got: format!("{option} without value"),
         })
@@ -2005,7 +2018,7 @@ pub enum RouterSignalInput {
 }
 
 impl RouterSignalInput {
-    fn from_argument(argument: &OsString) -> Result<Self> {
+    fn from_argument(argument: &OsString) -> RouterResult<Self> {
         let Some(text) = argument.to_str() else {
             return Err(Error::InvalidInlineNotaArgument {
                 got: format!("{argument:?}"),
@@ -2014,11 +2027,8 @@ impl RouterSignalInput {
         Self::from_nota(text)
     }
 
-    pub fn from_nota(text: &str) -> Result<Self> {
-        let mut decoder = Decoder::new(text);
-        let input = Self::decode(&mut decoder)?;
-        expect_end(&mut decoder)?;
-        Ok(input)
+    pub fn from_nota(text: &str) -> RouterResult<Self> {
+        NotaSource::new(text).parse::<Self>().map_err(Error::from)
     }
 
     fn request(self) -> SignalMessageRequest {
@@ -2030,13 +2040,13 @@ impl RouterSignalInput {
 }
 
 impl NotaDecode for RouterSignalInput {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match SignalMessageRequest::decode(decoder)? {
+    fn from_nota_block(block: &Block) -> std::result::Result<Self, NotaDecodeError> {
+        match SignalMessageRequest::from_nota_block(block)? {
             SignalMessageRequest::SubmitStamped(input) => Ok(Self::SubmitStamped(input)),
             SignalMessageRequest::QueryInbox(input) => Ok(Self::QueryInbox(input)),
-            other => Err(nota_codec::Error::UnknownVariant {
+            other => Err(NotaDecodeError::UnknownVariant {
                 enum_name: "RouterSignalInput",
-                got: format!("{other:?}"),
+                variant: format!("{other:?}"),
             }),
         }
     }
@@ -2056,7 +2066,7 @@ impl RouterSignalClient {
         }
     }
 
-    fn submit(&self, request: SignalMessageRequest) -> Result<SignalMessageReply> {
+    fn submit(&self, request: SignalMessageRequest) -> RouterResult<SignalMessageReply> {
         let mut stream = UnixStream::connect(&self.socket)?;
         let frame = SignalMessageFrame::new(FrameBody::Request {
             exchange: synthetic_exchange(),
@@ -2083,28 +2093,28 @@ impl RouterSignalClient {
     }
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct SubmissionAccepted {
     pub message_slot: u64,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct SubmissionRejected {
     pub reason: SubmissionRejectionReason,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub enum SubmissionRejectionReason {
     StoreRejected,
     RecipientNotFound,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct RouterInboxListing {
     pub messages: Vec<RouterInboxEntry>,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct RouterInboxEntry {
     pub message_slot: u64,
     pub sender: ActorIdentifier,
@@ -2147,58 +2157,19 @@ impl RouterSignalOutput {
         }
     }
 
-    pub fn to_nota(&self) -> Result<String> {
-        let mut encoder = Encoder::new();
-        self.encode(&mut encoder)?;
-        Ok(encoder.into_string())
-    }
-}
-
-impl NotaEncode for RouterSignalOutput {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
+    pub fn to_nota(&self) -> String {
         match self {
             Self::SubmissionAccepted(output) => {
-                encoder.start_record("SubmissionAccepted")?;
-                output.message_slot.encode(encoder)?;
-                encoder.end_record()
+                Delimiter::Parenthesis.wrap(["SubmissionAccepted".to_string(), output.to_nota()])
             }
             Self::SubmissionRejected(output) => {
-                encoder.start_record("SubmissionRejected")?;
-                output.reason.encode(encoder)?;
-                encoder.end_record()
+                Delimiter::Parenthesis.wrap(["SubmissionRejected".to_string(), output.to_nota()])
             }
             Self::RouterInboxListing(output) => {
-                encoder.start_record("RouterInboxListing")?;
-                output.messages.encode(encoder)?;
-                encoder.end_record()
+                Delimiter::Parenthesis.wrap(["RouterInboxListing".to_string(), output.to_nota()])
             }
-            Self::MessageRequestUnimplemented(output) => {
-                encoder.start_record("MessageRequestUnimplemented")?;
-                output.encode(encoder)?;
-                encoder.end_record()
-            }
-        }
-    }
-}
-
-impl NotaEncode for SubmissionRejectionReason {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
-        match self {
-            Self::StoreRejected => "StoreRejected".to_string().encode(encoder),
-            Self::RecipientNotFound => "RecipientNotFound".to_string().encode(encoder),
-        }
-    }
-}
-
-impl NotaDecode for SubmissionRejectionReason {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match String::decode(decoder)?.as_str() {
-            "StoreRejected" => Ok(Self::StoreRejected),
-            "RecipientNotFound" => Ok(Self::RecipientNotFound),
-            other => Err(nota_codec::Error::UnknownVariant {
-                enum_name: "SubmissionRejectionReason",
-                got: other.to_string(),
-            }),
+            Self::MessageRequestUnimplemented(output) => Delimiter::Parenthesis
+                .wrap(["MessageRequestUnimplemented".to_string(), output.to_nota()]),
         }
     }
 }
@@ -2277,15 +2248,15 @@ pub struct ReadRouterTrace {
 
 #[derive(Debug, kameo::Reply)]
 pub struct RouterTraceSnapshot {
-    result: Result<RouterTrace>,
+    result: RouterResult<RouterTrace>,
 }
 
 impl RouterTraceSnapshot {
-    fn new(result: Result<RouterTrace>) -> Self {
+    fn new(result: RouterResult<RouterTrace>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<RouterTrace> {
+    pub fn into_result(self) -> RouterResult<RouterTrace> {
         self.result
     }
 }
@@ -2316,15 +2287,15 @@ pub struct ReadRouterChannelPersistence {
 
 #[derive(Debug, kameo::Reply)]
 pub struct RouterChannelPersistenceOutcome {
-    result: Result<ChannelPersistenceSnapshot>,
+    result: RouterResult<ChannelPersistenceSnapshot>,
 }
 
 impl RouterChannelPersistenceOutcome {
-    fn new(result: Result<ChannelPersistenceSnapshot>) -> Self {
+    fn new(result: RouterResult<ChannelPersistenceSnapshot>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<ChannelPersistenceSnapshot> {
+    pub fn into_result(self) -> RouterResult<ChannelPersistenceSnapshot> {
         self.result
     }
 }
@@ -2376,15 +2347,15 @@ pub struct ReadRouterMindAdjudicationOutbox {
 
 #[derive(Debug, kameo::Reply)]
 pub struct RouterMindAdjudicationOutboxOutcome {
-    result: Result<MindAdjudicationOutboxSnapshot>,
+    result: RouterResult<MindAdjudicationOutboxSnapshot>,
 }
 
 impl RouterMindAdjudicationOutboxOutcome {
-    fn new(result: Result<MindAdjudicationOutboxSnapshot>) -> Self {
+    fn new(result: RouterResult<MindAdjudicationOutboxSnapshot>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<MindAdjudicationOutboxSnapshot> {
+    pub fn into_result(self) -> RouterResult<MindAdjudicationOutboxSnapshot> {
         self.result
     }
 }
@@ -2571,17 +2542,17 @@ pub enum RouterTraceStep {
     DeliveryMarked,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct RegisterActor {
     pub actor: Actor,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct RouteMessage {
     pub message: Message,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub requester: ActorIdentifier,
 }
@@ -2757,55 +2728,53 @@ impl RouterInput {
         ActorIdentifier::new(actor.as_str())
     }
 
-    pub fn from_nota(text: &str) -> Result<Self> {
-        let mut decoder = Decoder::new(text);
-        let input = Self::decode(&mut decoder)?;
-        expect_end(&mut decoder)?;
-        Ok(input)
+    pub fn from_nota(text: &str) -> RouterResult<Self> {
+        NotaSource::new(text).parse::<Self>().map_err(Error::from)
     }
 }
 
 impl NotaDecode for RouterInput {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
+    fn from_nota_block(block: &Block) -> std::result::Result<Self, NotaDecodeError> {
+        let fields =
+            NotaBlock::new(block).expect_children(Delimiter::Parenthesis, "RouterInput", 2)?;
+        let head = fields[0]
+            .demote_to_string()
+            .ok_or(NotaDecodeError::ExpectedAtom {
+                type_name: "RouterInput head",
+            })?;
+        match head {
             "RegisterActor" => {
-                decoder.expect_record_head("RegisterActor")?;
-                let actor = Actor::decode(decoder)?;
-                decoder.expect_record_end()?;
+                let actor = Actor::from_nota_block(&fields[1])?;
                 Ok(Self::RegisterActor(RegisterActor { actor }))
             }
             "RouteMessage" => {
-                decoder.expect_record_head("RouteMessage")?;
-                let message = Message::decode(decoder)?;
-                decoder.expect_record_end()?;
+                let message = Message::from_nota_block(&fields[1])?;
                 Ok(Self::RouteMessage(RouteMessage { message }))
             }
             "Status" => {
-                decoder.expect_record_head("Status")?;
-                let requester = ActorIdentifier::decode(decoder)?;
-                decoder.expect_record_end()?;
+                let requester = ActorIdentifier::from_nota_block(&fields[1])?;
                 Ok(Self::Status(Status { requester }))
             }
-            other => Err(nota_codec::Error::UnknownVariant {
+            other => Err(NotaDecodeError::UnknownVariant {
                 enum_name: "RouterInput",
-                got: other.to_string(),
+                variant: other.to_string(),
             }),
         }
     }
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct Registered {
     pub actors: u64,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryChanged {
     pub delivered: u64,
     pub pending: u64,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct RouterStatus {
     pub actors: u64,
     pub channels: u64,
@@ -2813,29 +2782,29 @@ pub struct RouterStatus {
     pub pending: u64,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct ChannelGranted {
     pub channel: String,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct ChannelRetracted {
     pub retracted: bool,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct StructuralChannelsInstalled {
     pub installed: u64,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct MindChannelGrantApplied {
     pub channels: u64,
     pub delivered: u64,
     pub pending: u64,
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
 pub struct MindAdjudicationDenyApplied {
     pub rejected: u64,
     pub pending: u64,
@@ -2854,24 +2823,16 @@ pub enum RouterOutput {
 }
 
 impl RouterOutput {
-    pub fn to_nota(&self) -> Result<String> {
-        let mut encoder = Encoder::new();
-        self.encode(&mut encoder)?;
-        Ok(encoder.into_string())
-    }
-}
-
-impl NotaEncode for RouterOutput {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
+    pub fn to_nota(&self) -> String {
         match self {
-            Self::Registered(output) => output.encode(encoder),
-            Self::DeliveryChanged(output) => output.encode(encoder),
-            Self::Status(output) => output.encode(encoder),
-            Self::ChannelGranted(output) => output.encode(encoder),
-            Self::ChannelRetracted(output) => output.encode(encoder),
-            Self::StructuralChannelsInstalled(output) => output.encode(encoder),
-            Self::MindChannelGrantApplied(output) => output.encode(encoder),
-            Self::MindAdjudicationDenyApplied(output) => output.encode(encoder),
+            Self::Registered(output) => output.to_nota(),
+            Self::DeliveryChanged(output) => output.to_nota(),
+            Self::Status(output) => output.to_nota(),
+            Self::ChannelGranted(output) => output.to_nota(),
+            Self::ChannelRetracted(output) => output.to_nota(),
+            Self::StructuralChannelsInstalled(output) => output.to_nota(),
+            Self::MindChannelGrantApplied(output) => output.to_nota(),
+            Self::MindAdjudicationDenyApplied(output) => output.to_nota(),
         }
     }
 }

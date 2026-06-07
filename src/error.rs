@@ -8,7 +8,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     #[error("nota: {0}")]
-    Nota(#[from] nota_codec::Error),
+    Nota(#[from] nota_next::NotaDecodeError),
 
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_frame::FrameError),
@@ -97,4 +97,4 @@ pub enum Error {
     },
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type RouterResult<T> = std::result::Result<T, Error>;

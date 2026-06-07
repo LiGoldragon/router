@@ -19,6 +19,7 @@ use router::{
     RouterIngressContext, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables,
     RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadIdentifier, UseChannel,
 };
+use signal_engine_management::TimestampNanos;
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
@@ -30,7 +31,6 @@ use signal_message::{
 use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
-use signal_persona::TimestampNanos;
 use signal_persona_origin::{
     ComponentInstanceName, ComponentName, ConnectionClass, InternalComponentInstanceOrigin,
     MessageOrigin,
@@ -58,7 +58,7 @@ impl RouterFixture {
         }
     }
 
-    async fn apply(&self, input: RouterInput) -> router::Result<RouterOutput> {
+    async fn apply(&self, input: RouterInput) -> router::RouterResult<RouterOutput> {
         self.runtime
             .ask(ApplyRouterInput { input })
             .await
@@ -78,7 +78,7 @@ impl RouterFixture {
         .expect("channel grant passes through router actor");
     }
 
-    async fn trace(&self) -> router::Result<RouterTrace> {
+    async fn trace(&self) -> router::RouterResult<RouterTrace> {
         self.runtime
             .ask(ReadRouterTrace { since: 0 })
             .await
@@ -86,7 +86,9 @@ impl RouterFixture {
             .into_result()
     }
 
-    async fn channel_persistence(&self) -> router::Result<router::ChannelPersistenceSnapshot> {
+    async fn channel_persistence(
+        &self,
+    ) -> router::RouterResult<router::ChannelPersistenceSnapshot> {
         self.runtime
             .ask(ReadRouterChannelPersistence {
                 requester: ActorIdentifier::new("operator"),
@@ -98,7 +100,7 @@ impl RouterFixture {
 
     async fn mind_adjudication_outbox(
         &self,
-    ) -> router::Result<router::MindAdjudicationOutboxSnapshot> {
+    ) -> router::RouterResult<router::MindAdjudicationOutboxSnapshot> {
         self.runtime
             .ask(ReadRouterMindAdjudicationOutbox {
                 requester: ActorIdentifier::new("operator"),
@@ -108,7 +110,7 @@ impl RouterFixture {
             .into_result()
     }
 
-    async fn apply_signal(&self, input: SignalMessageInput) -> router::Result<MessageReply> {
+    async fn apply_signal(&self, input: SignalMessageInput) -> router::RouterResult<MessageReply> {
         self.runtime
             .ask(ApplySignalMessage { input })
             .await

@@ -8,7 +8,7 @@ use signal_persona_origin::{ChannelIdentifier, MessageOrigin};
 
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
-    MessageIdentifier, Result,
+    MessageIdentifier, RouterResult,
 };
 
 const ROUTER_SCHEMA: Schema = Schema {
@@ -39,7 +39,7 @@ impl std::fmt::Debug for RouterTables {
 }
 
 impl RouterTables {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+    pub fn open(path: impl AsRef<Path>) -> RouterResult<Self> {
         let database = Sema::open_with_schema(path.as_ref(), &ROUTER_SCHEMA)?;
         database.write(|transaction| {
             CHANNELS.ensure(transaction)?;
@@ -60,7 +60,7 @@ impl RouterTables {
         &self,
         channel_identifier: &ChannelIdentifier,
         grant: &GrantChannel,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         let channel = StoredChannelRecord::from_grant(channel_identifier, grant);
         let channel_key = channel.id.clone();
         let triple_key = channel.triple_key();
@@ -79,7 +79,7 @@ impl RouterTables {
         &self,
         channel_identifier: &ChannelIdentifier,
         lifetime: ChannelLifetime,
-    ) -> Result<bool> {
+    ) -> RouterResult<bool> {
         let channel_key = channel_identifier.as_str();
         let Some(mut channel) = self
             .database
@@ -98,7 +98,7 @@ impl RouterTables {
         &self,
         channel_identifier: &ChannelIdentifier,
         status: ChannelStatus,
-    ) -> Result<bool> {
+    ) -> RouterResult<bool> {
         let channel_key = channel_identifier.as_str();
         let Some(mut channel) = self
             .database
@@ -113,7 +113,7 @@ impl RouterTables {
         })?)
     }
 
-    pub fn insert_adjudication(&self, request: &AdjudicationRequest) -> Result<()> {
+    pub fn insert_adjudication(&self, request: &AdjudicationRequest) -> RouterResult<()> {
         let stored = StoredAdjudicationRequest::from_request(request);
         let key = stored.message.clone();
         self.database.write(|transaction| {
@@ -123,7 +123,7 @@ impl RouterTables {
         Ok(())
     }
 
-    pub fn remove_adjudication(&self, message: &MessageIdentifier) -> Result<bool> {
+    pub fn remove_adjudication(&self, message: &MessageIdentifier) -> RouterResult<bool> {
         Ok(self
             .database
             .write(|transaction| ADJUDICATION_PENDING.remove(transaction, message.as_str()))?)
@@ -134,7 +134,7 @@ impl RouterTables {
         message: &Message,
         origin: &MessageOrigin,
         signal_slot: Option<MessageSlot>,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         let stored = StoredMessageRecord::from_message(message, origin, signal_slot);
         let key = stored.id.clone();
         self.database.write(|transaction| {
@@ -144,7 +144,7 @@ impl RouterTables {
         Ok(())
     }
 
-    pub fn message_records(&self) -> Result<Vec<StoredMessageRecord>> {
+    pub fn message_records(&self) -> RouterResult<Vec<StoredMessageRecord>> {
         Ok(self.database.read(|transaction| {
             Ok(MESSAGES
                 .iter(transaction)?
@@ -154,7 +154,7 @@ impl RouterTables {
         })?)
     }
 
-    pub fn channel_records(&self) -> Result<Vec<StoredChannelRecord>> {
+    pub fn channel_records(&self) -> RouterResult<Vec<StoredChannelRecord>> {
         Ok(self.database.read(|transaction| {
             Ok(CHANNELS
                 .iter(transaction)?
@@ -164,7 +164,7 @@ impl RouterTables {
         })?)
     }
 
-    pub fn adjudication_records(&self) -> Result<Vec<StoredAdjudicationRequest>> {
+    pub fn adjudication_records(&self) -> RouterResult<Vec<StoredAdjudicationRequest>> {
         Ok(self.database.read(|transaction| {
             Ok(ADJUDICATION_PENDING
                 .iter(transaction)?
@@ -178,7 +178,7 @@ impl RouterTables {
         &self,
         sequence: u64,
         message: &MessageIdentifier,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         let attempt = StoredDeliveryAttempt::new(sequence, message);
         self.database.write(|transaction| {
             DELIVERY_ATTEMPTS.insert(transaction, sequence, &attempt)?;
@@ -192,7 +192,7 @@ impl RouterTables {
         sequence: u64,
         message: &MessageIdentifier,
         delivered: bool,
-    ) -> Result<()> {
+    ) -> RouterResult<()> {
         let result = StoredDeliveryResult::new(sequence, message, delivered);
         self.database.write(|transaction| {
             DELIVERY_RESULTS.insert(transaction, sequence, &result)?;
@@ -201,7 +201,7 @@ impl RouterTables {
         Ok(())
     }
 
-    pub fn delivery_attempt_records(&self) -> Result<Vec<StoredDeliveryAttempt>> {
+    pub fn delivery_attempt_records(&self) -> RouterResult<Vec<StoredDeliveryAttempt>> {
         Ok(self.database.read(|transaction| {
             Ok(DELIVERY_ATTEMPTS
                 .iter(transaction)?
@@ -211,7 +211,7 @@ impl RouterTables {
         })?)
     }
 
-    pub fn delivery_result_records(&self) -> Result<Vec<StoredDeliveryResult>> {
+    pub fn delivery_result_records(&self) -> RouterResult<Vec<StoredDeliveryResult>> {
         Ok(self.database.read(|transaction| {
             Ok(DELIVERY_RESULTS
                 .iter(transaction)?

@@ -11,7 +11,7 @@ use signal_router::{
 };
 
 use crate::router::{ReadRouterObservationFacts, RouterObservationFacts, RouterRoot};
-use crate::{Error, Result, RouterTables, RouterTraceStep};
+use crate::{Error, RouterResult, RouterTables, RouterTraceStep};
 
 #[derive(Debug)]
 pub struct RouterObservationPlane {
@@ -33,7 +33,7 @@ impl RouterObservationPlane {
         }
     }
 
-    async fn answer(&mut self, request: RouterRequest) -> Result<RouterReply> {
+    async fn answer(&mut self, request: RouterRequest) -> RouterResult<RouterReply> {
         match request {
             RouterRequest::Summary(query) => self.answer_summary(query).await,
             RouterRequest::MessageTrace(query) => self.answer_message_trace(query).await,
@@ -41,7 +41,7 @@ impl RouterObservationPlane {
         }
     }
 
-    async fn answer_summary(&mut self, query: RouterSummaryQuery) -> Result<RouterReply> {
+    async fn answer_summary(&mut self, query: RouterSummaryQuery) -> RouterResult<RouterReply> {
         self.summary_query_count = self.summary_query_count.saturating_add(1);
         let facts = self.observation_facts().await?;
         let summary = RouterSummary {
@@ -57,7 +57,7 @@ impl RouterObservationPlane {
     async fn answer_message_trace(
         &mut self,
         query: RouterMessageTraceQuery,
-    ) -> Result<RouterReply> {
+    ) -> RouterResult<RouterReply> {
         self.message_trace_query_count = self.message_trace_query_count.saturating_add(1);
         let facts = self.observation_facts().await?;
         Ok(
@@ -78,7 +78,7 @@ impl RouterObservationPlane {
     async fn answer_channel_state(
         &mut self,
         query: RouterChannelStateQuery,
-    ) -> Result<RouterReply> {
+    ) -> RouterResult<RouterReply> {
         self.channel_state_query_count = self.channel_state_query_count.saturating_add(1);
         let Some(tables) = &self.tables else {
             return Ok(RouterReply::Unimplemented(RouterObservationUnimplemented {
@@ -96,7 +96,7 @@ impl RouterObservationPlane {
         Ok(RouterReply::ChannelState(state))
     }
 
-    async fn observation_facts(&self) -> Result<RouterObservationFacts> {
+    async fn observation_facts(&self) -> RouterResult<RouterObservationFacts> {
         self.root
             .ask(ReadRouterObservationFacts)
             .await
@@ -170,15 +170,15 @@ pub struct ApplyRouterObservation {
 
 #[derive(Debug, kameo::Reply)]
 pub struct RouterObservationOutcome {
-    result: Result<RouterReply>,
+    result: RouterResult<RouterReply>,
 }
 
 impl RouterObservationOutcome {
-    pub(crate) fn new(result: Result<RouterReply>) -> Self {
+    pub(crate) fn new(result: RouterResult<RouterReply>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<RouterReply> {
+    pub fn into_result(self) -> RouterResult<RouterReply> {
         self.result
     }
 }

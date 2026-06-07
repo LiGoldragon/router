@@ -49,8 +49,9 @@ flowchart LR
   `message`'s `message.sock` (mode 0660) and
   is forwarded to router with `MessageOrigin::External(...)`
   already minted by the message daemon from SO_PEERCRED.
-  The daemon applies the `PERSONA_SOCKET_MODE` value carried by the
-  Persona spawn envelope before the socket is reported usable.
+  The daemon applies the socket modes carried by the signal-encoded
+  `signal-router::RouterDaemonConfiguration` before sockets are reported
+  usable.
 - a separate meta-policy socket at mode 0600 for
   `meta-signal-router` channel-authority orders (`Grant`, `Extend`,
   `Revoke`, `Deny`). The meta socket uses triad-runtime's
@@ -104,9 +105,9 @@ flowchart LR
 - checked-in generated triad modules under `src/schema/`, produced from
   `schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema` by
   `schema-rust-next`. This is the current substrate port: it exposes the
-  router's future Signal/Nexus/SEMA nouns and a generated two-listener daemon
-  spine, while the live behavior path below still runs through the
-  hand-written actor runtime until the adapter cutover;
+  router's future Signal/Nexus/SEMA nouns. The live two-listener daemon remains
+  hand-written until actor-native generated daemon emission supports the meta
+  listener tier;
 - pending-delivery state;
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
@@ -123,8 +124,9 @@ The router daemon answers `signal-engine-management::Operation` from a
 canonical `SupervisionPhase` Kameo actor alongside `RouterRoot`. The phase
 actor carries `component_name`, `component_kind`,
 `supervision_protocol_version`, and a cached `ComponentHealth` pushed from
-the routing plane. Router reads its `signal-persona::SpawnEnvelope` at
-startup, binds `router.sock` at mode 0600, and proceeds.
+the routing plane. Router reads its signal-encoded
+`signal-router::RouterDaemonConfiguration` at startup, binds `router.sock`
+and the optional meta socket with the configured modes, and proceeds.
 
 The router's structural-channels install names a channel from
 `Internal(Message) → Internal(Router)` carrying
@@ -158,9 +160,9 @@ contract on the new `signal-frame` request/reply kernel; it does not
 construct universal verb-classification wrappers for harness delivery.
 
 Stored router records are typed contract records from the relation-specific
-`signal-persona-*` family. The router actor decodes Signal frames, commits
-through router-owned typed Sema tables, and emits follow-up frames only after
-the database commit succeeds.
+Signal contracts and the `signal-persona-origin` provenance family. The router
+actor decodes Signal frames, commits through router-owned typed Sema tables,
+and emits follow-up frames only after the database commit succeeds.
 
 Current MVP code still keeps the live pending queue in memory. Accepted
 messages, channel grants, adjudication requests, delivery attempts, and
@@ -376,7 +378,7 @@ delivered) for a closed set of reasons. Today's set:
   semantics; the rejection surfaces as a delivery deferral on
   the channel's tombstone.
 - **Unimplemented operation variant** — the router decoded a
-  request variant it does not yet implement (per `signal-persona`
+  request variant it does not yet implement (per the signal-contract
   skeleton-honesty rule). Replied as
   `MessageRequestUnimplemented`; not a delivery decision per se,
   but a router-side typed refusal on an operation it cannot
@@ -429,8 +431,8 @@ This repo does not own:
   exactly one NOTA reply record.
 - Router daemon startup can attach a router-owned Sema database to
   `ChannelAuthority`.
-- Router daemon startup applies the managed socket mode from the Persona spawn
-  envelope to `router.sock`.
+- Router daemon startup applies the managed socket modes from the
+  signal-encoded configuration to `router.sock` and the meta socket.
 - Router engine setup can install first-stack structural channels through the
   actor tree.
 - A typed mind channel grant can install a channel before a parked message is

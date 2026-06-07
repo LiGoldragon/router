@@ -14,7 +14,7 @@ use signal_harness::{
     MessageDelivery, MessageSender, MessageSlot,
 };
 
-use crate::{Actor, EndpointKind, Error, Message, Result};
+use crate::{Actor, EndpointKind, Error, Message, RouterResult};
 
 #[derive(Debug)]
 pub struct HarnessDelivery {
@@ -30,7 +30,7 @@ impl HarnessDelivery {
         }
     }
 
-    fn deliver(actor: &Actor, message: &Message, message_slot: u64) -> Result<bool> {
+    fn deliver(actor: &Actor, message: &Message, message_slot: u64) -> RouterResult<bool> {
         let Some(endpoint) = &actor.endpoint else {
             return Ok(false);
         };
@@ -46,8 +46,8 @@ impl HarnessDelivery {
         }
     }
 
-    fn deliver_to_terminal_socket(message: &Message, path: &str) -> Result<bool> {
-        let text = message.to_nota()?;
+    fn deliver_to_terminal_socket(message: &Message, path: &str) -> RouterResult<bool> {
+        let text = message.to_nota();
         let mut stream = UnixStream::connect(Path::new(path))?;
         stream.write_all(b"P")?;
         stream.write_all(&(text.len() as u64).to_be_bytes())?;
@@ -63,7 +63,7 @@ impl HarnessDelivery {
         message: &Message,
         message_slot: u64,
         path: &str,
-    ) -> Result<bool> {
+    ) -> RouterResult<bool> {
         let mut stream = UnixStream::connect(Path::new(path))?;
         let request = HarnessRequest::MessageDelivery(MessageDelivery {
             harness: HarnessName::new(actor.name.as_str()),
@@ -91,7 +91,7 @@ impl HarnessDelivery {
         }
     }
 
-    fn read_harness_event(stream: &mut impl Read) -> Result<HarnessEvent> {
+    fn read_harness_event(stream: &mut impl Read) -> RouterResult<HarnessEvent> {
         let mut prefix = [0_u8; 4];
         stream.read_exact(&mut prefix)?;
         let length = u32::from_be_bytes(prefix) as usize;
@@ -133,15 +133,15 @@ pub struct DeliverHarness {
 
 #[derive(Debug, kameo::Reply)]
 pub struct HarnessDeliveryOutcome {
-    result: Result<bool>,
+    result: RouterResult<bool>,
 }
 
 impl HarnessDeliveryOutcome {
-    fn from_result(result: Result<bool>) -> Self {
+    fn from_result(result: RouterResult<bool>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> Result<bool> {
+    pub fn into_result(self) -> RouterResult<bool> {
         self.result
     }
 }

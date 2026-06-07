@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use signal_router::RouterDaemonConfiguration;
 use triad_runtime::{ComponentArgument, ComponentCommand, SignalFile};
 
-use crate::{Result, RouterDaemon};
+use crate::{RouterDaemon, RouterResult};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RouterDaemonCommand {
@@ -32,7 +32,7 @@ impl RouterDaemonCommand {
         }
     }
 
-    pub fn configuration(&self) -> Result<RouterDaemonConfiguration> {
+    pub fn configuration(&self) -> RouterResult<RouterDaemonConfiguration> {
         match self.command.signal_file_argument()? {
             ComponentArgument::SignalFile(file) => {
                 RouterDaemonConfigurationFile::from_signal_file(file).configuration()
@@ -43,7 +43,7 @@ impl RouterDaemonCommand {
         }
     }
 
-    pub fn run(&self) -> Result<()> {
+    pub fn run(&self) -> RouterResult<()> {
         RouterDaemon::from_configuration(self.configuration()?)?.run()
     }
 }
@@ -63,7 +63,7 @@ impl RouterDaemonConfigurationFile {
         &self.path
     }
 
-    pub fn configuration(&self) -> Result<RouterDaemonConfiguration> {
+    pub fn configuration(&self) -> RouterResult<RouterDaemonConfiguration> {
         let bytes =
             std::fs::read(&self.path).map_err(|source| crate::Error::ConfigurationRead {
                 path: self.path.clone(),
@@ -73,7 +73,10 @@ impl RouterDaemonConfigurationFile {
             .map_err(|_| crate::Error::ConfigurationArchiveDecode)
     }
 
-    pub fn write_configuration(&self, configuration: &RouterDaemonConfiguration) -> Result<()> {
+    pub fn write_configuration(
+        &self,
+        configuration: &RouterDaemonConfiguration,
+    ) -> RouterResult<()> {
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(configuration)
             .map_err(|_| crate::Error::ConfigurationArchiveEncode)?;
         std::fs::write(&self.path, bytes.as_ref()).map_err(|source| {
