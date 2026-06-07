@@ -159,9 +159,6 @@ impl WorkingTransport {
         self.stream.flush()?;
         Ok(())
     }
-    fn try_clone_stream(&self) -> Result<UnixStream, FrameError> {
-        self.stream.try_clone().map_err(FrameError::Io)
-    }
 }
 /// The generated runtime struct that owns the engine and (option B) the
 /// emitted subscription registry. Its `handle_stream` IS the decode ->

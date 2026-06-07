@@ -5,11 +5,11 @@ pub type Integer = u64;
 pub type Boolean = bool;
 pub type Path = std::string::String;
 
-pub use router_crate::schema::signal::MessageIngress as MessageIngress;
-pub use router_crate::schema::signal::RouterObservation as RouterObservation;
-pub use router_crate::schema::signal::MessageAcceptance as MessageAcceptance;
-pub use router_crate::schema::signal::AdjudicationQueued as AdjudicationQueued;
-pub use router_crate::schema::signal::ErrorReport as ErrorReport;
+pub use crate::schema::signal::MessageIngress as MessageIngress;
+pub use crate::schema::signal::RouterObservation as RouterObservation;
+pub use crate::schema::signal::MessageAcceptance as MessageAcceptance;
+pub use crate::schema::signal::AdjudicationQueued as AdjudicationQueued;
+pub use crate::schema::signal::ErrorReport as ErrorReport;
 
 #[cfg(feature = "nota-text")]
 pub use nota_next::{NotaDecode, NotaDecodeError, NotaEncode, NotaSource};

@@ -1,5 +1,3 @@
-extern crate self as router_crate;
-
 pub mod adjudication;
 pub mod channel;
 pub mod command;
