@@ -22,8 +22,8 @@ pub enum Error {
     #[error("triad runtime frame: {0}")]
     TriadRuntimeFrame(#[from] triad_runtime::FrameError),
 
-    #[error("router sema: {0}")]
-    Sema(#[from] sema::Error),
+    #[error("router storage kernel: {0}")]
+    StorageKernel(#[from] sema_engine::StorageKernelError),
 
     #[error("router sema engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),

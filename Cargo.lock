@@ -435,7 +435,6 @@ dependencies = [
  "nota-next",
  "rkyv",
  "schema-rust-next",
- "sema",
  "sema-engine",
  "signal-engine-management",
  "signal-frame",
@@ -492,8 +491,8 @@ dependencies = [
 
 [[package]]
 name = "sema"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/sema.git#09f2a423ecaaa9984d913e6f009aa346280a29bd"
+version = "0.1.1"
+source = "git+https://github.com/LiGoldragon/sema.git?branch=main#da96de248cc3fe2e3191ca524d60cfc378f62a11"
 dependencies = [
  "redb",
  "rkyv",
@@ -502,8 +501,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#e94897338a3c81fe2867a77f380aab77a3bb0874"
+version = "0.2.2"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#5cee99380c4dbc22eba7615b15168f382f568751"
 dependencies = [
  "rkyv",
  "sema",
