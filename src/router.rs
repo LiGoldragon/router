@@ -101,8 +101,8 @@ pub struct RouterDaemon {
 
 impl RouterDaemon {
     /// Canonical constructor — every production launch reads typed
-    /// `RouterDaemonConfiguration` from argv via `nota-config` and
-    /// hands the record here.
+    /// `RouterDaemonConfiguration` from the binary daemon command and
+    /// hands the decoded record here.
     pub fn from_configuration(configuration: RouterDaemonConfiguration) -> Result<Self> {
         let tables = RouterTables::open(PathBuf::from(configuration.store_path.as_str()))?;
         let bootstrap = configuration
@@ -1779,8 +1779,15 @@ impl RouterBootstrap {
     }
 
     pub fn operations(&self) -> Result<Vec<RouterBootstrapOperation>> {
-        let text = std::fs::read_to_string(&self.path)?;
-        Ok(RouterBootstrapDocument::from_nota_lines(&text)?.into_operations())
+        let bytes = std::fs::read(&self.path).map_err(|source| Error::BootstrapRead {
+            path: self.path.clone(),
+            source,
+        })?;
+        let document = rkyv::from_bytes::<RouterBootstrapDocument, rkyv::rancor::Error>(&bytes)
+            .map_err(|_| Error::BootstrapArchiveDecode {
+                path: self.path.clone(),
+            })?;
+        Ok(document.into_operations())
     }
 
     pub fn apply(

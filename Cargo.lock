@@ -472,7 +472,6 @@ dependencies = [
  "kameo",
  "meta-signal-router",
  "nota-codec",
- "nota-config",
  "nota-next",
  "rkyv",
  "schema-rust-next",
@@ -869,7 +868,7 @@ dependencies = [
 [[package]]
 name = "triad-runtime"
 version = "0.2.1"
-source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#f9c38e22ae6e34133a77f91ba18656ae2e05e7f7"
+source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#cdda1b1f95283f36d488fa2435281e6201fe7fdb"
 dependencies = [
  "rustix",
  "signal-frame",

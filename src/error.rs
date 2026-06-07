@@ -10,14 +10,14 @@ pub enum Error {
     #[error("nota: {0}")]
     Nota(#[from] nota_codec::Error),
 
-    #[error("nota-config: {0}")]
-    NotaConfig(#[from] nota_config::Error),
-
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_core::FrameError),
 
     #[error("meta-signal-router frame: {0}")]
     MetaSignalFrame(#[from] meta_signal_router::SignalFrameError),
+
+    #[error("daemon argument: {0}")]
+    Argument(#[from] triad_runtime::ArgumentError),
 
     #[error("triad runtime frame: {0}")]
     TriadRuntimeFrame(#[from] triad_runtime::FrameError),
@@ -51,6 +51,33 @@ pub enum Error {
 
     #[error("router socket {path:?} did not become ready")]
     SocketNotReady { path: PathBuf },
+
+    #[error("failed to read router daemon configuration {path:?}: {source}")]
+    ConfigurationRead {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to write router daemon configuration {path:?}: {source}")]
+    ConfigurationWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to decode router daemon configuration archive")]
+    ConfigurationArchiveDecode,
+
+    #[error("failed to encode router daemon configuration archive")]
+    ConfigurationArchiveEncode,
+
+    #[error("failed to read router bootstrap archive {path:?}: {source}")]
+    BootstrapRead {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to decode router bootstrap archive {path:?}")]
+    BootstrapArchiveDecode { path: PathBuf },
 
     #[error("router signal frame is too large: {bytes} bytes")]
     SignalFrameTooLarge { bytes: usize },

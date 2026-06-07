@@ -2,6 +2,7 @@ extern crate self as router_crate;
 
 pub mod adjudication;
 pub mod channel;
+pub mod command;
 pub mod delivery;
 pub mod error;
 pub mod harness_delivery;
@@ -39,6 +40,7 @@ pub use channel::{
     ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier,
     StructuralChannelInstallation, StructuralChannelInstallationOutcome, UseChannel,
 };
+pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, Result};
 pub use harness_delivery::{DeliverHarness, HarnessDelivery, HarnessDeliveryOutcome};

@@ -12,8 +12,9 @@ use meta_signal_router::{
     Input as MetaInput, Output as MetaOutput,
 };
 use router::{
-    Message, MessageBody, MessageIdentifier, PendingDelivery, RouterBootstrapOperation,
-    RouterConnection, RouterDaemon, RouterInput, RouterMetaConnection, RouterOutput, SocketMode,
+    Message, MessageBody, MessageIdentifier, PendingDelivery, RouterBootstrap,
+    RouterBootstrapOperation, RouterConnection, RouterDaemon, RouterDaemonCommand,
+    RouterDaemonConfigurationFile, RouterInput, RouterMetaConnection, RouterOutput, SocketMode,
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
@@ -33,7 +34,9 @@ use signal_message::{
     Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
     MessageRequest, MessageSubmission, StampedMessageSubmission,
 };
-use signal_persona_origin::{ComponentName, MessageOrigin};
+use signal_persona::{SocketMode as WireSocketMode, WirePath};
+use signal_persona_origin::{ComponentName, MessageOrigin, OwnerIdentity, UnixUserIdentifier};
+use signal_router::RouterBootstrapDocument;
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
 struct SocketFixture {
@@ -63,6 +66,10 @@ impl SocketFixture {
 
     fn meta_socket(&self) -> PathBuf {
         self.directory.join("router-meta.sock")
+    }
+
+    fn create_directory(&self) {
+        std::fs::create_dir_all(&self.directory).expect("fixture directory is created");
     }
 }
 
@@ -146,6 +153,89 @@ fn router_bootstrap_decodes_registered_harness_socket_endpoint() {
             if registration.actor.name.as_str() == "responder"
                 && registration.actor.process == 42
                 && registration.actor.endpoint.is_some()
+    ));
+}
+
+#[test]
+fn router_daemon_configuration_accepts_binary_file_argument() {
+    let fixture = SocketFixture::new("binary-configuration");
+    fixture.create_directory();
+    let configuration_path = fixture.directory.join("router.rkyv");
+    let configuration = signal_router::RouterDaemonConfiguration {
+        router_socket_path: WirePath::new(fixture.socket().display().to_string()),
+        router_socket_mode: WireSocketMode::new(0o600),
+        meta_router_socket_path: WirePath::new(fixture.meta_socket().display().to_string()),
+        meta_router_socket_mode: WireSocketMode::new(0o600),
+        supervision_socket_path: WirePath::new(fixture.supervision_socket().display().to_string()),
+        supervision_socket_mode: WireSocketMode::new(0o600),
+        store_path: WirePath::new(fixture.directory.join("router.sema").display().to_string()),
+        bootstrap_path: None,
+        owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
+    };
+    RouterDaemonConfigurationFile::new(&configuration_path)
+        .write_configuration(&configuration)
+        .expect("write binary configuration");
+
+    let decoded = RouterDaemonCommand::from_arguments([configuration_path.display().to_string()])
+        .configuration()
+        .expect("decode binary configuration argument");
+
+    assert_eq!(decoded, configuration);
+}
+
+#[test]
+fn router_daemon_configuration_rejects_nota_arguments() {
+    let fixture = SocketFixture::new("reject-nota-configuration");
+    fixture.create_directory();
+    let nota_path = fixture.directory.join("router.nota");
+    std::fs::write(&nota_path, "(RouterDaemonConfiguration)").expect("write nota fixture");
+
+    let inline = RouterDaemonCommand::from_arguments(["(RouterDaemonConfiguration)"])
+        .configuration()
+        .expect_err("inline NOTA is rejected");
+    let file = RouterDaemonCommand::from_arguments([nota_path.display().to_string()])
+        .configuration()
+        .expect_err(".nota file is rejected");
+
+    assert!(matches!(inline, router::Error::Argument(_)));
+    assert!(matches!(file, router::Error::Argument(_)));
+}
+
+#[test]
+fn router_bootstrap_loads_binary_document() {
+    let fixture = SocketFixture::new("binary-bootstrap");
+    fixture.create_directory();
+    let bootstrap_path = fixture.directory.join("router-bootstrap.rkyv");
+    let document =
+        RouterBootstrapDocument::new(vec![RouterBootstrapOperation::GrantDirectMessage(
+            signal_router::GrantDirectMessage::new(
+                signal_router::ActorIdentifier::new("owner"),
+                signal_router::ActorIdentifier::new("responder"),
+            ),
+        )]);
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&document).expect("encode bootstrap archive");
+    std::fs::write(&bootstrap_path, bytes.as_ref()).expect("write bootstrap archive");
+
+    let operations = RouterBootstrap::from_path(&bootstrap_path)
+        .operations()
+        .expect("decode binary bootstrap");
+
+    assert_eq!(operations, document.into_operations());
+}
+
+#[test]
+fn router_bootstrap_rejects_nota_document() {
+    let fixture = SocketFixture::new("reject-nota-bootstrap");
+    fixture.create_directory();
+    let bootstrap_path = fixture.directory.join("router-bootstrap.nota");
+    std::fs::write(&bootstrap_path, "(GrantDirectMessage (owner responder))\n")
+        .expect("write nota bootstrap");
+
+    let result = RouterBootstrap::from_path(&bootstrap_path).operations();
+
+    assert!(matches!(
+        result,
+        Err(router::Error::BootstrapArchiveDecode { .. })
     ));
 }
 

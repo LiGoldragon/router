@@ -16,7 +16,11 @@ system; the router decides delivery based on channel state. A message
 without an authorized channel parks for mind adjudication.
 
 The CLI is a thin client; the daemon owns `RouterRuntime` for its
-process lifetime. Ordinary requests enter as length-prefixed Signal
+process lifetime. `router-daemon` starts from exactly one
+signal-encoded/rkyv `RouterDaemonConfiguration` file; it rejects
+inline NOTA and `.nota` startup files, and its optional bootstrap
+path names a binary rkyv `RouterBootstrapDocument` archive rather
+than text lines. Ordinary requests enter as length-prefixed Signal
 frames on the working `router.sock`; meta channel-policy orders enter
 on the separate meta socket using `meta-signal-router` frames wrapped
 by the shared triad-runtime length-prefixed codec. Router-owned

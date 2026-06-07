@@ -20,7 +20,6 @@ path = "src/main.rs"
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main" }
 nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
-nota-config           = { git = "https://github.com/LiGoldragon/nota-config.git", branch = "main" }
 nota-next             = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main", optional = true }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema                  = { git = "https://github.com/LiGoldragon/sema.git" }

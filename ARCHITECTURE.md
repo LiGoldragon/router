@@ -63,10 +63,11 @@ flowchart LR
 - a Signal-frame daemon ingress for `signal-message`
   `StampedMessageSubmission` and `InboxQuery` frames;
 - a startup bootstrap reader for manager-written
-  `signal-router::RouterBootstrapDocument` line projections. The
+  `signal-router::RouterBootstrapDocument` rkyv archives. The
   router no longer owns a private duplicate of the bootstrap record
-  vocabulary; it converts the contract records into internal
-  `RouterInput` values at the daemon boundary;
+  vocabulary and does not parse NOTA text in the daemon; it converts
+  the binary contract records into internal `RouterInput` values at
+  the daemon boundary;
 - a Kameo `RouterRuntime` that starts, stops, and exposes the router actor
   tree as `ActorRef<RouterRuntime>`;
 - a Kameo `RouterRoot` that owns live routing state behind the runtime;

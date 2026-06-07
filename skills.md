@@ -39,9 +39,10 @@ Rules for work here:
 
 ## Persistence — adjudication state survives restart
 
-When the router daemon launches with `--store <path>`, `ChannelAuthority`
-attaches `RouterTables` and persists `adjudication_pending` records (and
-channel records, delivery attempts, delivery results) into `router.redb`.
+When the router daemon launches with a binary `RouterDaemonConfiguration`,
+`ChannelAuthority` attaches `RouterTables` and persists
+`adjudication_pending` records (and channel records, delivery attempts,
+delivery results) into `router.sema`.
 The `MindAdjudicationOutbox` in-memory projection is a derived view, not
 the durable record.
 
