@@ -17,7 +17,6 @@ use router::{
     RouterDaemonConfigurationFile, RouterInput, RouterMetaConnection, RouterOutput, SocketMode,
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
-use signal_core::{ExchangeIdentifier, ExchangeLane, LaneSequence, Request, SessionEpoch};
 use signal_engine_management::{
     ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
     EngineManagementProtocolVersion, Presence, TimestampNanos,
@@ -27,8 +26,9 @@ use signal_engine_management::{
     Query as SupervisionQuery, Reply as SupervisionReply,
 };
 use signal_frame::{
-    ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
-    LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
+    ExchangeIdentifier, ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane,
+    ExchangeLane as FrameExchangeLane, LaneSequence, LaneSequence as FrameLaneSequence, Request,
+    Request as FrameRequest, SessionEpoch, SessionEpoch as FrameSessionEpoch,
 };
 use signal_message::{
     Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
@@ -279,7 +279,7 @@ fn constraint_router_daemon_applies_meta_socket_mode() {
 #[test]
 fn router_connection_decodes_signal_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
-    let request = MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+    let request = MessageRequest::SubmitStamped(StampedMessageSubmission {
         submission: MessageSubmission {
             recipient: MessageRecipient::new("responder"),
             kind: MessageKind::Send,
@@ -313,7 +313,7 @@ fn router_connection_decodes_signal_message_frame() {
     );
     assert!(matches!(
         input.request(),
-        MessageRequest::StampedMessageSubmission(stamped)
+        MessageRequest::SubmitStamped(stamped)
             if stamped.submission.recipient.as_str() == "responder"
                 && stamped.submission.kind == MessageKind::Send
                 && stamped.submission.body.as_str() == "socket frame"
@@ -365,7 +365,7 @@ fn router_meta_connection_decodes_and_replies_meta_signal_frame() {
 #[test]
 fn router_meta_connection_rejects_working_signal_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
-    let request = MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+    let request = MessageRequest::SubmitStamped(StampedMessageSubmission {
         submission: MessageSubmission {
             recipient: MessageRecipient::new("responder"),
             kind: MessageKind::Send,

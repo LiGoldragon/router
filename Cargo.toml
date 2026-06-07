@@ -23,14 +23,13 @@ nota-codec            = { git = "https://github.com/LiGoldragon/nota-codec.git",
 nota-next             = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main", optional = true }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema                  = { git = "https://github.com/LiGoldragon/sema.git" }
-signal-core           = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-engine-management = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
 signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona-origin   = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
 signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git" }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }

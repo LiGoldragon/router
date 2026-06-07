@@ -531,7 +531,7 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
         .apply_signal(SignalMessageInput::with_origin(
             operator,
             MessageOrigin::External(ConnectionClass::Owner),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new(responder.as_str()),
                     kind: MessageKind::Send,
@@ -1237,7 +1237,7 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
                     kind: MessageKind::Send,
@@ -1277,7 +1277,7 @@ async fn router_root_persists_accepted_signal_message_before_delivery_attempt() 
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
                     kind: MessageKind::Send,
@@ -1330,7 +1330,7 @@ async fn stamped_component_instance_origin_becomes_message_sender_actor() {
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::message(),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
                     kind: MessageKind::Send,
@@ -1362,7 +1362,7 @@ async fn unstamped_message_submission_is_not_router_ingress_payload() {
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::message(),
-            MessageRequest::MessageSubmission(MessageSubmission {
+            MessageRequest::Submit(MessageSubmission {
                 recipient: MessageRecipient::new("responder"),
                 kind: MessageKind::Send,
                 body: MessageBody::new("hello"),
@@ -1374,10 +1374,7 @@ async fn unstamped_message_submission_is_not_router_ingress_payload() {
     let MessageReply::MessageRequestUnimplemented(unimplemented) = reply else {
         panic!("expected unimplemented signal message reply");
     };
-    assert_eq!(
-        unimplemented.operation,
-        MessageOperationKind::MessageSubmission
-    );
+    assert_eq!(unimplemented.operation, MessageOperationKind::Submit);
     assert_eq!(
         unimplemented.reason,
         MessageUnimplementedReason::NotInPrototypeScope

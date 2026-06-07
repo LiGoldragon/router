@@ -27,9 +27,8 @@ use router::{
     RouterDaemonInput, RouterIngressContext, RouterInput, RouterObservationFrameCodec,
     RouterOutput, RouterRuntime, RouterTables, SignalMessageInput, Status, ThreadIdentifier,
 };
-use signal_core::{
-    AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
-    SessionEpoch, SignalVerb, SubReply,
+use signal_frame::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
 };
 use signal_message::{
     MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageReply, MessageRequest,
@@ -391,14 +390,8 @@ async fn router_daemon_connection_routes_router_frame_to_observation_plane() {
         .expect("client decodes router observation reply");
     match decoded.into_body() {
         RouterFrameBody::Reply { reply, .. } => match reply {
-            Reply::Accepted {
-                outcome: AcceptedOutcome::Completed,
-                per_operation,
-            } => match per_operation.into_head() {
-                SubReply::Ok {
-                    verb: SignalVerb::Match,
-                    payload: RouterReply::Summary(summary),
-                } => {
+            Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                SubReply::Ok(RouterReply::Summary(summary)) => {
                     assert_eq!(summary.engine, engine_identifier());
                     assert_eq!(summary.accepted_messages, 0);
                     assert_eq!(summary.routed_messages, 0);
@@ -478,7 +471,7 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
                     kind: MessageKind::Send,
@@ -493,7 +486,7 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
                     kind: MessageKind::Send,
@@ -541,7 +534,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
                     kind: MessageKind::Send,
@@ -686,7 +679,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::StampedMessageSubmission(StampedMessageSubmission {
+            MessageRequest::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
                     recipient: MessageRecipient::new("responder"),
                     kind: MessageKind::Send,

@@ -23,4 +23,5 @@ delivered harness prompt.
 - Use actor-shaped objects for harness endpoints. Endpoint injection data
   belongs to the harness actor that can perform the delivery.
 - No polling. Blocked deliveries subscribe to pushed system or harness events.
-- Durable router state uses `redb + rkyv`.
+- Durable router state lives in `router.sema` through the router-owned
+  Sema table layer.

@@ -476,7 +476,6 @@ dependencies = [
  "rkyv",
  "schema-rust-next",
  "sema",
- "signal-core",
  "signal-engine-management",
  "signal-frame",
  "signal-harness",
@@ -663,12 +662,12 @@ dependencies = [
 [[package]]
 name = "signal-message"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#c87e8fd2da065039670e7a44a067c0bc65f56508"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#f8769051afe5aead1c881083bb6c0ba61bbcc0ab"
 dependencies = [
  "nota-codec",
  "nota-config",
  "rkyv",
- "signal-core",
+ "signal-frame",
  "signal-persona",
  "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",
  "thiserror",
@@ -722,12 +721,12 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git#8ea7a10426ac7809b58826969079b58cb1123fa2"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#3732495560b7d32a936ca8a4eee5fff1b0286ef3"
 dependencies = [
  "nota-codec",
  "nota-config",
  "rkyv",
- "signal-core",
+ "signal-frame",
  "signal-message",
  "signal-persona",
  "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",

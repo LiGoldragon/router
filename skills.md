@@ -48,10 +48,10 @@ the durable record.
 
 A typed restart witness is the shape: bind socket, persist one parked
 message's adjudication-pending row, drop the daemon, relaunch with the
-same `--store`, query the observation plane, prove the pending state
+same store path, query the observation plane, prove the pending state
 comes back as a typed `RouterReply` rather than as in-memory coincidence.
 Per `~/primary/skills/architectural-truth-tests.md` §"Nix-chained tests"
-— the writer derivation produces the redb file; the reader derivation
+— the writer derivation produces the `router.sema` file; the reader derivation
 opens a fresh process against the same path; nothing in-process can fake
 the chain.
 
@@ -59,7 +59,7 @@ the chain.
 
 The `RouterObservationPlane` answers `RouterRequest` queries by reading
 `RouterRoot` facts through the mailbox and reading channel records from
-`RouterTables`. It never mutates router state; never opens `router.redb`
+`RouterTables`. It never mutates router state; never opens `router.sema`
 directly outside the tables abstraction; never fabricates an answer when
 data is missing. The closed-enum reply set is
 `RouterReply::{Summary, MessageTrace, MessageTraceMissing, ChannelState,
