@@ -39,8 +39,12 @@ Those generated nouns make the intended internal feature surface visible:
 message ingress and router observations at Signal, accept/deliver/adjudicate
 decisions at Nexus, and accepted-message/channel/delivery/adjudication storage
 operations at SEMA. The current actor runtime is still the active behavior
-path; the generated daemon module is present as the cutover target rather than
-the live `router-daemon` entry yet.
+path. The generated daemon module is not emitted for router yet: the remaining
+cutover is a relation-adapter problem, not a meta-listener blocker. Router's
+live working socket intentionally accepts `signal-message` ingress and
+`signal-router` observations, while the generated daemon spine currently
+decodes one local Signal `Input` root; the cutover must preserve those
+relation-specific wire contracts while routing into the generated triad nouns.
 
 Key constraints: routing reacts to pushed events (no polling). Authorization is channel-
 table authorization plus mind adjudication for misses. One-shot channels authorize

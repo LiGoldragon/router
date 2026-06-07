@@ -101,8 +101,12 @@ flowchart LR
   `schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema` by
   `schema-rust-next`. This is the current substrate port: it exposes the
   router's future Signal/Nexus/SEMA nouns. The live two-listener daemon remains
-  hand-written until actor-native generated daemon emission supports the meta
-  listener tier;
+  hand-written because its working listener multiplexes relation-specific
+  `signal-message` ingress and `signal-router` observation frames, while the
+  generated daemon spine currently decodes one local Signal `Input` root. The
+  meta-listener substrate exists; router's cutover blocker is the
+  relation-adapter shape that preserves those public contracts while routing
+  into the generated triad nouns;
 - pending-delivery state;
 - future subscriptions to pushed router-relevant channel and delivery events;
 - typed delivery results for callers and observers.
