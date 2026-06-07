@@ -13,6 +13,9 @@ pub enum Error {
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_core::FrameError),
 
+    #[error("harness signal frame: {0}")]
+    HarnessSignalFrame(#[from] signal_frame::FrameError),
+
     #[error("meta-signal-router frame: {0}")]
     MetaSignalFrame(#[from] meta_signal_router::SignalFrameError),
 

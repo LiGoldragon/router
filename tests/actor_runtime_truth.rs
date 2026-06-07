@@ -19,7 +19,7 @@ use router::{
     RouterIngressContext, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables,
     RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadIdentifier, UseChannel,
 };
-use signal_core::{NonEmpty, Reply, SubReply};
+use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
 };
@@ -294,12 +294,8 @@ impl HarnessAcceptanceSocket {
             let HarnessFrameBody::Request { exchange, request } = frame.into_body() else {
                 panic!("expected harness request frame");
             };
-            let operation = request
-                .into_checked()
-                .expect("harness request passes structural checks")
-                .operations
-                .into_head();
-            let HarnessRequest::MessageDelivery(delivery) = operation.payload else {
+            let HarnessRequest::MessageDelivery(delivery) = request.payloads().head().clone()
+            else {
                 panic!("expected message delivery request");
             };
             sender
@@ -312,13 +308,12 @@ impl HarnessAcceptanceSocket {
                 .expect("harness socket reports delivery");
             let reply = HarnessFrame::new(HarnessFrameBody::Reply {
                 exchange,
-                reply: Reply::completed(NonEmpty::single(SubReply::Ok {
-                    verb: operation.verb,
-                    payload: HarnessEvent::DeliveryCompleted(DeliveryCompleted {
+                reply: Reply::committed(NonEmpty::single(SubReply::Ok(
+                    HarnessEvent::DeliveryCompleted(DeliveryCompleted {
                         harness: HarnessName::new(delivery.harness.as_str()),
                         message_slot: delivery.message_slot,
                     }),
-                })),
+                ))),
             });
             stream
                 .write_all(

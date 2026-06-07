@@ -153,6 +153,10 @@ router-owned Sema layer over the `sema` library; no shared database actor owns
 router transitions. Terminal byte movement and verification are delegated
 through `harness` and then through `persona-terminal`, which owns the
 terminal transport adapter around `terminal-cell`.
+The router-to-harness delivery leg speaks the `signal-harness`
+contract on the new `signal-frame` request/reply kernel; it does not
+construct `signal-core` operation wrappers or universal SignalVerb
+classifications for harness delivery.
 
 Stored router records are typed contract records from the relation-specific
 `signal-persona-*` family. The router actor decodes Signal frames, commits

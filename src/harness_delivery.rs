@@ -6,7 +6,7 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 use kameo::reply::DelegatedReply;
-use signal_core::{
+use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
 use signal_harness::{
@@ -102,7 +102,7 @@ impl HarnessDelivery {
         match HarnessFrame::decode_length_prefixed(bytes.as_slice())?.into_body() {
             HarnessFrameBody::Reply { reply, .. } => match reply {
                 Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                    SubReply::Ok { payload, .. } => Ok(payload),
+                    SubReply::Ok(payload) => Ok(payload),
                     other => Err(Error::UnexpectedSignalFrame {
                         got: format!("unexpected harness sub-reply: {other:?}"),
                     }),
