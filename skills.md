@@ -6,7 +6,7 @@ decisions, or the router daemon surface.
 Rules for work here:
 
 - Depend on contract repos for relation-specific frame records. For this router
-  slice, that means `signal-message` and `signal-persona-system`.
+  slice, that means `signal-message` and `signal-system`.
 - Do not depend on `message`. That repo is the message-ingress
   boundary into the router.
 - Accept stamped `signal-message` frames as the daemon message ingress.
@@ -14,7 +14,7 @@ Rules for work here:
   not commit on `router.sock`. Do not add a NOTA line socket protocol.
 - Resolve the signal sender from typed Signal origin. Do not add sender text to
   `MessageSubmission`.
-- Depend on `persona-system` for OS/window/input runtime observation
+- Depend on `system` for OS/window/input runtime observation
   producers, not for the inter-component record types.
 - Depend on `harness` for harness capabilities.
 - Commit durable router transitions through the router actor's own Sema layer
@@ -29,7 +29,7 @@ Rules for work here:
 - Use pushed event subscriptions. Do not add polling loops.
 - Treat unknown focus and unknown prompt-buffer state as blocked delivery.
 - Keep terminal byte transport out of this repo; that belongs in
-  `persona-terminal`. The router does not depend on terminal crates directly.
+  `terminal`. The router does not depend on terminal crates directly.
 - Router-side push subscriptions follow the canonical five-state
   lifecycle (subscribe → snapshot reply → deltas → retract → final ack
   → end). See this workspace's `skills/subscription-lifecycle.md`.

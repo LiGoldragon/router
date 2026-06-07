@@ -10,11 +10,11 @@ This repository owns:
 - typed pending delivery state;
 - harness actor registration;
 - event-driven delivery gates;
-- delivery decisions that consume `signal-persona-system` observations.
+- delivery decisions that consume `signal-system` observations.
 
 It does not own relation-specific frame contracts or OS backend implementation.
-`signal-message` owns message request records, `signal-persona-system`
-owns focus and prompt-buffer observation records, and `persona-system` produces
+`signal-message` owns message request records, `signal-system`
+owns focus and prompt-buffer observation records, and `system` produces
 those observations at runtime.
 
 `message` is the message-ingress component and is not a router

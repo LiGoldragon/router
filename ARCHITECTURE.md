@@ -151,7 +151,7 @@ the blocking terminal/probe calls they require.
 Durable router state lives in the router actor's own Sema database through a
 router-owned Sema layer over the `sema` library; no shared database actor owns
 router transitions. Terminal byte movement and verification are delegated
-through `harness` and then through `persona-terminal`, which owns the
+through `harness` and then through `terminal`, which owns the
 terminal transport adapter around `terminal-cell`.
 The router-to-harness delivery leg speaks the `signal-harness`
 contract on the new `signal-frame` request/reply kernel; it does not
@@ -412,7 +412,7 @@ This repo does not own:
 - message or system `Frame` record definitions (`signal-message`,
   future relation contracts);
 - focus/window/input backend implementation;
-- terminal byte movement (`persona-terminal`);
+- terminal byte movement (`terminal`);
 - direct dependencies on terminal crates;
 - terminal adapter execution (`harness`);
 - harness lifecycle internals (`harness`);
@@ -470,7 +470,7 @@ This repo does not own:
 - Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
   execution stays behind `harness`.
 - Prompt cleanliness and human input interleaving are terminal-cell /
-  persona-terminal input-gate concerns, not router concerns.
+  terminal input-gate concerns, not router concerns.
 - Every delivery attempt produces typed observable state: delivered, deferred,
   or rejected.
 - Message acceptance commits before any delivery attempt is emitted.

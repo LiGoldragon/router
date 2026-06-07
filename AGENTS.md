@@ -14,12 +14,12 @@ delivered harness prompt.
 - Use Jujutsu for version control.
 - Keep repositories public unless the human gives a specific reason otherwise.
 - Use Nix for build and test entry points.
-- `signal-persona-message` is the only daemon message ingress. Do not add a
+- `signal-message` is the only daemon message ingress. Do not add a
   NOTA line socket protocol.
-- Do not depend on `persona-message`; it is the message-ingress component that
+- Do not depend on `message`; it is the message-ingress component that
   forwards typed frames into this router.
 - Do not depend on terminal crates directly. Terminal effects go through
-  `persona-harness`.
+  `harness`.
 - Use actor-shaped objects for harness endpoints. Endpoint injection data
   belongs to the harness actor that can perform the delivery.
 - No polling. Blocked deliveries subscribe to pushed system or harness events.

@@ -589,27 +589,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-core"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#3f10055aa281aa3e5c8c38312f961516e4470ad3"
-dependencies = [
- "nota-codec",
- "rkyv",
- "signal-core-macros",
- "thiserror",
-]
-
-[[package]]
-name = "signal-core-macros"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#3f10055aa281aa3e5c8c38312f961516e4470ad3"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "signal-engine-management"
 version = "0.1.0"
 source = "git+https://github.com/LiGoldragon/signal-engine-management.git?branch=main#32b226ecc6296ce039f9f8e1446c6c83ee955185"
@@ -676,11 +655,11 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git#ad2a60fd557ac05b43a4d767a69ed9f092b3b846"
+source = "git+https://github.com/LiGoldragon/signal-mind.git#e290aa62a12da4ff2eb8152e7841c8d2a910e970"
 dependencies = [
  "nota-codec",
  "rkyv",
- "signal-core",
+ "signal-frame",
  "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",
  "signal-sema 0.1.0 (git+https://github.com/LiGoldragon/signal-sema.git)",
  "thiserror",
@@ -746,7 +725,7 @@ dependencies = [
 [[package]]
 name = "signal-sema"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git#1604cceb787389274127df7e3a273c164db61feb"
+source = "git+https://github.com/LiGoldragon/signal-sema.git#c132e9a06431617055bad2a9bae7bbecdeacd4b0"
 dependencies = [
  "nota-codec",
  "rkyv",
