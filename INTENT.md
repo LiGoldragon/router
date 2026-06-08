@@ -29,8 +29,8 @@ adjudication-pending records, delivery attempts, and results, opened and
 registered through `sema-engine` rather than a daemon-owned raw storage
 kernel. Message acceptance commits before delivery attempt. Delivery results
 update state before post-delivery subscription events. Every accepted message
-carries typed `IngressContext` from the accepted socket relation. Origin is
-provenance, not an auth proof.
+carries typed `signal-message::MessageOrigin` from the accepted socket
+relation. Origin is provenance, not an auth proof.
 
 Router now carries the schema-derived triad substrate in-tree:
 `schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema`
@@ -43,12 +43,12 @@ schema-rust-next emitted async task-backed process shell: one working listener,
 one meta listener, binary rkyv configuration only, and socket modes applied
 by the shared runtime. Router keeps one component hook for relation-specific
 working-frame decode because the working socket intentionally accepts both
-`signal-message` ingress and schema-derived `signal-router` observations.
-`signal-router` is now the published generated contract crate, not a
-`signal_channel!` macro surface; future public signal/meta-signal dependencies
-should follow that schema-next/schema-rust-next contract shape. The emitted
-daemon owns listener mechanics; router owns only that transitional relation
-adapter and the actor-runtime behavior behind it.
+schema-derived `signal-message` ingress and schema-derived `signal-router`
+observations. `signal-message` and `signal-router` are now published
+generated contract crates, not `signal_channel!` macro surfaces; future public
+signal/meta-signal dependencies should follow that schema-next/schema-rust-next
+contract shape. The emitted daemon owns listener mechanics; router owns only
+that transitional relation adapter and the actor-runtime behavior behind it.
 
 Key constraints: routing reacts to pushed events (no polling). Authorization is channel-
 table authorization plus mind adjudication for misses. One-shot channels authorize

@@ -27,15 +27,16 @@ use router::{
     RouterDaemonInput, RouterIngressContext, RouterInput, RouterObservationFrameCodec,
     RouterOutput, RouterRuntime, RouterTables, SignalMessageInput, Status, ThreadIdentifier,
 };
-use signal_engine_management::TimestampNanos;
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
 };
 use signal_message::{
-    MessageBody as SignalMessageBody, MessageKind, MessageRecipient, MessageReply, MessageRequest,
-    MessageSubmission, StampedMessageSubmission,
+    ConnectionClass as SignalConnectionClass, Input as SignalInput,
+    MessageBody as SignalMessageBody, MessageKind, MessageOrigin as SignalMessageOrigin,
+    MessageRecipient, MessageSubmission, Output as SignalOutput, StampedMessageSubmission,
+    TimestampNanos as SignalTimestampNanos,
 };
-use signal_persona_origin::{ChannelIdentifier, ConnectionClass, MessageOrigin};
+use signal_persona_origin::ChannelIdentifier;
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
     Output as SignalRouterOutput, RouterChannelStateQuery, RouterChannelStatus,
@@ -96,7 +97,7 @@ impl ObservationFixture {
             .into_result()
     }
 
-    async fn apply_signal(&self, input: SignalMessageInput) -> router::RouterResult<MessageReply> {
+    async fn apply_signal(&self, input: SignalMessageInput) -> router::RouterResult<SignalOutput> {
         self.runtime
             .ask(router::ApplySignalMessage { input })
             .await
@@ -473,14 +474,14 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder"),
+                    recipient: MessageRecipient::new("responder".to_string()),
                     kind: MessageKind::Send,
-                    body: SignalMessageBody::new("first"),
+                    body: SignalMessageBody::new("first".to_string()),
                 },
-                origin: MessageOrigin::External(ConnectionClass::Owner),
-                stamped_at: TimestampNanos::new(1),
+                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1),
             }),
         ))
         .await
@@ -488,14 +489,14 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder"),
+                    recipient: MessageRecipient::new("responder".to_string()),
                     kind: MessageKind::Send,
-                    body: SignalMessageBody::new("second"),
+                    body: SignalMessageBody::new("second".to_string()),
                 },
-                origin: MessageOrigin::External(ConnectionClass::Owner),
-                stamped_at: TimestampNanos::new(2),
+                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(2),
             }),
         ))
         .await
@@ -536,14 +537,14 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder"),
+                    recipient: MessageRecipient::new("responder".to_string()),
                     kind: MessageKind::Send,
-                    body: SignalMessageBody::new("trace me"),
+                    body: SignalMessageBody::new("trace me".to_string()),
                 },
-                origin: MessageOrigin::External(ConnectionClass::Owner),
-                stamped_at: TimestampNanos::new(1),
+                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1),
             }),
         ))
         .await
@@ -681,14 +682,14 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
     router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder"),
+                    recipient: MessageRecipient::new("responder".to_string()),
                     kind: MessageKind::Send,
-                    body: SignalMessageBody::new("witness"),
+                    body: SignalMessageBody::new("witness".to_string()),
                 },
-                origin: MessageOrigin::External(ConnectionClass::Owner),
-                stamped_at: TimestampNanos::new(1),
+                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1),
             }),
         ))
         .await

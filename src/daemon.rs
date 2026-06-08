@@ -3,7 +3,7 @@ use meta_signal_router::Input as MetaInput;
 use signal_frame::{NonEmpty, Reply, Request, SubReply};
 use signal_message::{
     Frame as SignalMessageFrame, FrameBody as SignalMessageFrameBody,
-    MessageReply as SignalMessageReply, MessageRequest as SignalMessageRequest,
+    Input as SignalMessageContractInput, Output as SignalMessageContractOutput,
 };
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
@@ -93,7 +93,7 @@ impl RouterEngine {
                     .await
                     .map_err(|error| RouterError::ActorCall(error.to_string()))?
                     .into_result()?;
-                WorkingSignalMessageReply::new(received.exchange, output)
+                WorkingSignalMessageContractOutput::new(received.exchange, output)
                     .write(connection.stream_mut())
                     .await?;
             }
@@ -230,8 +230,8 @@ impl WorkingSignalMessageInput {
     }
 
     fn single_payload(
-        request: Request<SignalMessageRequest>,
-    ) -> Result<SignalMessageRequest, signal_frame::FrameError> {
+        request: Request<SignalMessageContractInput>,
+    ) -> Result<SignalMessageContractInput, signal_frame::FrameError> {
         let (request, tail) = request.payloads.into_head_and_tail();
         if tail.is_empty() {
             Ok(request)
@@ -268,13 +268,16 @@ impl WorkingRouterObservationInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct WorkingSignalMessageReply {
+struct WorkingSignalMessageContractOutput {
     exchange: signal_frame::ExchangeIdentifier,
-    output: SignalMessageReply,
+    output: SignalMessageContractOutput,
 }
 
-impl WorkingSignalMessageReply {
-    fn new(exchange: signal_frame::ExchangeIdentifier, output: SignalMessageReply) -> Self {
+impl WorkingSignalMessageContractOutput {
+    fn new(
+        exchange: signal_frame::ExchangeIdentifier,
+        output: SignalMessageContractOutput,
+    ) -> Self {
         Self { exchange, output }
     }
 

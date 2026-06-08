@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "router"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kameo",
  "meta-signal-router",
@@ -587,14 +587,13 @@ dependencies = [
 
 [[package]]
 name = "signal-message"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#ec09bd6455dae7e0a1adbdce34da68b1fddb25bb"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#6a29eb1999f35a1f0d0c60ebe2cade3a5eee2d59"
 dependencies = [
  "nota-next",
  "rkyv",
- "signal-engine-management",
+ "schema-rust-next",
  "signal-frame",
- "signal-persona-origin",
  "thiserror",
 ]
 

@@ -12,16 +12,15 @@ use meta_signal_router::{
     ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass,
     GrantedChannel as MetaGrantedChannel, Input as MetaInput, Output as MetaOutput,
 };
-use signal_engine_management::TimestampNanos;
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
 use signal_message::{
-    Frame as SignalMessageFrame, FrameBody as SignalMessageFrameBody, MessageBody, MessageKind,
-    MessageRecipient, MessageReply, MessageRequest, MessageSlot, MessageSubmission,
-    StampedMessageSubmission, SubmissionAcceptance,
+    ComponentName, Frame as SignalMessageFrame, FrameBody as SignalMessageFrameBody,
+    Input as SignalInput, MessageBody, MessageKind, MessageOrigin as SignalMessageOrigin,
+    MessageRecipient, MessageSlot, MessageSubmission, Output as SignalOutput,
+    StampedMessageSubmission, SubmissionAcceptance, TimestampNanos as SignalTimestampNanos,
 };
-use signal_persona_origin::{ComponentName, MessageOrigin};
 use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterDaemonConfiguration};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
@@ -128,19 +127,19 @@ fn generated_daemon_answers_working_signal_message_frame() {
 
     let output = working_signal_exchange(
         &fixture.socket_path,
-        MessageRequest::SubmitStamped(StampedMessageSubmission {
+        SignalInput::SubmitStamped(StampedMessageSubmission {
             submission: MessageSubmission {
-                recipient: MessageRecipient::new("designer"),
+                recipient: MessageRecipient::new("designer".to_string()),
                 kind: MessageKind::Send,
-                body: MessageBody::new("hello through emitted router daemon"),
+                body: MessageBody::new("hello through emitted router daemon".to_string()),
             },
-            origin: MessageOrigin::Internal(ComponentName::Message),
-            stamped_at: TimestampNanos::new(1),
+            origin: SignalMessageOrigin::Internal(ComponentName::Message),
+            stamped_at: SignalTimestampNanos::new(1),
         }),
     );
 
     match output {
-        MessageReply::SubmissionAccepted(SubmissionAcceptance { message_slot }) => {
+        SignalOutput::SubmissionAccepted(SubmissionAcceptance(message_slot)) => {
             assert_eq!(message_slot, MessageSlot::new(1));
         }
         other => panic!("expected SubmissionAccepted, got {other:?}"),
@@ -181,7 +180,7 @@ fn socket_mode(path: &Path) -> u32 {
         & 0o777
 }
 
-fn working_signal_exchange(socket_path: &Path, request: MessageRequest) -> MessageReply {
+fn working_signal_exchange(socket_path: &Path, request: SignalInput) -> SignalOutput {
     let exchange = test_exchange();
     let frame = SignalMessageFrame::new(SignalMessageFrameBody::Request {
         exchange,
@@ -219,7 +218,7 @@ fn framed_exchange(socket_path: &Path, body: Vec<u8>) -> RuntimeFrameBody {
     codec.read_body(&mut stream).expect("read reply body")
 }
 
-fn single_committed_reply(reply: Reply<MessageReply>) -> MessageReply {
+fn single_committed_reply(reply: Reply<SignalOutput>) -> SignalOutput {
     let Reply::Accepted { per_operation, .. } = reply else {
         panic!("expected accepted signal reply");
     };

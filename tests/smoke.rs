@@ -19,7 +19,7 @@ use router::{
 };
 use signal_engine_management::{
     ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
-    EngineManagementProtocolVersion, Presence, TimestampNanos,
+    EngineManagementProtocolVersion, Presence,
 };
 use signal_engine_management::{
     Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
@@ -31,10 +31,10 @@ use signal_frame::{
     Request as FrameRequest, SessionEpoch, SessionEpoch as FrameSessionEpoch,
 };
 use signal_message::{
-    Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
-    MessageRequest, MessageSubmission, StampedMessageSubmission,
+    ComponentName, Frame, FrameBody, Input as SignalInput, MessageBody as SignalMessageBody,
+    MessageKind, MessageOrigin as SignalMessageOrigin, MessageRecipient, MessageSubmission,
+    StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
 };
-use signal_persona_origin::{ComponentName, MessageOrigin};
 use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterBootstrapDocument};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
@@ -84,7 +84,7 @@ fn pending_delivery_keeps_recipient() {
         MessageIdentifier::new("m-abc"),
         "operator",
         "responder",
-        MessageBody::new("hello"),
+        MessageBody::new("hello".to_string()),
     );
     let delivery = PendingDelivery::new(message);
 
@@ -295,14 +295,14 @@ fn constraint_router_daemon_applies_meta_socket_mode() {
 #[test]
 fn router_connection_decodes_signal_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
-    let request = MessageRequest::SubmitStamped(StampedMessageSubmission {
+    let request = SignalInput::SubmitStamped(StampedMessageSubmission {
         submission: MessageSubmission {
-            recipient: MessageRecipient::new("responder"),
+            recipient: MessageRecipient::new("responder".to_string()),
             kind: MessageKind::Send,
-            body: SignalMessageBody::new("socket frame"),
+            body: SignalMessageBody::new("socket frame".to_string()),
         },
-        origin: MessageOrigin::Internal(ComponentName::Message),
-        stamped_at: TimestampNanos::new(1),
+        origin: SignalMessageOrigin::Internal(ComponentName::Message),
+        stamped_at: SignalTimestampNanos::new(1),
     });
     let frame = Frame::new(FrameBody::Request {
         exchange: test_exchange(),
@@ -325,15 +325,15 @@ fn router_connection_decodes_signal_message_frame() {
     assert_eq!(input.sender().as_str(), "message");
     assert_eq!(
         input.origin(),
-        &MessageOrigin::Internal(ComponentName::Message)
+        &SignalMessageOrigin::Internal(ComponentName::Message)
     );
     assert!(matches!(
         input.request(),
-        MessageRequest::SubmitStamped(stamped)
+        SignalInput::SubmitStamped(stamped)
             if stamped.submission.recipient.as_str() == "responder"
                 && stamped.submission.kind == MessageKind::Send
                 && stamped.submission.body.as_str() == "socket frame"
-                && stamped.origin == MessageOrigin::Internal(ComponentName::Message)
+                && stamped.origin == SignalMessageOrigin::Internal(ComponentName::Message)
     ));
 }
 
@@ -381,14 +381,14 @@ fn router_meta_connection_decodes_and_replies_meta_signal_frame() {
 #[test]
 fn router_meta_connection_rejects_working_signal_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
-    let request = MessageRequest::SubmitStamped(StampedMessageSubmission {
+    let request = SignalInput::SubmitStamped(StampedMessageSubmission {
         submission: MessageSubmission {
-            recipient: MessageRecipient::new("responder"),
+            recipient: MessageRecipient::new("responder".to_string()),
             kind: MessageKind::Send,
-            body: SignalMessageBody::new("wrong socket"),
+            body: SignalMessageBody::new("wrong socket".to_string()),
         },
-        origin: MessageOrigin::Internal(ComponentName::Message),
-        stamped_at: TimestampNanos::new(1),
+        origin: SignalMessageOrigin::Internal(ComponentName::Message),
+        stamped_at: SignalTimestampNanos::new(1),
     });
     let frame = Frame::new(FrameBody::Request {
         exchange: test_exchange(),

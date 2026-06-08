@@ -19,21 +19,24 @@ use router::{
     RouterIngressContext, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables,
     RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadIdentifier, UseChannel,
 };
-use signal_engine_management::TimestampNanos;
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
 };
 use signal_message::{
-    MessageBody, MessageKind, MessageOperationKind, MessageRecipient, MessageReply, MessageRequest,
-    MessageSubmission, MessageUnimplementedReason, StampedMessageSubmission,
+    ComponentInstanceName as SignalComponentInstanceName, ComponentName as SignalComponentName,
+    ConnectionClass as SignalConnectionClass, Input as SignalInput,
+    InternalComponentInstanceOrigin as SignalInternalComponentInstanceOrigin, MessageBody,
+    MessageKind, MessageOperationKind, MessageOrigin as SignalMessageOrigin, MessageRecipient,
+    MessageSubmission, MessageUnimplementedReason, Output as SignalOutput,
+    StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
 };
 use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
 use signal_persona_origin::{
-    ComponentInstanceName, ComponentName, ConnectionClass, InternalComponentInstanceOrigin,
-    MessageOrigin,
+    ComponentName as MindComponentName, ConnectionClass as MindConnectionClass,
+    MessageOrigin as MindMessageOrigin,
 };
 
 struct SourceFile {
@@ -110,7 +113,7 @@ impl RouterFixture {
             .into_result()
     }
 
-    async fn apply_signal(&self, input: SignalMessageInput) -> router::RouterResult<MessageReply> {
+    async fn apply_signal(&self, input: SignalMessageInput) -> router::RouterResult<SignalOutput> {
         self.runtime
             .ask(ApplySignalMessage { input })
             .await
@@ -532,15 +535,15 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
     router
         .apply_signal(SignalMessageInput::with_origin(
             operator,
-            MessageOrigin::External(ConnectionClass::Owner),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalMessageOrigin::External(SignalConnectionClass::Owner),
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new(responder.as_str()),
+                    recipient: MessageRecipient::new(responder.as_str().to_string()),
                     kind: MessageKind::Send,
-                    body: MessageBody::new("please answer"),
+                    body: MessageBody::new("please answer".to_string()),
                 },
-                origin: MessageOrigin::External(ConnectionClass::Owner),
-                stamped_at: TimestampNanos::new(1),
+                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1),
             }),
         ))
         .await
@@ -553,7 +556,7 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
     assert_eq!(outbox.requests.len(), 1);
     assert_eq!(
         outbox.requests[0].origin,
-        MessageOrigin::External(ConnectionClass::Owner)
+        MindMessageOrigin::External(MindConnectionClass::Owner)
     );
     assert_eq!(outbox.requests[0].kind, ChannelMessageKind::MessageDelivery);
     assert_eq!(outbox.requests[0].body_summary.as_str(), "please answer");
@@ -1096,8 +1099,8 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
     let applied = router
         .apply(RouterInput::ApplyMindChannelGrant(ApplyMindChannelGrant {
             grant: MindChannelGrant {
-                source: ChannelEndpoint::Internal(ComponentName::Router),
-                destination: ChannelEndpoint::Internal(ComponentName::Harness),
+                source: ChannelEndpoint::Internal(MindComponentName::Router),
+                destination: ChannelEndpoint::Internal(MindComponentName::Harness),
                 kinds: vec![ChannelMessageKind::MessageDelivery],
                 duration: ChannelDuration::Permanent,
             },
@@ -1284,23 +1287,23 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder"),
+                    recipient: MessageRecipient::new("responder".to_string()),
                     kind: MessageKind::Send,
-                    body: MessageBody::new("hello"),
+                    body: MessageBody::new("hello".to_string()),
                 },
-                origin: MessageOrigin::External(ConnectionClass::Owner),
-                stamped_at: TimestampNanos::new(1),
+                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1),
             }),
         ))
         .await
         .expect("signal message request passes through router actors");
 
-    let MessageReply::SubmissionAccepted(acceptance) = reply else {
+    let SignalOutput::SubmissionAccepted(acceptance) = reply else {
         panic!("expected accepted signal message reply");
     };
-    assert_eq!(acceptance.message_slot.into_u64(), 1);
+    assert_eq!(acceptance.into_payload().into_u64(), 1);
 
     let trace = router.trace().await.expect("router trace is readable");
     assert!(
@@ -1324,23 +1327,23 @@ async fn router_root_persists_accepted_signal_message_before_delivery_attempt() 
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder"),
+                    recipient: MessageRecipient::new("responder".to_string()),
                     kind: MessageKind::Send,
-                    body: MessageBody::new("durable router message"),
+                    body: MessageBody::new("durable router message".to_string()),
                 },
-                origin: MessageOrigin::External(ConnectionClass::Owner),
-                stamped_at: TimestampNanos::new(1),
+                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1),
             }),
         ))
         .await
         .expect("signal message request passes through router actors");
 
-    let MessageReply::SubmissionAccepted(acceptance) = reply else {
+    let SignalOutput::SubmissionAccepted(acceptance) = reply else {
         panic!("expected accepted signal message reply");
     };
-    assert_eq!(acceptance.message_slot.into_u64(), 1);
+    assert_eq!(acceptance.into_payload().into_u64(), 1);
 
     let messages = inspection.message_records().expect("message records read");
     let attempts = inspection
@@ -1353,7 +1356,7 @@ async fn router_root_persists_accepted_signal_message_before_delivery_attempt() 
     assert_eq!(messages[0].signal_slot, Some(1));
     assert_eq!(
         messages[0].origin,
-        MessageOrigin::External(ConnectionClass::Owner)
+        SignalMessageOrigin::External(SignalConnectionClass::Owner)
     );
     assert!(
         attempts.is_empty(),
@@ -1369,31 +1372,32 @@ async fn stamped_component_instance_origin_becomes_message_sender_actor() {
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let inspection = tables.clone();
     let router = RouterFixture::start_with_tables(tables).await;
-    let origin = MessageOrigin::InternalComponentInstance(InternalComponentInstanceOrigin::new(
-        ComponentName::Harness,
-        ComponentInstanceName::new("initiator"),
-    ));
+    let origin =
+        SignalMessageOrigin::InternalComponentInstance(SignalInternalComponentInstanceOrigin {
+            component: SignalComponentName::Harness,
+            instance: SignalComponentInstanceName::new("initiator".to_string()),
+        });
 
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::message(),
-            MessageRequest::SubmitStamped(StampedMessageSubmission {
+            SignalInput::SubmitStamped(StampedMessageSubmission {
                 submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder"),
+                    recipient: MessageRecipient::new("responder".to_string()),
                     kind: MessageKind::Send,
-                    body: MessageBody::new("from component instance"),
+                    body: MessageBody::new("from component instance".to_string()),
                 },
                 origin: origin.clone(),
-                stamped_at: TimestampNanos::new(1),
+                stamped_at: SignalTimestampNanos::new(1),
             }),
         ))
         .await
         .expect("signal message request passes through router actors");
 
-    let MessageReply::SubmissionAccepted(acceptance) = reply else {
+    let SignalOutput::SubmissionAccepted(acceptance) = reply else {
         panic!("expected accepted signal message reply");
     };
-    assert_eq!(acceptance.message_slot.into_u64(), 1);
+    assert_eq!(acceptance.into_payload().into_u64(), 1);
 
     let messages = inspection.message_records().expect("message records read");
     assert_eq!(messages.len(), 1);
@@ -1409,16 +1413,16 @@ async fn unstamped_message_submission_is_not_router_ingress_payload() {
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::message(),
-            MessageRequest::Submit(MessageSubmission {
-                recipient: MessageRecipient::new("responder"),
+            SignalInput::Submit(MessageSubmission {
+                recipient: MessageRecipient::new("responder".to_string()),
                 kind: MessageKind::Send,
-                body: MessageBody::new("hello"),
+                body: MessageBody::new("hello".to_string()),
             }),
         ))
         .await
         .expect("signal message request passes through router actors");
 
-    let MessageReply::MessageRequestUnimplemented(unimplemented) = reply else {
+    let SignalOutput::MessageRequestUnimplemented(unimplemented) = reply else {
         panic!("expected unimplemented signal message reply");
     };
     assert_eq!(unimplemented.operation, MessageOperationKind::Submit);
@@ -1658,7 +1662,7 @@ fn router_ingress_cannot_stamp_hidden_operator_owner_origin() {
         "from_frame_with_sender",
         "SignalMessageInput::new",
         "ActorIdentifier::new(\"operator\")",
-        "MessageOrigin::External(ConnectionClass::Owner),\n            request",
+        "SignalMessageOrigin::External(SignalConnectionClass::Owner),\n            request",
         "let _ingress_scaffold = actor",
     ] {
         assert!(
@@ -1675,7 +1679,7 @@ fn router_ingress_cannot_stamp_hidden_operator_owner_origin() {
     assert!(
         router_source
             .content
-            .contains("IngressContext::internal(component)")
+            .contains("SignalMessageOrigin::Internal(component)")
     );
 }
 

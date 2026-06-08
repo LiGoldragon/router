@@ -6,7 +6,8 @@ decisions, or the router daemon surface.
 Rules for work here:
 
 - Depend on contract repos for relation-specific frame records. For this router
-  slice, that means `signal-message` and `signal-system`.
+  slice, that means `signal-message`, `signal-router`, `meta-signal-router`,
+  `signal-harness`, and `signal-mind`.
 - Do not depend on `message`. That repo is the message-ingress
   boundary into the router.
 - Accept stamped `signal-message` frames as the daemon message ingress.
@@ -14,8 +15,8 @@ Rules for work here:
   not commit on `router.sock`. Do not add a NOTA line socket protocol.
 - Resolve the signal sender from typed Signal origin. Do not add sender text to
   `MessageSubmission`.
-- Depend on `system` for OS/window/input runtime observation
-  producers, not for the inter-component record types.
+- Depend on relation contract crates for inter-component records; do not import
+  runtime component crates for their wire vocabulary.
 - Depend on `harness` for harness capabilities.
 - Commit durable router transitions through the router actor's own
   `sema-engine` layer. Do not invent a shared store actor.

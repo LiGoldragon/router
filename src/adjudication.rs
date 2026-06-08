@@ -1,11 +1,19 @@
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
+use signal_message::MessageOrigin;
 use signal_mind::{
     AdjudicationRequest as MindAdjudicationRequest, AdjudicationRequestIdentifier, ChannelEndpoint,
     ChannelMessageKind, TextBody,
 };
-use signal_persona_origin::{ComponentName, MessageOrigin};
+use signal_persona_origin::{
+    ComponentInstanceName as MindComponentInstanceName, ComponentName as MindComponentName,
+    ConnectionClass as MindConnectionClass, EngineIdentifier as MindEngineIdentifier,
+    HostName as MindHostName,
+    InternalComponentInstanceOrigin as MindInternalComponentInstanceOrigin,
+    MessageOrigin as MindMessageOrigin, NetworkPeer as MindNetworkPeer,
+    SystemPrincipal as MindSystemPrincipal, UnixUserIdentifier as MindUnixUserIdentifier,
+};
 
 use crate::{ActorIdentifier, Message};
 
@@ -31,8 +39,8 @@ impl MindAdjudicationOutbox {
         self.recorded_count = self.recorded_count.saturating_add(1);
         let request = MindAdjudicationRequest {
             request: AdjudicationRequestIdentifier::new(request.message.id.as_str()),
-            origin: request.origin,
-            destination: ChannelEndpoint::Internal(ComponentName::Harness),
+            origin: MindOrigin::new(&request.origin).to_mind_origin(),
+            destination: ChannelEndpoint::Internal(MindComponentName::Harness),
             kind: ChannelMessageKind::MessageDelivery,
             body_summary: TextBody::new(request.message.body),
         };
@@ -71,6 +79,73 @@ impl Default for MindAdjudicationOutbox {
 pub struct RecordMindAdjudication {
     pub message: Message,
     pub origin: MessageOrigin,
+}
+
+struct MindOrigin<'origin> {
+    origin: &'origin MessageOrigin,
+}
+
+impl<'origin> MindOrigin<'origin> {
+    fn new(origin: &'origin MessageOrigin) -> Self {
+        Self { origin }
+    }
+
+    fn to_mind_origin(&self) -> MindMessageOrigin {
+        match self.origin {
+            MessageOrigin::Internal(component) => {
+                MindMessageOrigin::Internal(self.to_mind_component(*component))
+            }
+            MessageOrigin::InternalComponentInstance(origin) => {
+                MindMessageOrigin::InternalComponentInstance(
+                    MindInternalComponentInstanceOrigin::new(
+                        self.to_mind_component(origin.component()),
+                        MindComponentInstanceName::new(origin.instance().as_str()),
+                    ),
+                )
+            }
+            MessageOrigin::External(connection) => {
+                MindMessageOrigin::External(self.to_mind_connection(connection))
+            }
+        }
+    }
+
+    fn to_mind_component(&self, component: signal_message::ComponentName) -> MindComponentName {
+        match component {
+            signal_message::ComponentName::Mind => MindComponentName::Mind,
+            signal_message::ComponentName::Message => MindComponentName::Message,
+            signal_message::ComponentName::Router => MindComponentName::Router,
+            signal_message::ComponentName::Terminal => MindComponentName::Terminal,
+            signal_message::ComponentName::Harness => MindComponentName::Harness,
+            signal_message::ComponentName::System => MindComponentName::System,
+            signal_message::ComponentName::Introspect => MindComponentName::Introspect,
+            signal_message::ComponentName::Orchestrate => MindComponentName::Orchestrate,
+            signal_message::ComponentName::Spirit => MindComponentName::Spirit,
+        }
+    }
+
+    fn to_mind_connection(
+        &self,
+        connection: &signal_message::ConnectionClass,
+    ) -> MindConnectionClass {
+        match connection {
+            signal_message::ConnectionClass::Owner => MindConnectionClass::Owner,
+            signal_message::ConnectionClass::NonOwnerUser(user) => {
+                MindConnectionClass::NonOwnerUser(MindUnixUserIdentifier::new(user.as_u32()))
+            }
+            signal_message::ConnectionClass::System(principal) => {
+                MindConnectionClass::System(MindSystemPrincipal::new(principal.as_str()))
+            }
+            signal_message::ConnectionClass::OtherPersona(origin) => {
+                MindConnectionClass::OtherPersona {
+                    engine_identifier: MindEngineIdentifier::new(origin.engine_identifier.as_str()),
+                    host: MindHostName::new(origin.host.as_str()),
+                }
+            }
+            signal_message::ConnectionClass::Network(peer) => {
+                MindConnectionClass::Network(MindNetworkPeer::new(peer.as_str()))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]

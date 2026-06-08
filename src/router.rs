@@ -25,14 +25,16 @@ use signal_frame::{
     SubReply,
 };
 use signal_message::{
+    ComponentName as SignalComponentName, ConnectionClass as SignalConnectionClass,
     Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
     InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
-    MessageBody as SignalMessageBody, MessageKind, MessageOperationKind,
-    MessageRecipient as SignalMessageRecipient, MessageReply as SignalMessageReply,
-    MessageRequest as SignalMessageRequest, MessageRequestUnimplemented,
+    Input as SignalMessageContractInput, MessageBody as SignalMessageBody, MessageKind,
+    MessageOperationKind, MessageOrigin as SignalMessageOrigin,
+    MessageRecipient as SignalMessageRecipient, MessageRequestUnimplemented,
     MessageSender as SignalMessageSender, MessageSlot as SignalSlot,
     MessageSubmission as SignalMessageSubmission, MessageUnimplementedReason,
-    StampedMessageSubmission, SubmissionAcceptance as SignalSubmissionAcceptance,
+    Output as SignalMessageContractOutput, StampedMessageSubmission,
+    SubmissionAcceptance as SignalSubmissionAcceptance,
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
 };
 use signal_mind::{
@@ -41,8 +43,8 @@ use signal_mind::{
     TextBody as MindTextBody,
 };
 use signal_persona_origin::{
-    ChannelIdentifier as OriginChannelIdentifier, ComponentName, ConnectionClass, IngressContext,
-    MessageOrigin,
+    ChannelIdentifier as OriginChannelIdentifier, ComponentName as OriginComponentName,
+    ConnectionClass as OriginConnectionClass,
 };
 use signal_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
@@ -386,7 +388,7 @@ impl RouterConnection {
         }
     }
 
-    pub fn write_signal_reply(&mut self, reply: SignalMessageReply) -> RouterResult<()> {
+    pub fn write_signal_reply(&mut self, reply: SignalMessageContractOutput) -> RouterResult<()> {
         let stream = self.stream.get_mut();
         let Some(PendingRouterDaemonReply::SignalMessage { exchange }) = self.pending_reply.take()
         else {
@@ -474,90 +476,90 @@ enum PendingRouterDaemonReply {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterIngressContext {
     sender: ActorIdentifier,
-    context: IngressContext,
+    origin: SignalMessageOrigin,
 }
 
 impl RouterIngressContext {
-    pub fn new(sender: ActorIdentifier, context: IngressContext) -> Self {
-        Self { sender, context }
+    pub fn new(sender: ActorIdentifier, origin: SignalMessageOrigin) -> Self {
+        Self { sender, origin }
     }
 
     pub fn message() -> Self {
-        Self::internal_component(ComponentName::Message)
+        Self::internal_component(SignalComponentName::Message)
     }
 
-    pub fn internal_component(component: ComponentName) -> Self {
+    pub fn internal_component(component: SignalComponentName) -> Self {
         Self::new(
             Self::component_actor_identifier(component),
-            IngressContext::internal(component),
+            SignalMessageOrigin::Internal(component),
         )
     }
 
-    pub fn external(connection_class: ConnectionClass) -> Self {
+    pub fn external(connection_class: SignalConnectionClass) -> Self {
         Self::new(
             Self::connection_actor_identifier(&connection_class),
-            IngressContext::external(connection_class),
+            SignalMessageOrigin::External(connection_class),
         )
     }
 
     pub fn fixture_external_owner(sender: ActorIdentifier) -> Self {
-        Self::new(sender, IngressContext::external(ConnectionClass::Owner))
+        Self::new(
+            sender,
+            SignalMessageOrigin::External(SignalConnectionClass::Owner),
+        )
     }
 
     pub fn sender(&self) -> &ActorIdentifier {
         &self.sender
     }
 
-    pub fn context(&self) -> &IngressContext {
-        &self.context
+    pub fn origin(&self) -> &SignalMessageOrigin {
+        &self.origin
     }
 
-    pub fn origin(&self) -> &MessageOrigin {
-        self.context.origin()
-    }
-
-    pub fn actor_identifier_for_origin(origin: &MessageOrigin) -> ActorIdentifier {
+    pub fn actor_identifier_for_origin(origin: &SignalMessageOrigin) -> ActorIdentifier {
         match origin {
-            MessageOrigin::Internal(component) => Self::component_actor_identifier(*component),
-            MessageOrigin::InternalComponentInstance(origin) => {
+            SignalMessageOrigin::Internal(component) => {
+                Self::component_actor_identifier(*component)
+            }
+            SignalMessageOrigin::InternalComponentInstance(origin) => {
                 ActorIdentifier::new(origin.instance().as_str())
             }
-            MessageOrigin::External(connection) => Self::connection_actor_identifier(connection),
+            SignalMessageOrigin::External(connection) => {
+                Self::connection_actor_identifier(connection)
+            }
         }
     }
 
-    fn component_actor_identifier(component: ComponentName) -> ActorIdentifier {
+    fn component_actor_identifier(component: SignalComponentName) -> ActorIdentifier {
         match component {
-            ComponentName::Mind => ActorIdentifier::new("mind"),
-            ComponentName::Message => ActorIdentifier::new("message"),
-            ComponentName::Router => ActorIdentifier::new("router"),
-            ComponentName::Terminal => ActorIdentifier::new("terminal"),
-            ComponentName::Harness => ActorIdentifier::new("harness"),
-            ComponentName::System => ActorIdentifier::new("system"),
-            ComponentName::Introspect => ActorIdentifier::new("introspect"),
-            ComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
-            ComponentName::Spirit => ActorIdentifier::new("spirit"),
+            SignalComponentName::Mind => ActorIdentifier::new("mind"),
+            SignalComponentName::Message => ActorIdentifier::new("message"),
+            SignalComponentName::Router => ActorIdentifier::new("router"),
+            SignalComponentName::Terminal => ActorIdentifier::new("terminal"),
+            SignalComponentName::Harness => ActorIdentifier::new("harness"),
+            SignalComponentName::System => ActorIdentifier::new("system"),
+            SignalComponentName::Introspect => ActorIdentifier::new("introspect"),
+            SignalComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
+            SignalComponentName::Spirit => ActorIdentifier::new("spirit"),
         }
     }
 
-    fn connection_actor_identifier(connection: &ConnectionClass) -> ActorIdentifier {
+    fn connection_actor_identifier(connection: &SignalConnectionClass) -> ActorIdentifier {
         match connection {
-            ConnectionClass::Owner => ActorIdentifier::new("owner"),
-            ConnectionClass::NonOwnerUser(user) => {
+            SignalConnectionClass::Owner => ActorIdentifier::new("owner"),
+            SignalConnectionClass::NonOwnerUser(user) => {
                 ActorIdentifier::new(format!("non-owner-user-{}", user.as_u32()))
             }
-            ConnectionClass::System(principal) => {
+            SignalConnectionClass::System(principal) => {
                 ActorIdentifier::new(format!("system-{}", principal.as_str()))
             }
-            ConnectionClass::OtherPersona {
-                engine_identifier,
-                host,
-            } => ActorIdentifier::new(format!(
+            SignalConnectionClass::OtherPersona(origin) => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
-                engine_identifier.as_str(),
-                host.as_str()
+                origin.engine_identifier.as_str(),
+                origin.host.as_str()
             )),
-            ConnectionClass::Network(peer) => {
+            SignalConnectionClass::Network(peer) => {
                 ActorIdentifier::new(format!("network-{}", peer.as_str()))
             }
         }
@@ -610,7 +612,7 @@ impl SignalMessageFrameCodec {
         &self,
         stream: &mut UnixStream,
         exchange: ExchangeIdentifier,
-        reply: SignalMessageReply,
+        reply: SignalMessageContractOutput,
     ) -> RouterResult<()> {
         let frame = SignalMessageFrame::new(FrameBody::Reply {
             exchange,
@@ -717,27 +719,30 @@ impl Default for RouterObservationFrameCodec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalMessageInput {
     sender: ActorIdentifier,
-    ingress: IngressContext,
-    request: SignalMessageRequest,
+    origin: SignalMessageOrigin,
+    request: SignalMessageContractInput,
 }
 
 impl SignalMessageInput {
-    pub fn with_ingress(ingress: RouterIngressContext, request: SignalMessageRequest) -> Self {
+    pub fn with_ingress(
+        ingress: RouterIngressContext,
+        request: SignalMessageContractInput,
+    ) -> Self {
         Self {
             sender: ingress.sender,
-            ingress: ingress.context,
+            origin: ingress.origin,
             request,
         }
     }
 
     pub fn with_origin(
         sender: ActorIdentifier,
-        origin: MessageOrigin,
-        request: SignalMessageRequest,
+        origin: SignalMessageOrigin,
+        request: SignalMessageContractInput,
     ) -> Self {
         Self {
             sender,
-            ingress: IngressContext::new(origin),
+            origin,
             request,
         }
     }
@@ -746,16 +751,12 @@ impl SignalMessageInput {
         &self.sender
     }
 
-    pub fn request(&self) -> &SignalMessageRequest {
+    pub fn request(&self) -> &SignalMessageContractInput {
         &self.request
     }
 
-    pub fn origin(&self) -> &MessageOrigin {
-        self.ingress.origin()
-    }
-
-    pub fn ingress(&self) -> &IngressContext {
-        &self.ingress
+    pub fn origin(&self) -> &SignalMessageOrigin {
+        &self.origin
     }
 
     fn from_frame_with_ingress(
@@ -950,15 +951,15 @@ impl RouterApplyOutcome {
 
 #[derive(Debug, kameo::Reply)]
 pub struct SignalMessageOutcome {
-    result: RouterResult<SignalMessageReply>,
+    result: RouterResult<SignalMessageContractOutput>,
 }
 
 impl SignalMessageOutcome {
-    fn new(result: RouterResult<SignalMessageReply>) -> Self {
+    fn new(result: RouterResult<SignalMessageContractOutput>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> RouterResult<SignalMessageReply> {
+    pub fn into_result(self) -> RouterResult<SignalMessageContractOutput> {
         self.result
     }
 }
@@ -1260,18 +1261,18 @@ impl RouterRoot {
     async fn apply_signal(
         &mut self,
         input: SignalMessageInput,
-    ) -> RouterResult<SignalMessageReply> {
+    ) -> RouterResult<SignalMessageContractOutput> {
         match input.request {
-            SignalMessageRequest::Submit(_) => Ok(Self::unimplemented_message_request(
+            SignalMessageContractInput::Submit(_) => Ok(Self::unimplemented_message_request(
                 MessageOperationKind::Submit,
             )),
-            SignalMessageRequest::SubmitStamped(stamped) => {
+            SignalMessageContractInput::SubmitStamped(stamped) => {
                 self.apply_stamped_message_submission(stamped).await
             }
-            SignalMessageRequest::QueryInbox(query) => {
-                Ok(SignalMessageReply::InboxListing(SignalInboxListing {
-                    messages: self.signal_inbox(&query.recipient),
-                }))
+            SignalMessageContractInput::QueryInbox(query) => {
+                Ok(SignalMessageContractOutput::InboxListing(
+                    SignalInboxListing::new(self.signal_inbox(query.payload())),
+                ))
             }
         }
     }
@@ -1462,7 +1463,7 @@ impl RouterRoot {
     async fn apply_stamped_message_submission(
         &mut self,
         stamped: StampedMessageSubmission,
-    ) -> RouterResult<SignalMessageReply> {
+    ) -> RouterResult<SignalMessageContractOutput> {
         if stamped.submission.kind != MessageKind::Send {
             return Ok(Self::unimplemented_message_request(
                 MessageOperationKind::SubmitStamped,
@@ -1471,22 +1472,24 @@ impl RouterRoot {
         let sender = RouterIngressContext::actor_identifier_for_origin(&stamped.origin);
         let origin = stamped.origin;
         let slot = self.next_signal_message_slot();
-        let message = self.signal_message(sender, stamped.submission, slot);
-        self.persist_message(&message, &origin, Some(slot))?;
+        let message = self.signal_message(sender, stamped.submission, slot.clone());
+        self.persist_message(&message, &origin, Some(slot.clone()))?;
         self.pending
             .push(PendingRouterMessage::new(message.clone(), origin));
         self.signal_slots
-            .push(SignalMessageSlot::new(message.id.clone(), slot));
+            .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
         self.trace
             .record(message.id.clone(), RouterTraceStep::MessageCommitted);
         let _delivered = self.retry_pending().await?;
-        Ok(SignalMessageReply::SubmissionAccepted(
-            SignalSubmissionAcceptance { message_slot: slot },
+        Ok(SignalMessageContractOutput::SubmissionAccepted(
+            SignalSubmissionAcceptance::new(slot),
         ))
     }
 
-    fn unimplemented_message_request(operation: MessageOperationKind) -> SignalMessageReply {
-        SignalMessageReply::MessageRequestUnimplemented(MessageRequestUnimplemented {
+    fn unimplemented_message_request(
+        operation: MessageOperationKind,
+    ) -> SignalMessageContractOutput {
+        SignalMessageContractOutput::MessageRequestUnimplemented(MessageRequestUnimplemented {
             operation,
             reason: MessageUnimplementedReason::NotInPrototypeScope,
         })
@@ -1532,7 +1535,7 @@ impl RouterRoot {
     fn persist_message(
         &self,
         message: &Message,
-        origin: &MessageOrigin,
+        origin: &SignalMessageOrigin,
         signal_slot: Option<SignalSlot>,
     ) -> RouterResult<()> {
         if let Some(tables) = &self.tables {
@@ -1549,8 +1552,8 @@ impl RouterRoot {
                 let slot = self.signal_slot_for(&pending.message.id)?;
                 Some(SignalInboxEntry {
                     message_slot: slot,
-                    sender: SignalMessageSender::new(pending.message.from.as_str()),
-                    body: SignalMessageBody::new(pending.message.body.as_str()),
+                    sender: SignalMessageSender::new(pending.message.from.as_str().to_string()),
+                    body: SignalMessageBody::new(pending.message.body.clone()),
                 })
             })
             .collect()
@@ -1747,16 +1750,19 @@ impl RouterRoot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingRouterMessage {
     message: Message,
-    origin: MessageOrigin,
+    origin: SignalMessageOrigin,
 }
 
 impl PendingRouterMessage {
-    fn new(message: Message, origin: MessageOrigin) -> Self {
+    fn new(message: Message, origin: SignalMessageOrigin) -> Self {
         Self { message, origin }
     }
 
     fn internal_router(message: Message) -> Self {
-        Self::new(message, MessageOrigin::Internal(ComponentName::Router))
+        Self::new(
+            message,
+            SignalMessageOrigin::Internal(SignalComponentName::Router),
+        )
     }
 }
 
@@ -1776,7 +1782,7 @@ impl SignalMessageSlot {
     }
 
     fn message_slot(&self) -> SignalSlot {
-        self.slot
+        self.slot.clone()
     }
 }
 
@@ -2057,19 +2063,19 @@ impl RouterSignalInput {
         NotaSource::new(text).parse::<Self>().map_err(Error::from)
     }
 
-    fn request(self) -> SignalMessageRequest {
+    fn request(self) -> SignalMessageContractInput {
         match self {
-            Self::SubmitStamped(input) => SignalMessageRequest::SubmitStamped(input),
-            Self::QueryInbox(input) => SignalMessageRequest::QueryInbox(input),
+            Self::SubmitStamped(input) => SignalMessageContractInput::SubmitStamped(input),
+            Self::QueryInbox(input) => SignalMessageContractInput::QueryInbox(input),
         }
     }
 }
 
 impl NotaDecode for RouterSignalInput {
     fn from_nota_block(block: &Block) -> std::result::Result<Self, NotaDecodeError> {
-        match SignalMessageRequest::from_nota_block(block)? {
-            SignalMessageRequest::SubmitStamped(input) => Ok(Self::SubmitStamped(input)),
-            SignalMessageRequest::QueryInbox(input) => Ok(Self::QueryInbox(input)),
+        match SignalMessageContractInput::from_nota_block(block)? {
+            SignalMessageContractInput::SubmitStamped(input) => Ok(Self::SubmitStamped(input)),
+            SignalMessageContractInput::QueryInbox(input) => Ok(Self::QueryInbox(input)),
             other => Err(NotaDecodeError::UnknownVariant {
                 enum_name: "RouterSignalInput",
                 variant: format!("{other:?}"),
@@ -2092,7 +2098,10 @@ impl RouterSignalClient {
         }
     }
 
-    fn submit(&self, request: SignalMessageRequest) -> RouterResult<SignalMessageReply> {
+    fn submit(
+        &self,
+        request: SignalMessageContractInput,
+    ) -> RouterResult<SignalMessageContractOutput> {
         let mut stream = UnixStream::connect(&self.socket)?;
         let frame = SignalMessageFrame::new(FrameBody::Request {
             exchange: synthetic_exchange(),
@@ -2156,28 +2165,28 @@ pub enum RouterSignalOutput {
 }
 
 impl RouterSignalOutput {
-    fn from_signal(reply: SignalMessageReply) -> Self {
+    fn from_signal(reply: SignalMessageContractOutput) -> Self {
         match reply {
-            SignalMessageReply::SubmissionAccepted(reply) => {
+            SignalMessageContractOutput::SubmissionAccepted(reply) => {
                 Self::SubmissionAccepted(SubmissionAccepted {
-                    message_slot: reply.message_slot.into_u64(),
+                    message_slot: reply.into_payload().into_u64(),
                 })
             }
-            SignalMessageReply::SubmissionRejected(reply) => {
+            SignalMessageContractOutput::SubmissionRejected(reply) => {
                 Self::SubmissionRejected(SubmissionRejected {
-                    reason: SubmissionRejectionReason::from_signal(reply.reason),
+                    reason: SubmissionRejectionReason::from_signal(reply.into_payload()),
                 })
             }
-            SignalMessageReply::InboxListing(reply) => {
+            SignalMessageContractOutput::InboxListing(reply) => {
                 Self::RouterInboxListing(RouterInboxListing {
                     messages: reply
-                        .messages
+                        .into_payload()
                         .into_iter()
                         .map(RouterInboxEntry::from_signal)
                         .collect(),
                 })
             }
-            SignalMessageReply::MessageRequestUnimplemented(reply) => {
+            SignalMessageContractOutput::MessageRequestUnimplemented(reply) => {
                 Self::MessageRequestUnimplemented(reply)
             }
         }
@@ -2489,7 +2498,7 @@ impl kameo::message::Message<ReadRouterObservationFacts> for RouterRoot {
             .iter()
             .map(|record| RouterObservationSlot {
                 message_identifier: record.message.clone(),
-                slot: record.slot.into_u64(),
+                slot: record.slot.clone().into_u64(),
             })
             .collect();
         let trace_events = self
@@ -2642,30 +2651,30 @@ impl ApplyMindChannelGrant {
         }
     }
 
-    fn component_actor_identifier(&self, component: ComponentName) -> ActorIdentifier {
+    fn component_actor_identifier(&self, component: OriginComponentName) -> ActorIdentifier {
         match component {
-            ComponentName::Mind => ActorIdentifier::new("mind"),
-            ComponentName::Message => ActorIdentifier::new("message"),
-            ComponentName::Router => ActorIdentifier::new("router"),
-            ComponentName::Terminal => ActorIdentifier::new("terminal"),
-            ComponentName::Harness => ActorIdentifier::new("harness"),
-            ComponentName::System => ActorIdentifier::new("system"),
-            ComponentName::Introspect => ActorIdentifier::new("introspect"),
-            ComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
-            ComponentName::Spirit => ActorIdentifier::new("spirit"),
+            OriginComponentName::Mind => ActorIdentifier::new("mind"),
+            OriginComponentName::Message => ActorIdentifier::new("message"),
+            OriginComponentName::Router => ActorIdentifier::new("router"),
+            OriginComponentName::Terminal => ActorIdentifier::new("terminal"),
+            OriginComponentName::Harness => ActorIdentifier::new("harness"),
+            OriginComponentName::System => ActorIdentifier::new("system"),
+            OriginComponentName::Introspect => ActorIdentifier::new("introspect"),
+            OriginComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
+            OriginComponentName::Spirit => ActorIdentifier::new("spirit"),
         }
     }
 
-    fn connection_actor_identifier(&self, connection: &ConnectionClass) -> ActorIdentifier {
+    fn connection_actor_identifier(&self, connection: &OriginConnectionClass) -> ActorIdentifier {
         match connection {
-            ConnectionClass::Owner => ActorIdentifier::new("owner"),
-            ConnectionClass::NonOwnerUser(user) => {
+            OriginConnectionClass::Owner => ActorIdentifier::new("owner"),
+            OriginConnectionClass::NonOwnerUser(user) => {
                 ActorIdentifier::new(format!("non-owner-user-{}", user.as_u32()))
             }
-            ConnectionClass::System(principal) => {
+            OriginConnectionClass::System(principal) => {
                 ActorIdentifier::new(format!("system-{}", principal.as_str()))
             }
-            ConnectionClass::OtherPersona {
+            OriginConnectionClass::OtherPersona {
                 engine_identifier,
                 host,
             } => ActorIdentifier::new(format!(
@@ -2673,7 +2682,7 @@ impl ApplyMindChannelGrant {
                 engine_identifier.as_str(),
                 host.as_str()
             )),
-            ConnectionClass::Network(peer) => {
+            OriginConnectionClass::Network(peer) => {
                 ActorIdentifier::new(format!("network-{}", peer.as_str()))
             }
         }
@@ -2890,9 +2899,9 @@ mod receiver_validation_tests {
         let mut bad = UnixStream::connect(&socket).expect("bad client connects");
         let bad_frame = SignalMessageFrame::new(FrameBody::Request {
             exchange: synthetic_exchange(),
-            request: Request::from_payload(SignalMessageRequest::QueryInbox(SignalInboxQuery {
-                recipient: SignalMessageRecipient::new("operator"),
-            })),
+            request: Request::from_payload(SignalMessageContractInput::QueryInbox(
+                SignalInboxQuery::new(SignalMessageRecipient::new("operator".to_string())),
+            )),
         });
         bad.write_all(
             bad_frame

@@ -14,7 +14,7 @@ terminal byte transport, or contract definitions.
 
 ```mermaid
 flowchart LR
-    "signal-message" -->|"message request frame"| "RouterRuntime"
+    "signal-message" -->|"message input frame"| "RouterRuntime"
     "signal-router" -->|"observation query frame"| "RouterRuntime"
     "meta-signal-router" -->|"channel policy frame"| "RouterRuntime"
     "RouterRuntime" -->|"apply input"| "RouterRoot"
@@ -56,7 +56,7 @@ flowchart LR
   `ApplyMetaRouterPolicy`;
 - a daemon-client CLI surface that accepts one NOTA `signal-message`
   projection record, sends one Signal frame to the daemon, and prints one NOTA
-  reply. The CLI does not mint the message sender;
+  output. The CLI does not mint the message sender;
 - a Signal-frame daemon ingress for `signal-message`
   `StampedMessageSubmission` and `InboxQuery` frames;
 - a startup bootstrap reader for manager-written
@@ -160,10 +160,13 @@ contract on the new `signal-frame` request/reply kernel; it does not
 construct universal verb-classification wrappers for harness delivery.
 
 Stored router records are typed contract records from the relation-specific
-Signal contracts and the `signal-persona-origin` provenance family. The router
-actor decodes Signal frames, commits through `RouterTables` into
-sema-engine-registered record families, and emits follow-up frames only after
-the database commit succeeds.
+Signal contracts. Message provenance stored with accepted messages now comes
+from the schema-derived `signal-message::MessageOrigin`; the older
+`signal-persona-origin` vocabulary remains only at downstream edges that have
+not migrated yet, such as `signal-mind` adjudication requests and channel
+identifiers. The router actor decodes Signal frames, commits through
+`RouterTables` into sema-engine-registered record families, and emits follow-up
+frames only after the database commit succeeds.
 
 Current MVP code still keeps the live pending queue in memory. Accepted
 messages, channel grants, adjudication requests, delivery attempts, and
@@ -212,9 +215,9 @@ delivered/failed/deferred status records still need to be wired into
 `harness` reports the terminal effect, the router commits the delivery
 status update before post-delivery subscription events are emitted.
 
-Every accepted message carries a typed `IngressContext` from the accepted
-socket relation. Origin is provenance, not an auth proof. The production daemon
-default is the internal `message -> router` relation; owner/operator
+Every accepted message carries a typed `signal-message::MessageOrigin` from
+the accepted socket relation. Origin is provenance, not an auth proof. The
+production daemon default is the internal `message -> router` relation; owner/operator
 origin is only a named test fixture, never hidden in frame decoding. Router
 policy is the authorized-channel table: messages on an active channel flow;
 messages without one are parked and queued for mind adjudication. In

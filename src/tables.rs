@@ -13,8 +13,8 @@ use sema_engine::{
     Retraction, SchemaVersion, StorageKernelTable as Table, TableDescriptor, TableName,
     TableReference,
 };
-use signal_message::MessageSlot;
-use signal_persona_origin::{ChannelIdentifier, MessageOrigin};
+use signal_message::{MessageOrigin, MessageSlot};
+use signal_persona_origin::ChannelIdentifier;
 
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
@@ -294,7 +294,6 @@ where
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-#[rkyv(derive(Debug))]
 pub struct StoredMessageRecord {
     pub id: String,
     pub thread: String,
@@ -330,7 +329,6 @@ impl EngineRecord for StoredMessageRecord {
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-#[rkyv(derive(Debug))]
 pub struct StoredChannelRecord {
     pub id: String,
     pub from: String,
@@ -366,13 +364,11 @@ impl EngineRecord for StoredChannelRecord {
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-#[rkyv(derive(Debug))]
 pub struct StoredChannelIndex {
     pub channel: String,
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-#[rkyv(derive(Debug))]
 pub struct StoredAdjudicationRequest {
     pub message: String,
     pub from: String,
@@ -398,7 +394,6 @@ impl EngineRecord for StoredAdjudicationRequest {
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-#[rkyv(derive(Debug))]
 pub struct StoredDeliveryAttempt {
     pub sequence: u64,
     pub message: String,
@@ -420,7 +415,6 @@ impl EngineRecord for StoredDeliveryAttempt {
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-#[rkyv(derive(Debug))]
 pub struct StoredDeliveryResult {
     pub sequence: u64,
     pub message: String,
