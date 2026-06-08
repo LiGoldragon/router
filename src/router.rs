@@ -1802,6 +1802,18 @@ impl RouterBootstrap {
         }
         Ok(())
     }
+
+    pub async fn apply_async(&self, router: &ActorRef<RouterRuntime>) -> RouterResult<()> {
+        for operation in self.operations()? {
+            let input = RouterInput::from_bootstrap_operation(operation);
+            router
+                .ask(ApplyRouterInput { input })
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))?
+                .into_result()?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

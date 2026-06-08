@@ -38,13 +38,15 @@ generate checked-in modules under `src/schema/` through `schema-rust-next`.
 Those generated nouns make the intended internal feature surface visible:
 message ingress and router observations at Signal, accept/deliver/adjudicate
 decisions at Nexus, and accepted-message/channel/delivery/adjudication storage
-operations at SEMA. The current actor runtime is still the active behavior
-path. The generated daemon module is not emitted for router yet: the remaining
-cutover is a relation-adapter problem, not a meta-listener blocker. Router's
-live working socket intentionally accepts `signal-message` ingress and
-`signal-router` observations, while the generated daemon spine currently
-decodes one local Signal `Input` root; the cutover must preserve those
-relation-specific wire contracts while routing into the generated triad nouns.
+operations at SEMA. The active `router-daemon` binary now uses the
+schema-rust-next emitted actor-native process shell: one working listener,
+one meta listener, binary rkyv configuration only, and socket modes applied
+by the shared runtime. Router keeps one component hook for relation-specific
+working-frame decode because the working socket intentionally accepts both
+`signal-message` ingress and `signal-router` observations until those public
+contracts move fully onto schema roots. The emitted daemon owns listener
+mechanics; router owns only that transitional relation adapter and the
+actor-runtime behavior behind it.
 
 Key constraints: routing reacts to pushed events (no polling). Authorization is channel-
 table authorization plus mind adjudication for misses. One-shot channels authorize

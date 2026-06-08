@@ -1,6 +1,8 @@
 pub mod adjudication;
 pub mod channel;
 pub mod command;
+pub mod config;
+pub mod daemon;
 pub mod delivery;
 pub mod error;
 pub mod harness_delivery;
@@ -18,6 +20,8 @@ pub mod schema {
     pub mod sema;
     #[rustfmt::skip]
     pub mod nexus;
+    #[rustfmt::skip]
+    pub mod daemon;
 }
 
 pub use adjudication::{
@@ -36,6 +40,8 @@ pub use channel::{
     StructuralChannelInstallation, StructuralChannelInstallationOutcome, UseChannel,
 };
 pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
+pub use config::{Configuration, ConfigurationError};
+pub use daemon::{RouterDaemonError, RouterEngine, RouterProcessDaemon};
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, RouterResult};
 pub use harness_delivery::{DeliverHarness, HarnessDelivery, HarnessDeliveryOutcome};
@@ -67,6 +73,7 @@ pub use router::{
     RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
     Status, StructuralChannelsInstalled,
 };
+pub use schema::daemon::{ComponentDaemon, DaemonCommand, DaemonEntry, DaemonError, ListenerTier};
 pub use signal_router::{
     GrantDirectMessage, InstallStructuralChannels as InstallStructuralChannelsBootstrap,
     RouterBootstrapOperation,

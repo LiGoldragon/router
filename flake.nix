@@ -38,16 +38,6 @@
             strictDeps = true;
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-          routerConstraintCheck =
-            name: script:
-            pkgs.runCommand name { } ''
-              set -euo pipefail
-
-              export ROUTER_BIN=${self.packages.${system}.default}/bin/router-daemon
-              ${pkgs.bash}/bin/bash ${script}
-
-              touch "$out"
-            '';
           sourceConstraintCheck =
             name: script:
             pkgs.runCommand name { } ''
@@ -66,7 +56,6 @@
             craneLib
             commonArgs
             cargoArtifacts
-            routerConstraintCheck
             sourceConstraintCheck
             ;
         };
@@ -101,7 +90,13 @@
               inherit (context) cargoArtifacts;
             }
           );
-          router-cli-sends-signal-to-daemon-and-prints-nota-reply = context.routerConstraintCheck "router-cli-sends-signal-to-daemon-and-prints-nota-reply" ./scripts/router-cli-sends-signal-to-daemon-and-prints-nota-reply;
+          router-generated-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test process_boundary";
+            }
+          );
           router-runtime-cannot-depend-on-message =
             context.sourceConstraintCheck "router-runtime-cannot-depend-on-message" ./scripts/router-runtime-cannot-depend-on-message;
           router-runtime-cannot-depend-on-terminal-crates =

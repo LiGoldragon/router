@@ -1,5 +1,5 @@
-use router::{RouterDaemonCommand, RouterResult};
+use router::{DaemonEntry, RouterProcessDaemon};
 
-fn main() -> RouterResult<()> {
-    RouterDaemonCommand::from_environment().run()
+fn main() -> std::process::ExitCode {
+    RouterProcessDaemon::run_to_exit_code()
 }

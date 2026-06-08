@@ -30,7 +30,7 @@ signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
 signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
 thiserror             = "2"
-tokio                 = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 
 [features]

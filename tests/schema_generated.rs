@@ -1,4 +1,7 @@
-use router::schema::{nexus, sema, signal};
+use router::{
+    RouterProcessDaemon,
+    schema::{daemon, nexus, sema, signal},
+};
 
 #[test]
 fn generated_router_planes_expose_signal_nexus_and_sema_nouns() {
@@ -28,3 +31,12 @@ fn generated_router_planes_expose_signal_nexus_and_sema_nouns() {
     let completed = nexus::NexusWork::sema_write_completed(committed);
     assert!(matches!(completed, nexus::NexusWork::SemaWriteCompleted(_)));
 }
+
+#[test]
+fn generated_router_daemon_surface_is_part_of_the_schema_stack() {
+    assert_eq!(daemon::ListenerTier::Working.to_string(), "working");
+    assert_eq!(daemon::ListenerTier::Meta.to_string(), "meta");
+    assert_daemon_entry::<RouterProcessDaemon>();
+}
+
+fn assert_daemon_entry<Daemon: daemon::DaemonEntry>() {}
