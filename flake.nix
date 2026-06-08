@@ -32,7 +32,18 @@
             sha256 = "sha256-gh/xTkxKHL4eiRXzWv8KP7vfjSk61Iq48x47BEDFgfk=";
           };
           craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
-          src = craneLib.cleanCargoSource ./.;
+          schemaFilter =
+            path: type:
+            (type == "regular" || type == "directory")
+            && (builtins.match ".*/schema(/.*)?" path != null);
+          sourceFilter =
+            path: type:
+            (craneLib.filterCargoSources path type) || (schemaFilter path type);
+          src = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = sourceFilter;
+            name = "source";
+          };
           commonArgs = {
             inherit src;
             strictDeps = true;
