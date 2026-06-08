@@ -608,46 +608,46 @@ impl triad_runtime::NexusEffectResult for EffectCompleted {}
 
 #[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ActorStartFailure {
+pub enum EngineStartFailure {
     ResourceBusy(String),
     ConfigurationInvalid(String),
 }
 #[rustfmt::skip]
-impl std::fmt::Display for ActorStartFailure {
+impl std::fmt::Display for EngineStartFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ResourceBusy(message) => {
-                write!(formatter, "actor resource busy: {message}")
+                write!(formatter, "engine resource busy: {message}")
             }
             Self::ConfigurationInvalid(message) => {
-                write!(formatter, "actor configuration invalid: {message}")
+                write!(formatter, "engine configuration invalid: {message}")
             }
         }
     }
 }
 #[rustfmt::skip]
-impl std::error::Error for ActorStartFailure {}
+impl std::error::Error for EngineStartFailure {}
 #[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ActorStopFailure {
+pub enum EngineStopFailure {
     ResourceLocked(String),
     ChildStillRunning(String),
 }
 #[rustfmt::skip]
-impl std::fmt::Display for ActorStopFailure {
+impl std::fmt::Display for EngineStopFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ResourceLocked(message) => {
-                write!(formatter, "actor resource locked: {message}")
+                write!(formatter, "engine resource locked: {message}")
             }
             Self::ChildStillRunning(message) => {
-                write!(formatter, "actor child still running: {message}")
+                write!(formatter, "engine child still running: {message}")
             }
         }
     }
 }
 #[rustfmt::skip]
-impl std::error::Error for ActorStopFailure {}
+impl std::error::Error for EngineStopFailure {}
 
 #[rustfmt::skip]
 pub type NexusRunnerNextStep = triad_runtime::NextStep<
@@ -677,10 +677,10 @@ impl triad_runtime::NexusAction for NexusAction {
 
 #[rustfmt::skip]
 pub trait NexusEngine: Send {
-    fn on_start(&mut self) -> Result<(), ActorStartFailure> {
+    fn on_start(&mut self) -> Result<(), EngineStartFailure> {
         Ok(())
     }
-    fn on_stop(&mut self) -> Result<(), ActorStopFailure> {
+    fn on_stop(&mut self) -> Result<(), EngineStopFailure> {
         Ok(())
     }
     fn trace_nexus_activation(&self, _object_name: NexusObjectName) {}

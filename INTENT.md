@@ -39,7 +39,7 @@ Those generated nouns make the intended internal feature surface visible:
 message ingress and router observations at Signal, accept/deliver/adjudicate
 decisions at Nexus, and accepted-message/channel/delivery/adjudication storage
 operations at SEMA. The active `router-daemon` binary now uses the
-schema-rust-next emitted actor-native process shell: one working listener,
+schema-rust-next emitted async task-backed process shell: one working listener,
 one meta listener, binary rkyv configuration only, and socket modes applied
 by the shared runtime. Router keeps one component hook for relation-specific
 working-frame decode because the working socket intentionally accepts both

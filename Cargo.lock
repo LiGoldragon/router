@@ -479,7 +479,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.1"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#117bda3c249e4d669d42418ad5172b1986873b0f"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#aa4b80e1509f2ba6d344f8ead523b32675b21f21"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -783,7 +783,7 @@ dependencies = [
 [[package]]
 name = "triad-runtime"
 version = "0.6.0"
-source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#a3c92b68b645a3b53093ec3124e64bf202bbbc33"
+source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#bedbb1dbbe93a78dd990edc60b15a8aa475460c8"
 dependencies = [
  "kameo",
  "rustix",
