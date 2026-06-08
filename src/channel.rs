@@ -6,7 +6,7 @@ use kameo::error::Infallible;
 use kameo::message::Context;
 use nota_next::{NotaDecode, NotaEncode};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use signal_persona_origin::ChannelIdentifier;
+use signal_persona::origin::ChannelIdentifier;
 
 use crate::{ActorIdentifier, Message, MessageIdentifier, RouterResult, RouterTables};
 

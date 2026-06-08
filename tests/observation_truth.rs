@@ -36,7 +36,7 @@ use signal_message::{
     MessageRecipient, MessageSubmission, Output as SignalOutput, StampedMessageSubmission,
     TimestampNanos as SignalTimestampNanos,
 };
-use signal_persona_origin::ChannelIdentifier;
+use signal_persona::origin::ChannelIdentifier;
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
     Output as SignalRouterOutput, RouterChannelStateQuery, RouterChannelStatus,

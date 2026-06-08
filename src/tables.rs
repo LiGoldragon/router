@@ -14,7 +14,7 @@ use sema_engine::{
     TableReference,
 };
 use signal_message::{MessageOrigin, MessageSlot};
-use signal_persona_origin::ChannelIdentifier;
+use signal_persona::origin::ChannelIdentifier;
 
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,

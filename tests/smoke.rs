@@ -17,14 +17,6 @@ use router::{
     RouterDaemonConfigurationFile, RouterInput, RouterMetaConnection, RouterOutput, SocketMode,
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
-use signal_engine_management::{
-    ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
-    EngineManagementProtocolVersion, Presence,
-};
-use signal_engine_management::{
-    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
-    Query as SupervisionQuery, Reply as SupervisionReply,
-};
 use signal_frame::{
     ExchangeIdentifier, ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane,
     ExchangeLane as FrameExchangeLane, LaneSequence, LaneSequence as FrameLaneSequence, Request,
@@ -34,6 +26,14 @@ use signal_message::{
     ComponentName, Frame, FrameBody, Input as SignalInput, MessageBody as SignalMessageBody,
     MessageKind, MessageOrigin as SignalMessageOrigin, MessageRecipient, MessageSubmission,
     StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
+};
+use signal_persona::{
+    ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
+    EngineManagementProtocolVersion, Presence,
+};
+use signal_persona::{
+    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
+    Query as SupervisionQuery, Reply as SupervisionReply,
 };
 use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterBootstrapDocument};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};

@@ -6,7 +6,7 @@ use signal_mind::{
     AdjudicationRequest as MindAdjudicationRequest, AdjudicationRequestIdentifier, ChannelEndpoint,
     ChannelMessageKind, TextBody,
 };
-use signal_persona_origin::{
+use signal_persona::origin::{
     ComponentInstanceName as MindComponentInstanceName, ComponentName as MindComponentName,
     ConnectionClass as MindConnectionClass, EngineIdentifier as MindEngineIdentifier,
     HostName as MindHostName,

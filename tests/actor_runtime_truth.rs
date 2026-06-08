@@ -34,7 +34,7 @@ use signal_message::{
 use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
-use signal_persona_origin::{
+use signal_persona::origin::{
     ComponentName as MindComponentName, ConnectionClass as MindConnectionClass,
     MessageOrigin as MindMessageOrigin,
 };
@@ -864,7 +864,7 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
     };
     tables
         .insert_channel(
-            &signal_persona_origin::ChannelIdentifier::new("channel-table"),
+            &signal_persona::origin::ChannelIdentifier::new("channel-table"),
             &grant,
         )
         .expect("channel record persists");

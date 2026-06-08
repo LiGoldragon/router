@@ -437,12 +437,11 @@ dependencies = [
  "rkyv",
  "schema-rust-next",
  "sema-engine",
- "signal-engine-management",
  "signal-frame",
  "signal-harness",
  "signal-message",
  "signal-mind",
- "signal-persona-origin",
+ "signal-persona",
  "signal-router",
  "thiserror",
  "tokio",
@@ -502,8 +501,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.2.2"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#5cee99380c4dbc22eba7615b15168f382f568751"
+version = "0.2.3"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#ebee6e44ba6ee4afcb26998007bcfd128641b54c"
 dependencies = [
  "rkyv",
  "sema",
@@ -543,14 +542,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-engine-management"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-engine-management.git?branch=main#75e7ff7eaad7e2e7b87d38fd116456372a059dc3"
-dependencies = [
- "signal-persona",
-]
-
-[[package]]
 name = "signal-frame"
 version = "0.2.1"
 source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#166bda84dc63bf8461fff11a41c43d6a1c92a941"
@@ -575,13 +566,12 @@ dependencies = [
 [[package]]
 name = "signal-harness"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#6f303d21e6918cfe154ee97c314d31be8decc1cc"
+source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#75b01c16681359dce15f39e076744d7c9d809365"
 dependencies = [
  "nota-next",
  "rkyv",
- "signal-engine-management",
  "signal-frame",
- "signal-persona-origin",
+ "signal-persona",
  "thiserror",
 ]
 
@@ -600,34 +590,23 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#bd55edb2ebfcc07297806821ddd07b6c415a2921"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#876be2c532fc22437a0daed75b0512f82a2df6a7"
 dependencies = [
  "nota-next",
  "rkyv",
  "signal-frame",
- "signal-persona-origin",
- "signal-sema",
+ "signal-persona",
  "thiserror",
 ]
 
 [[package]]
 name = "signal-persona"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#c8e07396e37afd051d6485b86e9820b2031d37b4"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#ae9cf2629471097dd81e805e704c5da94ba4b16a"
 dependencies = [
  "nota-next",
  "rkyv",
  "signal-frame",
- "signal-persona-origin",
-]
-
-[[package]]
-name = "signal-persona-origin"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-origin.git?branch=main#da2bee2e1a178f24a62d1eb5d3985e3937a79b5b"
-dependencies = [
- "nota-next",
- "rkyv",
 ]
 
 [[package]]
@@ -643,10 +622,9 @@ dependencies = [
 
 [[package]]
 name = "signal-sema"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#4f75d1c31b7481e3f212e1885b98939a5172ce1a"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#33f62840678530289e9b96485453f7d86e343182"
 dependencies = [
- "nota-next",
  "rkyv",
  "thiserror",
 ]

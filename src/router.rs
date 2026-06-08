@@ -42,7 +42,7 @@ use signal_mind::{
     ChannelEndpoint as MindChannelEndpoint, ChannelMessageKind as MindChannelMessageKind,
     TextBody as MindTextBody,
 };
-use signal_persona_origin::{
+use signal_persona::origin::{
     ChannelIdentifier as OriginChannelIdentifier, ComponentName as OriginComponentName,
     ConnectionClass as OriginConnectionClass,
 };
