@@ -12,7 +12,7 @@ use meta_signal_router::{
     ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass,
     GrantedChannel as MetaGrantedChannel, Input as MetaInput, Output as MetaOutput,
 };
-use signal_engine_management::{SocketMode as WireSocketMode, TimestampNanos, WirePath};
+use signal_engine_management::TimestampNanos;
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
@@ -21,8 +21,8 @@ use signal_message::{
     MessageRecipient, MessageReply, MessageRequest, MessageSlot, MessageSubmission,
     StampedMessageSubmission, SubmissionAcceptance,
 };
-use signal_persona_origin::{ComponentName, MessageOrigin, OwnerIdentity, UnixUserIdentifier};
-use signal_router::RouterDaemonConfiguration;
+use signal_persona_origin::{ComponentName, MessageOrigin};
+use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterDaemonConfiguration};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
 struct DaemonFixture {
@@ -59,20 +59,19 @@ impl DaemonFixture {
     fn write_configuration(&self) {
         std::fs::create_dir_all(&self.directory).expect("create router process fixture");
         let configuration = RouterDaemonConfiguration {
-            router_socket_path: WirePath::new(self.socket_path.display().to_string()),
-            router_socket_mode: WireSocketMode::new(0o640),
-            meta_router_socket_path: WirePath::new(self.meta_socket_path.display().to_string()),
-            meta_router_socket_mode: WireSocketMode::new(0o600),
-            supervision_socket_path: WirePath::new(
-                self.directory
-                    .join("router-supervision.sock")
-                    .display()
-                    .to_string(),
-            ),
-            supervision_socket_mode: WireSocketMode::new(0o600),
-            store_path: WirePath::new(self.database_path.display().to_string()),
+            router_socket_path: self.socket_path.display().to_string(),
+            router_socket_mode: 0o640,
+            meta_router_socket_path: self.meta_socket_path.display().to_string(),
+            meta_router_socket_mode: 0o600,
+            supervision_socket_path: self
+                .directory
+                .join("router-supervision.sock")
+                .display()
+                .to_string(),
+            supervision_socket_mode: 0o600,
+            store_path: self.database_path.display().to_string(),
             bootstrap_path: None,
-            owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
+            owner_identity: RouterOwnerIdentity::UnixUser(1000),
         };
         let bytes = configuration
             .to_rkyv_bytes()

@@ -82,6 +82,11 @@ pub enum Error {
     #[error("failed to decode router bootstrap archive {path:?}")]
     BootstrapArchiveDecode { path: PathBuf },
 
+    #[error(
+        "router bootstrap process identifier is out of range for a local process id: {process}"
+    )]
+    BootstrapProcessIdentifierOutOfRange { process: u64 },
+
     #[error("router signal frame is too large: {bytes} bytes")]
     SignalFrameTooLarge { bytes: usize },
 

@@ -91,13 +91,14 @@ flowchart LR
 - a Kameo `RouterObservationPlane` that answers `signal-router`
   observation queries (`RouterSummaryQuery`, `RouterMessageTraceQuery`,
   `RouterChannelStateQuery`) by reading `RouterRoot` facts and
-  `RouterTables` channel records; replies are typed `RouterReply` records.
-  The daemon connection path accepts `RouterFrame` Match requests on
-  `router.sock` alongside the existing stamped `signal-message`
-  ingress frames, then dispatches observation requests through
-  `RouterRuntime` to `RouterObservationPlane`. Subscription push for
-  channel-state and delivery deltas follows the canonical five-state
-  lifecycle named in `~/primary/skills/subscription-lifecycle.md`;
+  `RouterTables` channel records; replies are generated
+  `signal_router::Output` records. The daemon connection path accepts
+  length-prefixed generated `signal_router::Frame` requests on
+  `router.sock` alongside the existing stamped `signal-message` ingress
+  frames, then dispatches observation requests through `RouterRuntime`
+  to `RouterObservationPlane`. Subscription push for channel-state and
+  delivery deltas follows the canonical five-state lifecycle named in
+  `~/primary/skills/subscription-lifecycle.md`;
 - checked-in generated triad modules under `src/schema/`, produced from
   `schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema` by
   `schema-rust-next`. These modules expose router's Signal/Nexus/SEMA nouns
@@ -449,11 +450,11 @@ This repo does not own:
   as an explicit external endpoint in channel records.
 - Router authorization is channel-table authorization plus mind
   adjudication for misses.
-- Router observation queries (`signal-router::RouterRequest`)
+- Router observation queries (`signal-router::Input`)
   are answered by `RouterObservationPlane`, which reads `RouterRoot`
   observation facts through its mailbox and reads channel records from
   router-owned Sema tables when present.
-- Router observation replies are typed `RouterReply` records; no caller
+- Router observation replies are typed `signal-router::Output` records; no caller
   reads `router.sema` directly to assemble an observation answer.
 - A message with no active channel does not reach `HarnessDelivery`.
 - A message with no active channel emits a typed `signal-mind`
@@ -549,7 +550,7 @@ tests/                  router smoke and actor-density truth tests
 | A typed mind adjudication deny removes a parked message without delivery. | `nix build .#checks.x86_64-linux.mind-adjudication-deny-removes-parked-message-without-delivery` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 | Router daemon answers `signal-router::RouterSummaryQuery` from the observation plane actor. | `nix build .#checks.x86_64-linux.router-daemon-answers-router-summary-query` |
-| Router daemon connection path accepts length-prefixed `signal-router::RouterFrame` Match requests and writes typed Router replies without bypassing `RouterObservationPlane`. | `nix build .#checks.x86_64-linux.router-daemon-accepts-router-observation-frames` |
+| Router daemon connection path accepts length-prefixed generated `signal-router::Frame` requests and writes typed `signal_router::Output` replies without bypassing `RouterObservationPlane`. | `nix build .#checks.x86_64-linux.router-daemon-accepts-router-observation-frames` |
 | Router summary counts derive from RouterRoot's accepted/pending/failed facts. | `nix build .#checks.x86_64-linux.router-summary-query-counts-accepted-pending-and-failed-messages` |
 | Router message trace replies report `Deferred` for parked messages and `MessageTraceMissing` for unknown slots — no `Unknown` sentinel. | `nix build .#checks.x86_64-linux.router-message-trace-query-reports-deferred-status-for-parked-message` |
 | Router channel state replies read installed-vs-missing-vs-disabled from router-owned Sema tables. | `nix build .#checks.x86_64-linux.router-channel-state-query-reads-router-tables` |

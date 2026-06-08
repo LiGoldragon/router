@@ -47,9 +47,11 @@ use signal_persona_origin::{
 use signal_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, RouterBootstrapDocument,
-    RouterBootstrapOperation, RouterDaemonConfiguration, RouterFrame as SignalRouterFrame,
-    RouterFrameBody as SignalRouterFrameBody, RouterReply as SignalRouterReply,
-    RouterRequest as SignalRouterRequest,
+    RouterBootstrapOperation, RouterDaemonConfiguration,
+};
+use signal_router::{
+    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
+    Output as SignalRouterOutput,
 };
 
 use crate::adjudication::{
@@ -110,7 +112,7 @@ impl RouterDaemon {
         let supervision = SupervisionListener::new(
             SupervisionProfile::router(),
             PathBuf::from(configuration.supervision_socket_path.as_str()),
-            SupervisionSocketMode::from_octal(configuration.supervision_socket_mode.into_u32()),
+            SupervisionSocketMode::from_octal(configuration.supervision_socket_mode as u32),
         );
         Ok(Self {
             socket: PathBuf::from(configuration.router_socket_path.as_str()),
@@ -120,10 +122,10 @@ impl RouterDaemon {
             tables: Some(tables),
             ingress: RouterIngressContext::message(),
             socket_mode: Some(SocketMode::from_octal(
-                configuration.router_socket_mode.into_u32(),
+                configuration.router_socket_mode as u32,
             )),
             meta_socket_mode: Some(SocketMode::from_octal(
-                configuration.meta_router_socket_mode.into_u32(),
+                configuration.meta_router_socket_mode as u32,
             )),
             bootstrap,
             supervision: Some(supervision),
@@ -395,7 +397,10 @@ impl RouterConnection {
         self.signal.write_reply(stream, exchange, reply)
     }
 
-    pub fn write_router_observation_reply(&mut self, reply: SignalRouterReply) -> RouterResult<()> {
+    pub fn write_router_observation_reply(
+        &mut self,
+        reply: SignalRouterOutput,
+    ) -> RouterResult<()> {
         let stream = self.stream.get_mut();
         let Some(PendingRouterDaemonReply::RouterObservation { exchange }) =
             self.pending_reply.take()
@@ -421,9 +426,9 @@ impl RouterConnection {
         &self,
         bytes: &[u8],
     ) -> std::result::Result<ReceivedRouterObservationInput, String> {
-        let frame =
-            SignalRouterFrame::decode_length_prefixed(bytes).map_err(|error| error.to_string())?;
-        received_router_observation_from_frame(frame).map_err(|error| error.to_string())
+        self.router_observation
+            .received_input_from_length_prefixed_bytes(bytes)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -457,7 +462,7 @@ impl RouterMetaConnection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterDaemonInput {
     SignalMessage(SignalMessageInput),
-    RouterObservation(SignalRouterRequest),
+    RouterObservation(SignalRouterInput),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -647,6 +652,37 @@ impl RouterObservationFrameCodec {
         Ok(SignalRouterFrame::decode_length_prefixed(&bytes)?)
     }
 
+    fn received_input_from_length_prefixed_bytes(
+        &self,
+        bytes: &[u8],
+    ) -> RouterResult<ReceivedRouterObservationInput> {
+        let frame = SignalRouterFrame::decode_length_prefixed(bytes)?;
+        self.received_input_from_frame(frame)
+    }
+
+    fn received_input_from_frame(
+        &self,
+        frame: SignalRouterFrame,
+    ) -> RouterResult<ReceivedRouterObservationInput> {
+        match frame.into_body() {
+            SignalRouterFrameBody::Request { exchange, request } => {
+                let (request, tail) = request.payloads.into_head_and_tail();
+                if !tail.is_empty() {
+                    return Err(Error::UnexpectedRouterObservationFrame {
+                        got: format!(
+                            "expected one router observation payload, got {}",
+                            tail.len() + 1
+                        ),
+                    });
+                }
+                Ok(ReceivedRouterObservationInput { exchange, request })
+            }
+            other => Err(Error::UnexpectedRouterObservationFrame {
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
     pub fn write_frame(
         &self,
         writer: &mut impl Write,
@@ -662,7 +698,7 @@ impl RouterObservationFrameCodec {
         &self,
         stream: &mut UnixStream,
         exchange: ExchangeIdentifier,
-        reply: SignalRouterReply,
+        reply: SignalRouterOutput,
     ) -> RouterResult<()> {
         let frame = SignalRouterFrame::new(SignalRouterFrameBody::Reply {
             exchange,
@@ -755,32 +791,10 @@ struct ReceivedSignalMessageInput {
     input: SignalMessageInput,
 }
 
-fn received_router_observation_from_frame(
-    frame: SignalRouterFrame,
-) -> RouterResult<ReceivedRouterObservationInput> {
-    match frame.into_body() {
-        SignalRouterFrameBody::Request { exchange, request } => {
-            let (request, tail) = request.payloads.into_head_and_tail();
-            if !tail.is_empty() {
-                return Err(Error::UnexpectedRouterObservationFrame {
-                    got: format!(
-                        "expected one router observation payload, got {}",
-                        tail.len() + 1
-                    ),
-                });
-            }
-            Ok(ReceivedRouterObservationInput { exchange, request })
-        }
-        other => Err(Error::UnexpectedRouterObservationFrame {
-            got: format!("{other:?}"),
-        }),
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReceivedRouterObservationInput {
     exchange: ExchangeIdentifier,
-    request: SignalRouterRequest,
+    request: SignalRouterInput,
 }
 
 #[derive(Debug)]
@@ -1794,7 +1808,7 @@ impl RouterBootstrap {
         router: &ActorRef<RouterRuntime>,
     ) -> RouterResult<()> {
         for operation in self.operations()? {
-            let input = RouterInput::from_bootstrap_operation(operation);
+            let input = RouterInput::from_bootstrap_operation(operation)?;
             runtime
                 .block_on(async { router.ask(ApplyRouterInput { input }).await })
                 .map_err(|error| Error::ActorCall(error.to_string()))?
@@ -1805,7 +1819,7 @@ impl RouterBootstrap {
 
     pub async fn apply_async(&self, router: &ActorRef<RouterRuntime>) -> RouterResult<()> {
         for operation in self.operations()? {
-            let input = RouterInput::from_bootstrap_operation(operation);
+            let input = RouterInput::from_bootstrap_operation(operation)?;
             router
                 .ask(ApplyRouterInput { input })
                 .await
@@ -2690,38 +2704,42 @@ pub enum RouterInput {
 }
 
 impl RouterInput {
-    fn from_bootstrap_operation(operation: RouterBootstrapOperation) -> Self {
+    fn from_bootstrap_operation(operation: RouterBootstrapOperation) -> RouterResult<Self> {
         match operation {
             RouterBootstrapOperation::RegisterActor(operation) => {
-                Self::RegisterActor(RegisterActor {
-                    actor: Self::actor_from_bootstrap(operation.actor),
-                })
+                Ok(Self::RegisterActor(RegisterActor {
+                    actor: Self::actor_from_bootstrap(operation.into_payload())?,
+                }))
             }
             RouterBootstrapOperation::GrantDirectMessage(operation) => {
-                Self::GrantChannel(GrantRouteChannel {
+                Ok(Self::GrantChannel(GrantRouteChannel {
                     channel: GrantChannel::direct_message(
                         Self::actor_identifier_from_bootstrap(operation.from),
                         Self::actor_identifier_from_bootstrap(operation.to),
                         ChannelLifetime::Persistent,
                     ),
-                })
+                }))
             }
-            RouterBootstrapOperation::InstallStructuralChannels(_) => {
+            RouterBootstrapOperation::InstallStructuralChannels(_) => Ok(
                 Self::InstallStructuralChannels(InstallRouteStructuralChannels {
                     channels: InstallStructuralChannels {
                         channels: EngineStructuralChannels::first_stack(),
                     },
-                })
-            }
+                }),
+            ),
         }
     }
 
-    fn actor_from_bootstrap(actor: BootstrapActor) -> Actor {
-        Actor {
+    fn actor_from_bootstrap(actor: BootstrapActor) -> RouterResult<Actor> {
+        Ok(Actor {
             name: Self::actor_identifier_from_bootstrap(actor.name),
-            pid: actor.process,
+            pid: Self::process_identifier_from_bootstrap(actor.process)?,
             endpoint: actor.endpoint.map(Self::endpoint_from_bootstrap),
-        }
+        })
+    }
+
+    fn process_identifier_from_bootstrap(process: u64) -> RouterResult<u32> {
+        u32::try_from(process).map_err(|_| Error::BootstrapProcessIdentifierOutOfRange { process })
     }
 
     fn endpoint_from_bootstrap(endpoint: BootstrapEndpointTransport) -> EndpointTransport {
@@ -2737,7 +2755,7 @@ impl RouterInput {
     }
 
     fn actor_identifier_from_bootstrap(actor: signal_router::ActorIdentifier) -> ActorIdentifier {
-        ActorIdentifier::new(actor.as_str())
+        ActorIdentifier::new(actor)
     }
 
     pub fn from_nota(text: &str) -> RouterResult<Self> {

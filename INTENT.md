@@ -43,10 +43,12 @@ schema-rust-next emitted async task-backed process shell: one working listener,
 one meta listener, binary rkyv configuration only, and socket modes applied
 by the shared runtime. Router keeps one component hook for relation-specific
 working-frame decode because the working socket intentionally accepts both
-`signal-message` ingress and `signal-router` observations until those public
-contracts move fully onto schema roots. The emitted daemon owns listener
-mechanics; router owns only that transitional relation adapter and the
-actor-runtime behavior behind it.
+`signal-message` ingress and schema-derived `signal-router` observations.
+`signal-router` is now the published generated contract crate, not a
+`signal_channel!` macro surface; future public signal/meta-signal dependencies
+should follow that schema-next/schema-rust-next contract shape. The emitted
+daemon owns listener mechanics; router owns only that transitional relation
+adapter and the actor-runtime behavior behind it.
 
 Key constraints: routing reacts to pushed events (no polling). Authorization is channel-
 table authorization plus mind adjudication for misses. One-shot channels authorize

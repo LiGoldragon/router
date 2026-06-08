@@ -49,7 +49,8 @@ the durable record.
 A typed restart witness is the shape: bind socket, persist one parked
 message's adjudication-pending row, drop the daemon, relaunch with the
 same store path, query the observation plane, prove the pending state
-comes back as a typed `RouterReply` rather than as in-memory coincidence.
+comes back as a typed `signal_router::Output` rather than as
+in-memory coincidence.
 Per `~/primary/skills/architectural-truth-tests.md` §"Nix-chained tests"
 — the writer derivation produces the `router.sema` file; the reader derivation
 opens a fresh process against the same path; nothing in-process can fake
@@ -57,13 +58,13 @@ the chain.
 
 ## Observation plane is read-side
 
-The `RouterObservationPlane` answers `RouterRequest` queries by reading
-`RouterRoot` facts through the mailbox and reading channel records from
-`RouterTables`. It never mutates router state; never opens `router.sema`
-directly outside the engine-backed tables abstraction; never fabricates an
-answer when data is missing. The closed-enum reply set is
-`RouterReply::{Summary, MessageTrace, MessageTraceMissing, ChannelState,
-Unimplemented}` — no `Unknown` variant.
+The `RouterObservationPlane` answers schema-derived
+`signal_router::Input` queries by reading `RouterRoot` facts through the
+mailbox and reading channel records from `RouterTables`. It never mutates
+router state; never opens `router.sema` directly outside the engine-backed
+tables abstraction; never fabricates an answer when data is missing. The
+closed-enum reply set is `signal_router::Output::{Summary, MessageTrace,
+MessageTraceMissing, ChannelState, Unimplemented}` — no `Unknown` variant.
 
 ## See also
 

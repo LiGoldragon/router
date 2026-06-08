@@ -1,13 +1,12 @@
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use signal_message::MessageSlot;
-use signal_persona_origin::ChannelIdentifier;
+use signal_router::{Input as SignalRouterInput, Output as SignalRouterOutput};
 use signal_router::{
     RouterChannelState, RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus,
     RouterMessageTrace, RouterMessageTraceMissing, RouterMessageTraceQuery,
-    RouterObservationUnimplemented, RouterObservationUnimplementedReason, RouterReply,
-    RouterRequest, RouterSummary, RouterSummaryQuery,
+    RouterObservationUnimplemented, RouterObservationUnimplementedReason, RouterSummary,
+    RouterSummaryQuery,
 };
 
 use crate::router::{ReadRouterObservationFacts, RouterObservationFacts, RouterRoot};
@@ -33,41 +32,44 @@ impl RouterObservationPlane {
         }
     }
 
-    async fn answer(&mut self, request: RouterRequest) -> RouterResult<RouterReply> {
+    async fn answer(&mut self, request: SignalRouterInput) -> RouterResult<SignalRouterOutput> {
         match request {
-            RouterRequest::Summary(query) => self.answer_summary(query).await,
-            RouterRequest::MessageTrace(query) => self.answer_message_trace(query).await,
-            RouterRequest::ChannelState(query) => self.answer_channel_state(query).await,
+            SignalRouterInput::Summary(query) => self.answer_summary(query).await,
+            SignalRouterInput::MessageTrace(query) => self.answer_message_trace(query).await,
+            SignalRouterInput::ChannelState(query) => self.answer_channel_state(query).await,
         }
     }
 
-    async fn answer_summary(&mut self, query: RouterSummaryQuery) -> RouterResult<RouterReply> {
+    async fn answer_summary(
+        &mut self,
+        query: RouterSummaryQuery,
+    ) -> RouterResult<SignalRouterOutput> {
         self.summary_query_count = self.summary_query_count.saturating_add(1);
         let facts = self.observation_facts().await?;
         let summary = RouterSummary {
-            engine: query.engine,
+            engine: query.into_payload(),
             accepted_messages: facts.accepted_messages,
             routed_messages: facts.delivered_messages,
             deferred_messages: facts.pending_messages,
             failed_messages: facts.failed_messages,
         };
-        Ok(RouterReply::Summary(summary))
+        Ok(SignalRouterOutput::Summary(summary))
     }
 
     async fn answer_message_trace(
         &mut self,
         query: RouterMessageTraceQuery,
-    ) -> RouterResult<RouterReply> {
+    ) -> RouterResult<SignalRouterOutput> {
         self.message_trace_query_count = self.message_trace_query_count.saturating_add(1);
         let facts = self.observation_facts().await?;
         Ok(
             match Self::message_status_for_slot(&facts, query.message_slot) {
-                Some(status) => RouterReply::MessageTrace(RouterMessageTrace {
+                Some(status) => SignalRouterOutput::MessageTrace(RouterMessageTrace {
                     engine: query.engine,
                     message_slot: query.message_slot,
                     status,
                 }),
-                None => RouterReply::MessageTraceMissing(RouterMessageTraceMissing {
+                None => SignalRouterOutput::MessageTraceMissing(RouterMessageTraceMissing {
                     engine: query.engine,
                     message_slot: query.message_slot,
                 }),
@@ -78,22 +80,24 @@ impl RouterObservationPlane {
     async fn answer_channel_state(
         &mut self,
         query: RouterChannelStateQuery,
-    ) -> RouterResult<RouterReply> {
+    ) -> RouterResult<SignalRouterOutput> {
         self.channel_state_query_count = self.channel_state_query_count.saturating_add(1);
         let Some(tables) = &self.tables else {
-            return Ok(RouterReply::Unimplemented(RouterObservationUnimplemented {
-                scope: signal_router::RouterObservationScope::ChannelState,
-                reason: RouterObservationUnimplementedReason::RouterStoreUnavailable,
-            }));
+            return Ok(SignalRouterOutput::Unimplemented(
+                RouterObservationUnimplemented {
+                    scope: signal_router::RouterObservationScope::ChannelState,
+                    reason: RouterObservationUnimplementedReason::RouterStoreUnavailable,
+                },
+            ));
         };
         let channels = tables.channel_records()?;
-        let status = Self::channel_status_for(&channels, &query.channel);
+        let status = Self::channel_status_for(&channels, query.channel.as_str());
         let state = RouterChannelState {
             engine: query.engine,
             channel: query.channel,
             status,
         };
-        Ok(RouterReply::ChannelState(state))
+        Ok(SignalRouterOutput::ChannelState(state))
     }
 
     async fn observation_facts(&self) -> RouterResult<RouterObservationFacts> {
@@ -105,7 +109,7 @@ impl RouterObservationPlane {
 
     /// Resolve a slot to its current delivery status. Returns `None` when the
     /// slot is not in the router's store; that case maps to a
-    /// `RouterReply::MessageTraceMissing` reply rather than a sentinel
+    /// `Output::MessageTraceMissing` reply rather than a sentinel
     /// status. Returns `Some(Accepted)` when the slot is present but no
     /// trace events have been recorded yet — slot minting and the
     /// `MessageCommitted` trace step are paired writes in
@@ -113,13 +117,12 @@ impl RouterObservationPlane {
     /// corresponds to at least an accepted message.
     fn message_status_for_slot(
         facts: &RouterObservationFacts,
-        slot: MessageSlot,
+        slot: u64,
     ) -> Option<RouterDeliveryStatus> {
-        let slot_value = slot.into_u64();
         let slot_record = facts
             .signal_slots
             .iter()
-            .find(|record| record.slot == slot_value)?;
+            .find(|record| record.slot == slot)?;
         let message_identifier = slot_record.message_identifier.as_str();
         let mut status = RouterDeliveryStatus::Accepted;
         for event in &facts.trace_events {
@@ -139,9 +142,9 @@ impl RouterObservationPlane {
 
     fn channel_status_for(
         channels: &[crate::tables::StoredChannelRecord],
-        target: &ChannelIdentifier,
+        target: &str,
     ) -> RouterChannelStatus {
-        let Some(channel) = channels.iter().find(|record| record.id == target.as_str()) else {
+        let Some(channel) = channels.iter().find(|record| record.id == target) else {
             return RouterChannelStatus::Missing;
         };
         match channel.status {
@@ -165,20 +168,20 @@ impl kameo::actor::Actor for RouterObservationPlane {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyRouterObservation {
-    pub request: RouterRequest,
+    pub request: SignalRouterInput,
 }
 
 #[derive(Debug, kameo::Reply)]
 pub struct RouterObservationOutcome {
-    result: RouterResult<RouterReply>,
+    result: RouterResult<SignalRouterOutput>,
 }
 
 impl RouterObservationOutcome {
-    pub(crate) fn new(result: RouterResult<RouterReply>) -> Self {
+    pub(crate) fn new(result: RouterResult<SignalRouterOutput>) -> Self {
         Self { result }
     }
 
-    pub fn into_result(self) -> RouterResult<RouterReply> {
+    pub fn into_result(self) -> RouterResult<SignalRouterOutput> {
         self.result
     }
 }

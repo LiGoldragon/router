@@ -19,8 +19,7 @@ use router::{
 };
 use signal_engine_management::{
     ComponentHealth, ComponentKind, ComponentName as SupervisionComponentName,
-    EngineManagementProtocolVersion, Presence, SocketMode as WireSocketMode, TimestampNanos,
-    WirePath,
+    EngineManagementProtocolVersion, Presence, TimestampNanos,
 };
 use signal_engine_management::{
     Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
@@ -35,8 +34,8 @@ use signal_message::{
     Frame, FrameBody, MessageBody as SignalMessageBody, MessageKind, MessageRecipient,
     MessageRequest, MessageSubmission, StampedMessageSubmission,
 };
-use signal_persona_origin::{ComponentName, MessageOrigin, OwnerIdentity, UnixUserIdentifier};
-use signal_router::RouterBootstrapDocument;
+use signal_persona_origin::{ComponentName, MessageOrigin};
+use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterBootstrapDocument};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
 struct SocketFixture {
@@ -113,46 +112,63 @@ fn router_output_encodes_delivery_changed() {
 }
 
 #[test]
-fn router_bootstrap_decodes_direct_message_channel_grant() {
-    let operation = RouterBootstrapOperation::from_nota("(GrantDirectMessage (owner responder))")
-        .expect("bootstrap channel grant decodes");
+fn router_bootstrap_constructs_direct_message_channel_grant() {
+    let operation =
+        RouterBootstrapOperation::GrantDirectMessage(signal_router::GrantDirectMessage {
+            from: "owner".to_string(),
+            to: "responder".to_string(),
+        });
 
     assert!(matches!(
         operation,
         RouterBootstrapOperation::GrantDirectMessage(grant)
-            if grant.from.as_str() == "owner" && grant.to.as_str() == "responder"
+            if grant.from == "owner" && grant.to == "responder"
     ));
 }
 
 #[test]
-fn router_bootstrap_decodes_registered_pty_endpoint() {
-    let operation = RouterBootstrapOperation::from_nota(
-        "(RegisterActor ((responder 42 (Some (PtySocket [/tmp/responder.terminal.sock] None)))))",
-    )
-    .expect("bootstrap actor registration decodes");
+fn router_bootstrap_constructs_registered_pty_endpoint() {
+    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
+        signal_router::Actor {
+            name: "responder".to_string(),
+            process: 42,
+            endpoint: Some(signal_router::EndpointTransport {
+                kind: signal_router::EndpointKind::PtySocket,
+                target: "/tmp/responder.terminal.sock".to_string(),
+                auxiliary: None,
+            }),
+        },
+    ));
 
     assert!(matches!(
         operation,
-        RouterBootstrapOperation::RegisterActor(registration)
-            if registration.actor.name.as_str() == "responder"
-                && registration.actor.process == 42
-                && registration.actor.endpoint.is_some()
+        RouterBootstrapOperation::RegisterActor(registration) if {
+            let actor = registration.payload();
+            actor.name == "responder" && actor.process == 42 && actor.endpoint.is_some()
+        }
     ));
 }
 
 #[test]
-fn router_bootstrap_decodes_registered_harness_socket_endpoint() {
-    let operation = RouterBootstrapOperation::from_nota(
-        "(RegisterActor ((responder 42 (Some (HarnessSocket [/tmp/responder.harness.sock] None)))))",
-    )
-    .expect("bootstrap harness socket registration decodes");
+fn router_bootstrap_constructs_registered_harness_socket_endpoint() {
+    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
+        signal_router::Actor {
+            name: "responder".to_string(),
+            process: 42,
+            endpoint: Some(signal_router::EndpointTransport {
+                kind: signal_router::EndpointKind::HarnessSocket,
+                target: "/tmp/responder.harness.sock".to_string(),
+                auxiliary: None,
+            }),
+        },
+    ));
 
     assert!(matches!(
         operation,
-        RouterBootstrapOperation::RegisterActor(registration)
-            if registration.actor.name.as_str() == "responder"
-                && registration.actor.process == 42
-                && registration.actor.endpoint.is_some()
+        RouterBootstrapOperation::RegisterActor(registration) if {
+            let actor = registration.payload();
+            actor.name == "responder" && actor.process == 42 && actor.endpoint.is_some()
+        }
     ));
 }
 
@@ -162,15 +178,15 @@ fn router_daemon_configuration_accepts_binary_file_argument() {
     fixture.create_directory();
     let configuration_path = fixture.directory.join("router.rkyv");
     let configuration = signal_router::RouterDaemonConfiguration {
-        router_socket_path: WirePath::new(fixture.socket().display().to_string()),
-        router_socket_mode: WireSocketMode::new(0o600),
-        meta_router_socket_path: WirePath::new(fixture.meta_socket().display().to_string()),
-        meta_router_socket_mode: WireSocketMode::new(0o600),
-        supervision_socket_path: WirePath::new(fixture.supervision_socket().display().to_string()),
-        supervision_socket_mode: WireSocketMode::new(0o600),
-        store_path: WirePath::new(fixture.directory.join("router.sema").display().to_string()),
+        router_socket_path: fixture.socket().display().to_string(),
+        router_socket_mode: 0o600,
+        meta_router_socket_path: fixture.meta_socket().display().to_string(),
+        meta_router_socket_mode: 0o600,
+        supervision_socket_path: fixture.supervision_socket().display().to_string(),
+        supervision_socket_mode: 0o600,
+        store_path: fixture.directory.join("router.sema").display().to_string(),
         bootstrap_path: None,
-        owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
+        owner_identity: RouterOwnerIdentity::UnixUser(1000),
     };
     RouterDaemonConfigurationFile::new(&configuration_path)
         .write_configuration(&configuration)
@@ -208,10 +224,10 @@ fn router_bootstrap_loads_binary_document() {
     let bootstrap_path = fixture.directory.join("router-bootstrap.rkyv");
     let document =
         RouterBootstrapDocument::new(vec![RouterBootstrapOperation::GrantDirectMessage(
-            signal_router::GrantDirectMessage::new(
-                signal_router::ActorIdentifier::new("owner"),
-                signal_router::ActorIdentifier::new("responder"),
-            ),
+            signal_router::GrantDirectMessage {
+                from: "owner".to_string(),
+                to: "responder".to_string(),
+            },
         )]);
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&document).expect("encode bootstrap archive");
     std::fs::write(&bootstrap_path, bytes.as_ref()).expect("write bootstrap archive");

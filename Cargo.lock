@@ -247,10 +247,11 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#2ac449b9770746d992c134a19f34c56968957ec4"
+source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#cc4f3e9e2774f43c159cbb208b84dbbd2b1b100a"
 dependencies = [
  "rkyv",
  "schema-rust-next",
+ "signal-frame",
 ]
 
 [[package]]
@@ -479,7 +480,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.1"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#aa4b80e1509f2ba6d344f8ead523b32675b21f21"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#0a845c374a2fa04e4040517ffac312d90441c486"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -633,14 +634,11 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#8f8c849e92d9560f454927d6bb3edb66474c084d"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#a014a33a7edd9ec8b465b932552df41d6ab7a84a"
 dependencies = [
- "nota-next",
  "rkyv",
- "signal-engine-management",
+ "schema-rust-next",
  "signal-frame",
- "signal-message",
- "signal-persona-origin",
  "thiserror",
 ]
 

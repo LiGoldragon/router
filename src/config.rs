@@ -59,6 +59,14 @@ impl Configuration {
     pub fn bootstrap_path(&self) -> Option<&Path> {
         self.bootstrap_path.as_deref()
     }
+
+    fn router_socket_mode(&self) -> RuntimeSocketMode {
+        RuntimeSocketMode::new(self.raw.router_socket_mode as u32)
+    }
+
+    fn meta_router_socket_mode(&self) -> RuntimeSocketMode {
+        RuntimeSocketMode::new(self.raw.meta_router_socket_mode as u32)
+    }
 }
 
 impl DaemonConfiguration for Configuration {
@@ -67,9 +75,7 @@ impl DaemonConfiguration for Configuration {
     }
 
     fn socket_mode(&self) -> Option<RuntimeSocketMode> {
-        Some(RuntimeSocketMode::new(
-            self.raw.router_socket_mode.into_u32(),
-        ))
+        Some(self.router_socket_mode())
     }
 
     fn meta_socket_path(&self) -> Option<&Path> {
@@ -81,9 +87,7 @@ impl DaemonConfiguration for Configuration {
     }
 
     fn meta_socket_mode(&self) -> Option<RuntimeSocketMode> {
-        Some(RuntimeSocketMode::new(
-            self.raw.meta_router_socket_mode.into_u32(),
-        ))
+        Some(self.meta_router_socket_mode())
     }
 }
 

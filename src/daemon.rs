@@ -6,8 +6,8 @@ use signal_message::{
     MessageReply as SignalMessageReply, MessageRequest as SignalMessageRequest,
 };
 use signal_router::{
-    RouterFrame as SignalRouterFrame, RouterFrameBody as SignalRouterFrameBody,
-    RouterReply as SignalRouterReply, RouterRequest as SignalRouterRequest,
+    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
+    Output as SignalRouterOutput,
 };
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
@@ -188,7 +188,7 @@ struct ReceivedSignalMessageInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReceivedRouterObservationInput {
     exchange: signal_frame::ExchangeIdentifier,
-    request: SignalRouterRequest,
+    request: SignalRouterInput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,8 +256,8 @@ impl WorkingRouterObservationInput {
     }
 
     fn single_payload(
-        request: Request<SignalRouterRequest>,
-    ) -> Result<SignalRouterRequest, signal_frame::FrameError> {
+        request: Request<SignalRouterInput>,
+    ) -> Result<SignalRouterInput, signal_frame::FrameError> {
         let (request, tail) = request.payloads.into_head_and_tail();
         if tail.is_empty() {
             Ok(request)
@@ -294,11 +294,11 @@ impl WorkingSignalMessageReply {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WorkingRouterObservationReply {
     exchange: signal_frame::ExchangeIdentifier,
-    output: SignalRouterReply,
+    output: SignalRouterOutput,
 }
 
 impl WorkingRouterObservationReply {
-    fn new(exchange: signal_frame::ExchangeIdentifier, output: SignalRouterReply) -> Self {
+    fn new(exchange: signal_frame::ExchangeIdentifier, output: SignalRouterOutput) -> Self {
         Self { exchange, output }
     }
 
