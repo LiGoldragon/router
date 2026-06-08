@@ -148,15 +148,16 @@ pub trait DaemonBinder: ComponentDaemon {
             Some(socket_mode) => working_socket.with_socket_mode(socket_mode),
             None => working_socket,
         };
+        let mut listener_sockets = std::vec![working_socket];
         let meta_socket_path = configuration
             .meta_socket_path()
             .ok_or(DaemonError::MissingMetaSocket)?
             .to_path_buf();
-        let listener_sockets = [
-            working_socket,
-            AsyncListenerSocket::new(ListenerTier::Meta, meta_socket_path)
-                .with_socket_mode(SocketMode::new(0o600)),
-        ];
+        listener_sockets
+            .push(
+                AsyncListenerSocket::new(ListenerTier::Meta, meta_socket_path)
+                    .with_socket_mode(SocketMode::new(0o600)),
+            );
         Ok(
             AsyncMultiListenerDaemon::new(
                     listener_sockets,
