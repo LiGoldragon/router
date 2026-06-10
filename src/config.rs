@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use signal_router::RouterDaemonConfiguration;
 use thiserror::Error;
-use triad_runtime::{DaemonConfiguration, SocketMode as RuntimeSocketMode};
+use triad_runtime::{BindingSurface, SocketMode as RuntimeSocketMode};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Configuration {
@@ -28,13 +28,13 @@ pub enum ConfigurationError {
 impl Configuration {
     pub fn from_raw(raw: RouterDaemonConfiguration) -> Self {
         Self {
-            socket_path: PathBuf::from(raw.router_socket_path.as_str()),
-            meta_socket_path: PathBuf::from(raw.meta_router_socket_path.as_str()),
-            database_path: PathBuf::from(raw.store_path.as_str()),
+            socket_path: PathBuf::from(raw.router_socket_path.payload()),
+            meta_socket_path: PathBuf::from(raw.meta_router_socket_path.payload()),
+            database_path: PathBuf::from(raw.store_path.payload()),
             bootstrap_path: raw
                 .bootstrap_path
                 .as_ref()
-                .map(|path| PathBuf::from(path.as_str())),
+                .map(|path| PathBuf::from(path.payload())),
             raw,
         }
     }
@@ -61,15 +61,15 @@ impl Configuration {
     }
 
     fn router_socket_mode(&self) -> RuntimeSocketMode {
-        RuntimeSocketMode::new(self.raw.router_socket_mode as u32)
+        RuntimeSocketMode::new(*self.raw.router_socket_mode.payload() as u32)
     }
 
     fn meta_router_socket_mode(&self) -> RuntimeSocketMode {
-        RuntimeSocketMode::new(self.raw.meta_router_socket_mode as u32)
+        RuntimeSocketMode::new(*self.raw.meta_router_socket_mode.payload() as u32)
     }
 }
 
-impl DaemonConfiguration for Configuration {
+impl BindingSurface for Configuration {
     fn socket_path(&self) -> &Path {
         &self.socket_path
     }

@@ -6,8 +6,8 @@ use router::{
 #[test]
 fn generated_router_planes_expose_signal_nexus_and_sema_nouns() {
     let ingress = signal::MessageIngress {
-        recipient: "terminal".to_owned(),
-        body: "deliver this".to_owned(),
+        recipient: "terminal".to_owned().into(),
+        body: "deliver this".to_owned().into(),
         message_kind: signal::MessageKind::DirectMessage,
     };
 
@@ -27,7 +27,7 @@ fn generated_router_planes_expose_signal_nexus_and_sema_nouns() {
     let nexus_effect = nexus::NexusAction::command_effect(effect);
     assert!(matches!(nexus_effect, nexus::NexusAction::CommandEffect(_)));
 
-    let committed = sema::WriteOutput::committed(1);
+    let committed = sema::WriteOutput::committed(1.into());
     let completed = nexus::NexusWork::sema_write_completed(committed);
     assert!(matches!(completed, nexus::NexusWork::SemaWriteCompleted(_)));
 }

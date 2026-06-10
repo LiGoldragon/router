@@ -13,7 +13,7 @@ use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
 use triad_runtime::{
-    AcceptedConnection, DaemonConfiguration, FrameBody as LengthPrefixedFrameBody, FrameError,
+    AcceptedConnection, BindingSurface, FrameBody as LengthPrefixedFrameBody, FrameError,
     LengthPrefixedCodec,
 };
 

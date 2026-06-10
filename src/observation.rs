@@ -63,7 +63,7 @@ impl RouterObservationPlane {
         self.message_trace_query_count = self.message_trace_query_count.saturating_add(1);
         let facts = self.observation_facts().await?;
         Ok(
-            match Self::message_status_for_slot(&facts, query.message_slot) {
+            match Self::message_status_for_slot(&facts, *query.message_slot.payload()) {
                 Some(status) => SignalRouterOutput::MessageTrace(RouterMessageTrace {
                     engine: query.engine,
                     message_slot: query.message_slot,
@@ -91,7 +91,7 @@ impl RouterObservationPlane {
             ));
         };
         let channels = tables.channel_records()?;
-        let status = Self::channel_status_for(&channels, query.channel.as_str());
+        let status = Self::channel_status_for(&channels, query.channel.payload());
         let state = RouterChannelState {
             engine: query.engine,
             channel: query.channel,

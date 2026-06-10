@@ -35,16 +35,24 @@ pub enum WriteInput {
 }
 
 #[rustfmt::skip]
-pub type RecordAcceptedMessage = MessageIngress;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecordAcceptedMessage(MessageIngress);
 
 #[rustfmt::skip]
-pub type RecordChannelPolicy = ChannelPolicyChange;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecordChannelPolicy(ChannelPolicyChange);
 
 #[rustfmt::skip]
-pub type RecordDeliveryResult = DeliveryResult;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecordDeliveryResult(DeliveryResult);
 
 #[rustfmt::skip]
-pub type RecordAdjudicationRequest = MessageIngress;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecordAdjudicationRequest(MessageIngress);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -55,10 +63,14 @@ pub enum ReadInput {
 }
 
 #[rustfmt::skip]
-pub type ReadRouterObservation = RouterObservation;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ReadRouterObservation(RouterObservation);
 
 #[rustfmt::skip]
-pub type ReadChannelState = ChannelIdentifier;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ReadChannelState(ChannelIdentifier);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -77,15 +89,19 @@ pub enum ReadOutput {
 }
 
 #[rustfmt::skip]
-pub type ChannelIdentifier = String;
-
-#[rustfmt::skip]
-pub type CommitSequence = Integer;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ChannelIdentifier(String);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct CommitReceipt(pub CommitSequence);
+pub struct CommitSequence(Integer);
+
+#[rustfmt::skip]
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CommitReceipt(CommitSequence);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -98,16 +114,24 @@ pub enum ChannelPolicyChange {
 }
 
 #[rustfmt::skip]
-pub type GrantChannel = ChannelIdentifier;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GrantChannel(ChannelIdentifier);
 
 #[rustfmt::skip]
-pub type ExtendChannel = ChannelIdentifier;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ExtendChannel(ChannelIdentifier);
 
 #[rustfmt::skip]
-pub type RevokeChannel = ChannelIdentifier;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RevokeChannel(ChannelIdentifier);
 
 #[rustfmt::skip]
-pub type DenyAdjudication = ChannelIdentifier;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct DenyAdjudication(ChannelIdentifier);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -121,7 +145,7 @@ pub enum DeliveryResult {
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct RouterObservationResult(pub CommitSequence);
+pub struct RouterObservationResult(CommitSequence);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -140,6 +164,158 @@ pub enum Output {
 }
 
 #[rustfmt::skip]
+impl RecordAcceptedMessage {
+    pub fn new(payload: MessageIngress) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &MessageIngress {
+        &self.0
+    }
+    pub fn into_payload(self) -> MessageIngress {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<MessageIngress> for RecordAcceptedMessage {
+    fn from(payload: MessageIngress) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl RecordChannelPolicy {
+    pub fn new(payload: ChannelPolicyChange) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &ChannelPolicyChange {
+        &self.0
+    }
+    pub fn into_payload(self) -> ChannelPolicyChange {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<ChannelPolicyChange> for RecordChannelPolicy {
+    fn from(payload: ChannelPolicyChange) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl RecordDeliveryResult {
+    pub fn new(payload: DeliveryResult) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &DeliveryResult {
+        &self.0
+    }
+    pub fn into_payload(self) -> DeliveryResult {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<DeliveryResult> for RecordDeliveryResult {
+    fn from(payload: DeliveryResult) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl RecordAdjudicationRequest {
+    pub fn new(payload: MessageIngress) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &MessageIngress {
+        &self.0
+    }
+    pub fn into_payload(self) -> MessageIngress {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<MessageIngress> for RecordAdjudicationRequest {
+    fn from(payload: MessageIngress) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl ReadRouterObservation {
+    pub fn new(payload: RouterObservation) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &RouterObservation {
+        &self.0
+    }
+    pub fn into_payload(self) -> RouterObservation {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<RouterObservation> for ReadRouterObservation {
+    fn from(payload: RouterObservation) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl ReadChannelState {
+    pub fn new(payload: ChannelIdentifier) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &ChannelIdentifier {
+        &self.0
+    }
+    pub fn into_payload(self) -> ChannelIdentifier {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<ChannelIdentifier> for ReadChannelState {
+    fn from(payload: ChannelIdentifier) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl ChannelIdentifier {
+    pub fn new(payload: impl Into<String>) -> Self {
+        Self(payload.into())
+    }
+    pub fn payload(&self) -> &String {
+        &self.0
+    }
+    pub fn into_payload(self) -> String {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<String> for ChannelIdentifier {
+    fn from(payload: String) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl CommitSequence {
+    pub fn new(payload: Integer) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &Integer {
+        &self.0
+    }
+    pub fn into_payload(self) -> Integer {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<Integer> for CommitSequence {
+    fn from(payload: Integer) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
 impl CommitReceipt {
     pub fn new(payload: CommitSequence) -> Self {
         Self(payload)
@@ -154,6 +330,82 @@ impl CommitReceipt {
 #[rustfmt::skip]
 impl From<CommitSequence> for CommitReceipt {
     fn from(payload: CommitSequence) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl GrantChannel {
+    pub fn new(payload: ChannelIdentifier) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &ChannelIdentifier {
+        &self.0
+    }
+    pub fn into_payload(self) -> ChannelIdentifier {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<ChannelIdentifier> for GrantChannel {
+    fn from(payload: ChannelIdentifier) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl ExtendChannel {
+    pub fn new(payload: ChannelIdentifier) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &ChannelIdentifier {
+        &self.0
+    }
+    pub fn into_payload(self) -> ChannelIdentifier {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<ChannelIdentifier> for ExtendChannel {
+    fn from(payload: ChannelIdentifier) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl RevokeChannel {
+    pub fn new(payload: ChannelIdentifier) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &ChannelIdentifier {
+        &self.0
+    }
+    pub fn into_payload(self) -> ChannelIdentifier {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<ChannelIdentifier> for RevokeChannel {
+    fn from(payload: ChannelIdentifier) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl DenyAdjudication {
+    pub fn new(payload: ChannelIdentifier) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &ChannelIdentifier {
+        &self.0
+    }
+    pub fn into_payload(self) -> ChannelIdentifier {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<ChannelIdentifier> for DenyAdjudication {
+    fn from(payload: ChannelIdentifier) -> Self {
         Self::new(payload)
     }
 }
@@ -179,27 +431,27 @@ impl From<CommitSequence> for RouterObservationResult {
 
 #[rustfmt::skip]
 impl WriteInput {
-    pub fn record_accepted_message(payload: RecordAcceptedMessage) -> Self {
-        Self::RecordAcceptedMessage(payload)
+    pub fn record_accepted_message(payload: MessageIngress) -> Self {
+        Self::RecordAcceptedMessage(RecordAcceptedMessage::new(payload))
     }
-    pub fn record_channel_policy(payload: RecordChannelPolicy) -> Self {
-        Self::RecordChannelPolicy(payload)
+    pub fn record_channel_policy(payload: ChannelPolicyChange) -> Self {
+        Self::RecordChannelPolicy(RecordChannelPolicy::new(payload))
     }
-    pub fn record_delivery_result(payload: RecordDeliveryResult) -> Self {
-        Self::RecordDeliveryResult(payload)
+    pub fn record_delivery_result(payload: DeliveryResult) -> Self {
+        Self::RecordDeliveryResult(RecordDeliveryResult::new(payload))
     }
-    pub fn record_adjudication_request(payload: RecordAdjudicationRequest) -> Self {
-        Self::RecordAdjudicationRequest(payload)
+    pub fn record_adjudication_request(payload: MessageIngress) -> Self {
+        Self::RecordAdjudicationRequest(RecordAdjudicationRequest::new(payload))
     }
 }
 
 #[rustfmt::skip]
 impl ReadInput {
-    pub fn read_router_observation(payload: ReadRouterObservation) -> Self {
-        Self::ReadRouterObservation(payload)
+    pub fn read_router_observation(payload: RouterObservation) -> Self {
+        Self::ReadRouterObservation(ReadRouterObservation::new(payload))
     }
-    pub fn read_channel_state(payload: ReadChannelState) -> Self {
-        Self::ReadChannelState(payload)
+    pub fn read_channel_state(payload: ChannelIdentifier) -> Self {
+        Self::ReadChannelState(ReadChannelState::new(payload))
     }
 }
 
@@ -225,17 +477,17 @@ impl ReadOutput {
 
 #[rustfmt::skip]
 impl ChannelPolicyChange {
-    pub fn grant(payload: GrantChannel) -> Self {
-        Self::Grant(payload)
+    pub fn grant(payload: ChannelIdentifier) -> Self {
+        Self::Grant(GrantChannel::new(payload))
     }
-    pub fn extend(payload: ExtendChannel) -> Self {
-        Self::Extend(payload)
+    pub fn extend(payload: ChannelIdentifier) -> Self {
+        Self::Extend(ExtendChannel::new(payload))
     }
-    pub fn revoke(payload: RevokeChannel) -> Self {
-        Self::Revoke(payload)
+    pub fn revoke(payload: ChannelIdentifier) -> Self {
+        Self::Revoke(RevokeChannel::new(payload))
     }
-    pub fn deny(payload: DenyAdjudication) -> Self {
-        Self::Deny(payload)
+    pub fn deny(payload: ChannelIdentifier) -> Self {
+        Self::Deny(DenyAdjudication::new(payload))
     }
 }
 
@@ -273,6 +525,48 @@ impl Output {
 }
 
 #[rustfmt::skip]
+impl From<RecordAcceptedMessage> for WriteInput {
+    fn from(payload: RecordAcceptedMessage) -> Self {
+        Self::RecordAcceptedMessage(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<RecordChannelPolicy> for WriteInput {
+    fn from(payload: RecordChannelPolicy) -> Self {
+        Self::RecordChannelPolicy(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<RecordDeliveryResult> for WriteInput {
+    fn from(payload: RecordDeliveryResult) -> Self {
+        Self::RecordDeliveryResult(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<RecordAdjudicationRequest> for WriteInput {
+    fn from(payload: RecordAdjudicationRequest) -> Self {
+        Self::RecordAdjudicationRequest(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<ReadRouterObservation> for ReadInput {
+    fn from(payload: ReadRouterObservation) -> Self {
+        Self::ReadRouterObservation(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<ReadChannelState> for ReadInput {
+    fn from(payload: ReadChannelState) -> Self {
+        Self::ReadChannelState(payload)
+    }
+}
+
+#[rustfmt::skip]
 impl From<CommitReceipt> for WriteOutput {
     fn from(payload: CommitReceipt) -> Self {
         Self::Committed(payload)
@@ -297,6 +591,34 @@ impl From<RouterObservationResult> for ReadOutput {
 impl From<ErrorReport> for ReadOutput {
     fn from(payload: ErrorReport) -> Self {
         Self::ReadRejected(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<GrantChannel> for ChannelPolicyChange {
+    fn from(payload: GrantChannel) -> Self {
+        Self::Grant(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<ExtendChannel> for ChannelPolicyChange {
+    fn from(payload: ExtendChannel) -> Self {
+        Self::Extend(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<RevokeChannel> for ChannelPolicyChange {
+    fn from(payload: RevokeChannel) -> Self {
+        Self::Revoke(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<DenyAdjudication> for ChannelPolicyChange {
+    fn from(payload: DenyAdjudication) -> Self {
+        Self::Deny(payload)
     }
 }
 
@@ -362,7 +684,73 @@ impl WriteInput {
 
 #[rustfmt::skip]
 #[cfg(feature = "nota-text")]
+impl RecordAcceptedMessage {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl RecordChannelPolicy {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl RecordDeliveryResult {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl RecordAdjudicationRequest {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
 impl ReadInput {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl ReadRouterObservation {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl ReadChannelState {
     pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
         <Self as NotaDecode>::from_nota_block(block)
     }
@@ -395,6 +783,28 @@ impl ReadOutput {
 
 #[rustfmt::skip]
 #[cfg(feature = "nota-text")]
+impl ChannelIdentifier {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl CommitSequence {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
 impl CommitReceipt {
     pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
         <Self as NotaDecode>::from_nota_block(block)
@@ -407,6 +817,50 @@ impl CommitReceipt {
 #[rustfmt::skip]
 #[cfg(feature = "nota-text")]
 impl ChannelPolicyChange {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl GrantChannel {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl ExtendChannel {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl RevokeChannel {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl DenyAdjudication {
     pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
         <Self as NotaDecode>::from_nota_block(block)
     }
@@ -736,7 +1190,16 @@ impl TraceEvent {
     PartialEq,
     Eq,
 )]
-pub struct OriginRoute(pub Integer);
+pub struct OriginRoute(Integer);
+#[rustfmt::skip]
+impl OriginRoute {
+    pub fn new(payload: Integer) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> Integer {
+        self.0
+    }
+}
 #[rustfmt::skip]
 #[cfg(feature = "nota-text")]
 impl OriginRoute {

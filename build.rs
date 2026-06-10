@@ -31,7 +31,7 @@ impl SchemaBuild {
         println!("cargo:rerun-if-changed=src/schema/sema.rs");
         println!("cargo:rerun-if-changed=src/schema/daemon.rs");
 
-        let plan = GenerationPlan::new(&self.crate_root, "router_crate", "0.1.0")
+        let plan = GenerationPlan::new(&self.crate_root, "router_crate", "0.3.0")
             .with_module(ModuleEmission::signal_runtime_module("signal"))
             .with_module(ModuleEmission::sema_runtime())
             .with_module(ModuleEmission::nexus_runtime())

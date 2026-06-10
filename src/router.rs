@@ -107,27 +107,29 @@ impl RouterDaemon {
     /// `RouterDaemonConfiguration` from the binary daemon command and
     /// hands the decoded record here.
     pub fn from_configuration(configuration: RouterDaemonConfiguration) -> RouterResult<Self> {
-        let tables = RouterTables::open(PathBuf::from(configuration.store_path.as_str()))?;
+        let tables = RouterTables::open(PathBuf::from(configuration.store_path.payload()))?;
         let bootstrap = configuration
             .bootstrap_path
-            .map(|path| RouterBootstrap::from_path(path.as_str()));
+            .map(|path| RouterBootstrap::from_path(path.payload()));
         let supervision = SupervisionListener::new(
             SupervisionProfile::router(),
-            PathBuf::from(configuration.supervision_socket_path.as_str()),
-            SupervisionSocketMode::from_octal(configuration.supervision_socket_mode as u32),
+            PathBuf::from(configuration.supervision_socket_path.payload()),
+            SupervisionSocketMode::from_octal(
+                *configuration.supervision_socket_mode.payload() as u32
+            ),
         );
         Ok(Self {
-            socket: PathBuf::from(configuration.router_socket_path.as_str()),
+            socket: PathBuf::from(configuration.router_socket_path.payload()),
             meta_socket: Some(PathBuf::from(
-                configuration.meta_router_socket_path.as_str(),
+                configuration.meta_router_socket_path.payload(),
             )),
             tables: Some(tables),
             ingress: RouterIngressContext::message(),
             socket_mode: Some(SocketMode::from_octal(
-                configuration.router_socket_mode as u32,
+                *configuration.router_socket_mode.payload() as u32,
             )),
             meta_socket_mode: Some(SocketMode::from_octal(
-                configuration.meta_router_socket_mode as u32,
+                *configuration.meta_router_socket_mode.payload() as u32,
             )),
             bootstrap,
             supervision: Some(supervision),
@@ -1279,10 +1281,14 @@ impl RouterRoot {
 
     async fn apply_meta(&mut self, input: MetaInput) -> RouterResult<MetaOutput> {
         match input {
-            MetaInput::Grant(grant) => self.apply_meta_grant(grant).await,
-            MetaInput::Extend(extension) => self.apply_meta_extension(extension).await,
-            MetaInput::Revoke(revocation) => self.apply_meta_revocation(revocation).await,
-            MetaInput::Deny(denial) => self.apply_meta_denial(denial).await,
+            MetaInput::Grant(grant) => self.apply_meta_grant(grant.into_payload()).await,
+            MetaInput::Extend(extension) => {
+                self.apply_meta_extension(extension.into_payload()).await
+            }
+            MetaInput::Revoke(revocation) => {
+                self.apply_meta_revocation(revocation.into_payload()).await
+            }
+            MetaInput::Deny(denial) => self.apply_meta_denial(denial.into_payload()).await,
         }
     }
 
@@ -1299,8 +1305,8 @@ impl RouterRoot {
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
-        Ok(MetaOutput::ChannelGranted(MetaGrantedChannel::new(
-            identifier.as_str().to_string(),
+        Ok(MetaOutput::channel_granted(MetaGrantedChannel::new(
+            meta_signal_router::ChannelIdentifier::new(identifier.as_str().to_string()),
         )))
     }
 
@@ -1312,14 +1318,14 @@ impl RouterRoot {
         let extended = self
             .channels
             .ask(ExtendChannel::new(
-                OriginChannelIdentifier::new(channel.as_str()),
+                OriginChannelIdentifier::new(channel.payload().clone()),
                 Self::meta_channel_lifetime(extension.duration),
             ))
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
         if extended {
-            Ok(MetaOutput::ChannelExtended(MetaExtendedChannel::new(
+            Ok(MetaOutput::channel_extended(MetaExtendedChannel::new(
                 channel,
             )))
         } else {
@@ -1338,13 +1344,15 @@ impl RouterRoot {
         let revoked = self
             .channels
             .ask(RetractChannelByIdentifier::new(
-                OriginChannelIdentifier::new(channel.as_str()),
+                OriginChannelIdentifier::new(channel.payload().clone()),
             ))
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
         if revoked {
-            Ok(MetaOutput::ChannelRevoked(MetaRevokedChannel::new(channel)))
+            Ok(MetaOutput::channel_revoked(MetaRevokedChannel::new(
+                channel,
+            )))
         } else {
             Ok(Self::meta_order_rejected(
                 MetaOperationKind::Revoke,
@@ -1360,14 +1368,14 @@ impl RouterRoot {
         let request = denial.request;
         let rejected = self
             .deny_adjudication(&MindAdjudicationDeny {
-                request: AdjudicationRequestIdentifier::new(request.as_str()),
-                reason: MindTextBody::new(denial.reason),
+                request: AdjudicationRequestIdentifier::new(request.payload().clone()),
+                reason: MindTextBody::new(denial.reason.into_payload()),
             })
             .await?;
         if rejected > 0 {
-            Ok(MetaOutput::AdjudicationDenied(MetaDeniedAdjudication::new(
-                request,
-            )))
+            Ok(MetaOutput::adjudication_denied(
+                MetaDeniedAdjudication::new(request),
+            ))
         } else {
             Ok(Self::meta_order_rejected(
                 MetaOperationKind::Deny,
@@ -1405,9 +1413,9 @@ impl RouterRoot {
         match duration {
             MetaChannelDuration::OneShot => ChannelLifetime::OneShot,
             MetaChannelDuration::Permanent => ChannelLifetime::Persistent,
-            MetaChannelDuration::TimeBound(until) => {
-                ChannelLifetime::ExpiresAt(ChannelEpochSeconds::new(until / 1_000_000_000))
-            }
+            MetaChannelDuration::TimeBound(until) => ChannelLifetime::ExpiresAt(
+                ChannelEpochSeconds::new(*until.payload() / 1_000_000_000),
+            ),
         }
     }
 
@@ -1440,16 +1448,19 @@ impl RouterRoot {
         match connection {
             MetaConnectionClass::Owner => ActorIdentifier::new("owner"),
             MetaConnectionClass::NonOwnerUser(user) => {
-                ActorIdentifier::new(format!("non-owner-user-{user}"))
+                ActorIdentifier::new(format!("non-owner-user-{}", user.payload()))
             }
             MetaConnectionClass::System(principal) => {
-                ActorIdentifier::new(format!("system-{principal}"))
+                ActorIdentifier::new(format!("system-{}", principal.payload()))
             }
             MetaConnectionClass::OtherPersona(engine) => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
-                engine.engine_identifier, engine.host
+                engine.engine_identifier.payload(),
+                engine.host.payload()
             )),
-            MetaConnectionClass::Network(peer) => ActorIdentifier::new(format!("network-{peer}")),
+            MetaConnectionClass::Network(peer) => {
+                ActorIdentifier::new(format!("network-{}", peer.payload()))
+            }
         }
     }
 
@@ -1457,7 +1468,7 @@ impl RouterRoot {
         operation: MetaOperationKind,
         reason: MetaChannelOrderRejectionReason,
     ) -> MetaOutput {
-        MetaOutput::ChannelOrderRejected(MetaRejectedChannelOrder { operation, reason })
+        MetaOutput::channel_order_rejected(MetaRejectedChannelOrder { operation, reason })
     }
 
     async fn apply_stamped_message_submission(
@@ -2764,7 +2775,7 @@ impl RouterInput {
     }
 
     fn actor_identifier_from_bootstrap(actor: signal_router::ActorIdentifier) -> ActorIdentifier {
-        ActorIdentifier::new(actor)
+        ActorIdentifier::new(actor.into_payload())
     }
 
     pub fn from_nota(text: &str) -> RouterResult<Self> {
@@ -2914,7 +2925,7 @@ mod receiver_validation_tests {
 
         let codec = LengthPrefixedCodec::default();
         let mut good = UnixStream::connect(&socket).expect("valid client connects after bad one");
-        let grant = MetaInput::Grant(MetaChannelGrant {
+        let grant = MetaInput::grant(MetaChannelGrant {
             source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
             destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
             kinds: vec![MetaChannelMessageKind::MessageSubmission],

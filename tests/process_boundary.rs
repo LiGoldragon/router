@@ -9,8 +9,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use meta_signal_router::{
     ChannelDuration as MetaChannelDuration, ChannelEndpoint as MetaChannelEndpoint,
     ChannelGrant as MetaChannelGrant, ChannelMessageKind as MetaChannelMessageKind,
-    ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass,
-    GrantedChannel as MetaGrantedChannel, Input as MetaInput, Output as MetaOutput,
+    ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass, Input as MetaInput,
+    Output as MetaOutput,
 };
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
@@ -19,7 +19,7 @@ use signal_message::{
     ComponentName, Frame as SignalMessageFrame, FrameBody as SignalMessageFrameBody,
     Input as SignalInput, MessageBody, MessageKind, MessageOrigin as SignalMessageOrigin,
     MessageRecipient, MessageSlot, MessageSubmission, Output as SignalOutput,
-    StampedMessageSubmission, SubmissionAcceptance, TimestampNanos as SignalTimestampNanos,
+    StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
 };
 use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterDaemonConfiguration};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
@@ -58,19 +58,20 @@ impl DaemonFixture {
     fn write_configuration(&self) {
         std::fs::create_dir_all(&self.directory).expect("create router process fixture");
         let configuration = RouterDaemonConfiguration {
-            router_socket_path: self.socket_path.display().to_string(),
-            router_socket_mode: 0o640,
-            meta_router_socket_path: self.meta_socket_path.display().to_string(),
-            meta_router_socket_mode: 0o600,
+            router_socket_path: self.socket_path.display().to_string().into(),
+            router_socket_mode: 0o640.into(),
+            meta_router_socket_path: self.meta_socket_path.display().to_string().into(),
+            meta_router_socket_mode: 0o600.into(),
             supervision_socket_path: self
                 .directory
                 .join("router-supervision.sock")
                 .display()
-                .to_string(),
-            supervision_socket_mode: 0o600,
-            store_path: self.database_path.display().to_string(),
+                .to_string()
+                .into(),
+            supervision_socket_mode: 0o600.into(),
+            store_path: self.database_path.display().to_string().into(),
             bootstrap_path: None,
-            owner_identity: RouterOwnerIdentity::UnixUser(1000),
+            owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
         };
         let bytes = configuration
             .to_rkyv_bytes()
@@ -139,8 +140,8 @@ fn generated_daemon_answers_working_signal_message_frame() {
     );
 
     match output {
-        SignalOutput::SubmissionAccepted(SubmissionAcceptance(message_slot)) => {
-            assert_eq!(message_slot, MessageSlot::new(1));
+        SignalOutput::SubmissionAccepted(acceptance) => {
+            assert_eq!(*acceptance.payload(), MessageSlot::new(1));
         }
         other => panic!("expected SubmissionAccepted, got {other:?}"),
     }
@@ -153,7 +154,7 @@ fn generated_daemon_answers_meta_signal_frame_on_meta_socket() {
 
     let output = meta_signal_exchange(
         &fixture.meta_socket_path,
-        MetaInput::Grant(MetaChannelGrant {
+        MetaInput::grant(MetaChannelGrant {
             source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
             destination: MetaChannelEndpoint::Internal(MetaComponentName::Message),
             kinds: vec![MetaChannelMessageKind::MessageSubmission],
@@ -162,9 +163,10 @@ fn generated_daemon_answers_meta_signal_frame_on_meta_socket() {
     );
 
     match output {
-        MetaOutput::ChannelGranted(MetaGrantedChannel(channel)) => {
+        MetaOutput::ChannelGranted(granted) => {
+            let channel = granted.into_payload().into_payload();
             assert!(
-                !channel.is_empty(),
+                !channel.payload().is_empty(),
                 "router should return the generated channel identifier"
             );
         }

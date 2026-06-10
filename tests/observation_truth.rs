@@ -36,9 +36,10 @@ use signal_message::{
     MessageRecipient, MessageSubmission, Output as SignalOutput, StampedMessageSubmission,
     TimestampNanos as SignalTimestampNanos,
 };
-use signal_persona::origin::ChannelIdentifier;
+use signal_persona::origin::ChannelIdentifier as OriginChannelIdentifier;
 use signal_router::{
-    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
+    ChannelIdentifier as SignalChannelIdentifier, EngineIdentifier, Frame as SignalRouterFrame,
+    FrameBody as SignalRouterFrameBody, Input as SignalRouterInput, MessageSlot,
     Output as SignalRouterOutput, RouterChannelStateQuery, RouterChannelStatus,
     RouterDeliveryStatus, RouterMessageTraceQuery, RouterObservationScope,
     RouterObservationUnimplementedReason, RouterSummaryQuery,
@@ -142,8 +143,16 @@ impl ObservationFixture {
     }
 }
 
-fn engine_identifier() -> String {
-    "prototype".to_string()
+fn engine_identifier() -> EngineIdentifier {
+    EngineIdentifier::new("prototype")
+}
+
+fn message_slot(value: u64) -> MessageSlot {
+    MessageSlot::new(value)
+}
+
+fn signal_channel_identifier(value: impl Into<String>) -> SignalChannelIdentifier {
+    SignalChannelIdentifier::new(value)
 }
 
 fn router_exchange() -> ExchangeIdentifier {
@@ -161,7 +170,7 @@ async fn meta_grant_installs_channel_visible_to_working_observation() {
     let router = ObservationFixture::start_with_tables(tables).await;
 
     let output = router
-        .apply_meta(MetaInput::Grant(MetaChannelGrant {
+        .apply_meta(MetaInput::grant(MetaChannelGrant {
             source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
             destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
             kinds: vec![MetaChannelMessageKind::MessageSubmission],
@@ -172,12 +181,12 @@ async fn meta_grant_installs_channel_visible_to_working_observation() {
     let MetaOutput::ChannelGranted(granted) = output else {
         panic!("expected meta channel grant reply, got {output:?}");
     };
-    let channel = granted.into_payload();
+    let channel = granted.into_payload().into_payload();
 
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
             engine: engine_identifier(),
-            channel,
+            channel: signal_channel_identifier(channel.into_payload()),
         }))
         .await
         .expect("working observation reads channel created by meta grant");
@@ -196,7 +205,7 @@ async fn meta_revoke_disables_channel_visible_to_working_observation() {
     let router = ObservationFixture::start_with_tables(tables).await;
 
     let grant = router
-        .apply_meta(MetaInput::Grant(MetaChannelGrant {
+        .apply_meta(MetaInput::grant(MetaChannelGrant {
             source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
             destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
             kinds: vec![MetaChannelMessageKind::MessageSubmission],
@@ -207,12 +216,12 @@ async fn meta_revoke_disables_channel_visible_to_working_observation() {
     let MetaOutput::ChannelGranted(granted) = grant else {
         panic!("expected meta channel grant reply, got {grant:?}");
     };
-    let channel = granted.into_payload();
+    let channel = granted.into_payload().into_payload();
 
     let revoke = router
-        .apply_meta(MetaInput::Revoke(MetaChannelRevocation {
+        .apply_meta(MetaInput::revoke(MetaChannelRevocation {
             channel: channel.clone(),
-            reason: "operator closed the channel".to_string(),
+            reason: "operator closed the channel".to_string().into(),
         }))
         .await
         .expect("meta revoke passes through router runtime");
@@ -224,7 +233,7 @@ async fn meta_revoke_disables_channel_visible_to_working_observation() {
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
             engine: engine_identifier(),
-            channel,
+            channel: signal_channel_identifier(channel.into_payload()),
         }))
         .await
         .expect("working observation reads channel disabled by meta revoke");
@@ -243,7 +252,7 @@ async fn meta_extend_updates_channel_lifetime_in_router_tables() {
     let router = ObservationFixture::start_with_tables(tables.clone()).await;
 
     let grant = router
-        .apply_meta(MetaInput::Grant(MetaChannelGrant {
+        .apply_meta(MetaInput::grant(MetaChannelGrant {
             source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
             destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
             kinds: vec![MetaChannelMessageKind::MessageSubmission],
@@ -254,12 +263,12 @@ async fn meta_extend_updates_channel_lifetime_in_router_tables() {
     let MetaOutput::ChannelGranted(granted) = grant else {
         panic!("expected meta channel grant reply, got {grant:?}");
     };
-    let channel = granted.into_payload();
+    let channel = granted.into_payload().into_payload();
 
     let extend = router
-        .apply_meta(MetaInput::Extend(MetaChannelExtension {
+        .apply_meta(MetaInput::extend(MetaChannelExtension {
             channel: channel.clone(),
-            duration: MetaChannelDuration::TimeBound(21_000_000_000),
+            duration: MetaChannelDuration::time_bound(21_000_000_000),
         }))
         .await
         .expect("meta extend passes through router runtime");
@@ -271,7 +280,7 @@ async fn meta_extend_updates_channel_lifetime_in_router_tables() {
     let records = tables.channel_records().expect("channel records read");
     let record = records
         .iter()
-        .find(|record| record.id == channel)
+        .find(|record| record.id == *channel.payload())
         .expect("extended channel record exists");
     assert_eq!(
         record.lifetime,
@@ -320,9 +329,9 @@ async fn meta_deny_clears_pending_adjudication_from_runtime_and_tables() {
     );
 
     let deny = router
-        .apply_meta(MetaInput::Deny(MetaAdjudicationDenial {
-            request: message.id.as_str().to_string(),
-            reason: "meta policy refused the delivery".to_string(),
+        .apply_meta(MetaInput::deny(MetaAdjudicationDenial {
+            request: message.id.as_str().to_string().into(),
+            reason: "meta policy refused the delivery".to_string().into(),
         }))
         .await
         .expect("meta deny passes through router runtime");
@@ -553,7 +562,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
     let reply = router
         .observe(SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
             engine: engine_identifier(),
-            message_slot: 1,
+            message_slot: message_slot(1),
         }))
         .await
         .expect("observation plane answers trace");
@@ -561,20 +570,20 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
     let SignalRouterOutput::MessageTrace(trace) = reply else {
         panic!("expected SignalRouterOutput::MessageTrace, got {reply:?}");
     };
-    assert_eq!(trace.message_slot, 1);
+    assert_eq!(trace.message_slot, message_slot(1));
     assert_eq!(trace.status, RouterDeliveryStatus::Deferred);
 
     let missing_reply = router
         .observe(SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
             engine: engine_identifier(),
-            message_slot: 99,
+            message_slot: message_slot(99),
         }))
         .await
         .expect("observation plane answers missing-slot trace");
     let SignalRouterOutput::MessageTraceMissing(missing) = missing_reply else {
         panic!("expected SignalRouterOutput::MessageTraceMissing, got {missing_reply:?}");
     };
-    assert_eq!(missing.message_slot, 99);
+    assert_eq!(missing.message_slot, message_slot(99));
 
     router.stop().await;
 }
@@ -606,7 +615,7 @@ async fn router_channel_state_query_reads_router_tables() {
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
             engine: engine_identifier(),
-            channel: installed_id.clone(),
+            channel: signal_channel_identifier(installed_id.clone()),
         }))
         .await
         .expect("observation plane answers channel state");
@@ -614,13 +623,13 @@ async fn router_channel_state_query_reads_router_tables() {
     let SignalRouterOutput::ChannelState(state) = reply else {
         panic!("expected SignalRouterOutput::ChannelState, got {reply:?}");
     };
-    assert_eq!(state.channel, installed_id);
+    assert_eq!(state.channel, signal_channel_identifier(installed_id));
     assert_eq!(state.status, RouterChannelStatus::Installed);
 
     let missing_reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
             engine: engine_identifier(),
-            channel: "channel-does-not-exist".to_string(),
+            channel: signal_channel_identifier("channel-does-not-exist"),
         }))
         .await
         .expect("observation plane answers missing channel");
@@ -639,7 +648,7 @@ async fn router_channel_state_query_without_tables_reports_router_store_unavaila
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
             engine: engine_identifier(),
-            channel: "any-channel".to_string(),
+            channel: signal_channel_identifier("any-channel"),
         }))
         .await
         .expect("observation plane answers without tables");
@@ -712,7 +721,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
     let _ = router
         .observe(SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
             engine: engine_identifier(),
-            message_slot: 1,
+            message_slot: message_slot(1),
         }))
         .await
         .expect("trace query passes");
@@ -749,7 +758,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_daemon_restart_surfaces_persisted_adjudication_through_observation_plane() {
     let store = TemporaryRouterStore::new("restart-adjudication");
-    let channel_identifier = ChannelIdentifier::new("restart-witness-channel");
+    let channel_identifier = OriginChannelIdentifier::new("restart-witness-channel");
 
     // First "daemon": persist a channel through `RouterTables`
     // synchronously, then drop the handle.
@@ -797,7 +806,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
             engine: engine_identifier(),
-            channel: channel_identifier.as_str().to_string(),
+            channel: signal_channel_identifier(channel_identifier.as_str()),
         }))
         .await
         .expect("observation plane answers post-restart channel state");
@@ -805,7 +814,10 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     let SignalRouterOutput::ChannelState(state) = reply else {
         panic!("expected SignalRouterOutput::ChannelState across the reopen, got {reply:?}");
     };
-    assert_eq!(state.channel, channel_identifier.as_str());
+    assert_eq!(
+        state.channel,
+        signal_channel_identifier(channel_identifier.as_str())
+    );
     assert_eq!(
         state.status,
         RouterChannelStatus::Installed,
