@@ -15,8 +15,11 @@ router's decision: a typed message fact (Assert-shaped) enters the
 system; the router decides delivery based on channel state. A message
 without an authorized channel parks for mind adjudication.
 
-The CLI is a thin client; the daemon owns `RouterRuntime` for its
-process lifetime. `router-daemon` starts from exactly one
+The CLIs are thin clients: `router` speaks the ordinary
+`signal-router` observation contract on the working socket, and
+`meta-router` speaks the `meta-signal-router` channel-policy contract
+on the meta socket. The daemon owns `RouterRuntime` for its process
+lifetime. `router-daemon` starts from exactly one
 signal-encoded/rkyv `RouterDaemonConfiguration` file; it rejects
 inline NOTA and `.nota` startup files, and its optional bootstrap
 path names a binary rkyv `RouterBootstrapDocument` archive rather
@@ -48,7 +51,8 @@ observations. `signal-message` and `signal-router` are now published
 generated contract crates, not `signal_channel!` macro surfaces; future public
 signal/meta-signal dependencies should follow that schema-next/schema-rust-next
 contract shape. The emitted daemon owns listener mechanics; router owns only
-that transitional relation adapter and the actor-runtime behavior behind it.
+that transitional relation adapter, the thin client codecs, and the
+actor-runtime behavior behind them.
 
 Key constraints: routing reacts to pushed events (no polling). Authorization is channel-
 table authorization plus mind adjudication for misses. One-shot channels authorize

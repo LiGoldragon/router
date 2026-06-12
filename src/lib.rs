@@ -1,5 +1,8 @@
 pub mod adjudication;
 pub mod channel;
+#[cfg(feature = "nota-text")]
+pub mod cli_argument;
+pub mod client;
 pub mod command;
 pub mod config;
 pub mod daemon;
@@ -8,6 +11,7 @@ pub mod error;
 pub mod harness_delivery;
 pub mod harness_registry;
 pub mod message;
+pub mod meta;
 pub mod observation;
 pub mod router;
 pub mod supervision;
@@ -39,6 +43,9 @@ pub use channel::{
     ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier,
     StructuralChannelInstallation, StructuralChannelInstallationOutcome, UseChannel,
 };
+pub use client::{RouterClient, RouterEndpoint};
+#[cfg(feature = "nota-text")]
+pub use client::{RouterCommand, RouterCommandEnvironment};
 pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
 pub use config::{Configuration, ConfigurationError};
 pub use daemon::{RouterDaemonError, RouterEngine, RouterProcessDaemon};
@@ -54,6 +61,9 @@ pub use message::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Message, MessageBody,
     MessageIdentifier, ThreadIdentifier,
 };
+pub use meta::{MetaRouterClient, MetaRouterEndpoint};
+#[cfg(feature = "nota-text")]
+pub use meta::{MetaRouterCommand, MetaRouterCommandEnvironment};
 pub use observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
     RouterObservationPlane, RouterObservationPlaneStatus,

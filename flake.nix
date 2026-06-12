@@ -108,6 +108,20 @@
               cargoTestExtraArgs = "--test process_boundary";
             }
           );
+          router-cli-reaches-working-observation-socket = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features nota-text --test process_boundary router_cli_reaches_working_observation_socket_and_prints_typed_summary -- --exact";
+            }
+          );
+          meta-router-cli-reaches-policy-socket = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features nota-text --test process_boundary meta_router_cli_reaches_policy_socket_and_prints_typed_grant -- --exact";
+            }
+          );
           router-runtime-cannot-depend-on-message =
             context.sourceConstraintCheck "router-runtime-cannot-depend-on-message" ./scripts/router-runtime-cannot-depend-on-message;
           router-runtime-cannot-depend-on-terminal-crates =

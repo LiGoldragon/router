@@ -13,6 +13,11 @@ Rules for work here:
 - Accept stamped `signal-message` frames as the daemon message ingress.
   Plain `MessageSubmission` belongs on the `message` socket and must
   not commit on `router.sock`. Do not add a NOTA line socket protocol.
+- Keep the CLI split contract-shaped: `router` submits one
+  `signal-router::Input` observation request to the working socket and
+  prints one `signal-router::Output`; `meta-router` submits one
+  `meta-signal-router::Input` policy order to the meta socket and
+  prints one `meta-signal-router::Output`.
 - Resolve the signal sender from typed Signal origin. Do not add sender text to
   `MessageSubmission`.
 - Depend on relation contract crates for inter-component records; do not import

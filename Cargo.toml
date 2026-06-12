@@ -1,6 +1,6 @@
 [package]
 name         = "router"
-version      = "0.3.0"
+version      = "0.4.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -13,12 +13,22 @@ name = "router"
 path = "src/lib.rs"
 
 [[bin]]
+name = "router"
+path = "src/bin/router.rs"
+required-features = ["nota-text"]
+
+[[bin]]
 name = "router-daemon"
 path = "src/main.rs"
 
+[[bin]]
+name = "meta-router"
+path = "src/bin/meta_router.rs"
+required-features = ["nota-text"]
+
 [dependencies]
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
-meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main" }
+meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
 nota-next             = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
@@ -27,14 +37,14 @@ signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git
 signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
 thiserror             = "2"
-tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync"] }
+tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 
 [features]
 default = []
-nota-text = []
+nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 
 [build-dependencies]
 schema-rust-next = { git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }

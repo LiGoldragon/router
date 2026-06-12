@@ -82,14 +82,6 @@ use crate::{
 };
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
-fn synthetic_exchange() -> ExchangeIdentifier {
-    ExchangeIdentifier::new(
-        SessionEpoch::new(0),
-        ExchangeLane::Connector,
-        LaneSequence::first(),
-    )
-}
-
 #[derive(Debug)]
 pub struct RouterDaemon {
     socket: PathBuf,
@@ -578,6 +570,15 @@ impl SignalMessageFrameCodec {
         Self {
             maximum_frame_bytes,
         }
+    }
+
+    fn synthetic_exchange(&self) -> ExchangeIdentifier {
+        let _maximum_frame_bytes = self.maximum_frame_bytes;
+        ExchangeIdentifier::new(
+            SessionEpoch::new(0),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        )
     }
 
     pub fn read_frame_bytes(&self, reader: &mut impl Read) -> RouterResult<Vec<u8>> {
@@ -2115,7 +2116,7 @@ impl RouterSignalClient {
     ) -> RouterResult<SignalMessageContractOutput> {
         let mut stream = UnixStream::connect(&self.socket)?;
         let frame = SignalMessageFrame::new(FrameBody::Request {
-            exchange: synthetic_exchange(),
+            exchange: self.codec.synthetic_exchange(),
             request: Request::from_payload(request),
         });
         self.codec.write_frame(&mut stream, &frame)?;
@@ -2909,7 +2910,7 @@ mod receiver_validation_tests {
 
         let mut bad = UnixStream::connect(&socket).expect("bad client connects");
         let bad_frame = SignalMessageFrame::new(FrameBody::Request {
-            exchange: synthetic_exchange(),
+            exchange: SignalMessageFrameCodec::default().synthetic_exchange(),
             request: Request::from_payload(SignalMessageContractInput::QueryInbox(
                 SignalInboxQuery::new(SignalMessageRecipient::new("operator".to_string())),
             )),

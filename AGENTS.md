@@ -16,6 +16,10 @@ delivered harness prompt.
 - Use Nix for build and test entry points.
 - `signal-message` is the only daemon message ingress. Do not add a
   NOTA line socket protocol.
+- Keep `router` and `meta-router` as thin one-argument clients. `router`
+  speaks `signal-router` observation requests on the working socket;
+  `meta-router` speaks `meta-signal-router` policy orders on the meta
+  socket.
 - Do not depend on `message`; it is the message-ingress component that
   forwards typed frames into this router.
 - Do not depend on terminal crates directly. Terminal effects go through

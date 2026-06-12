@@ -4,7 +4,9 @@ Persona message router and delivery state machine.
 
 This repository owns:
 
-- the router daemon surface;
+- `router-daemon`, the long-lived router runtime;
+- `router`, the thin `signal-router` observation client;
+- `meta-router`, the thin `meta-signal-router` policy client;
 - `signal-message` frame ingress for stamped message submissions and
   inbox queries;
 - typed pending delivery state;

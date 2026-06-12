@@ -54,9 +54,14 @@ flowchart LR
   length-prefixed process envelope around contract-local
   `meta-signal-router` frames, and routes to `RouterRoot` through
   `ApplyMetaRouterPolicy`;
-- a daemon-client CLI surface that accepts one NOTA `signal-message`
-  projection record, sends one Signal frame to the daemon, and prints one NOTA
-  output. The CLI does not mint the message sender;
+- a `router` CLI surface that accepts one NOTA `signal-router::Input`
+  observation request, sends one length-prefixed `signal-router::Frame`
+  to the working socket, and prints one NOTA `signal-router::Output`.
+  It is the working-contract client, not a message-ingress client;
+- a `meta-router` CLI surface that accepts one NOTA
+  `meta-signal-router::Input` channel-policy order, sends one generated
+  meta frame to the meta socket, and prints one NOTA
+  `meta-signal-router::Output`;
 - a Signal-frame daemon ingress for `signal-message`
   `StampedMessageSubmission` and `InboxQuery` frames;
 - a startup bootstrap reader for manager-written
@@ -513,11 +518,16 @@ src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/observation.rs      Kameo router observation plane (signal-router queries)
+src/client.rs           thin router CLI/client over signal-router observation frames
+src/meta.rs             thin meta-router CLI/client over meta-signal-router policy frames
+src/cli_argument.rs     shared one-argument NOTA text/file loader for client binaries
 src/config.rs           binary rkyv daemon configuration wrapper for the emitted process shell
 src/daemon.rs           component hooks for the emitted router daemon shell
 src/delivery.rs         pending-delivery records
 src/message.rs          transitional router message records
 src/tables.rs           router-owned Sema schema and message/channel/adjudication/delivery tables
+src/bin/router.rs       one-line ordinary working-signal client entry point
+src/bin/meta_router.rs  one-line meta policy client entry point
 src/main.rs             one-line emitted-daemon entry point
 tests/                  router smoke and actor-density truth tests
 ```
@@ -527,6 +537,8 @@ tests/                  router smoke and actor-density truth tests
 | Constraint | Test |
 |---|---|
 | The generated daemon process shell binds working + meta sockets and answers both relation families over real Unix sockets. | `nix build .#checks.x86_64-linux.router-generated-daemon-answers-working-and-meta-sockets` |
+| `router` CLI reaches the working observation socket and prints a typed `signal-router::Output` reply. | `nix build .#checks.x86_64-linux.router-cli-reaches-working-observation-socket` |
+| `meta-router` CLI reaches the policy socket and prints a typed `meta-signal-router::Output` reply. | `nix build .#checks.x86_64-linux.meta-router-cli-reaches-policy-socket` |
 | Router daemon ingress accepts `signal-message` frames. | `nix build .#checks.x86_64-linux.router-daemon-accepts-signal-message-only` |
 | Router daemon binds a separate meta socket at restricted meta-policy mode. | `cargo test --test smoke constraint_router_daemon_applies_meta_socket_mode` |
 | Router meta socket accepts `meta-signal-router` frames and rejects working `signal-message` frames. | `cargo test --test smoke router_meta_connection` |

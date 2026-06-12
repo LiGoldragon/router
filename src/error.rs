@@ -67,6 +67,12 @@ pub enum Error {
         source: std::io::Error,
     },
 
+    #[error("failed to read router NOTA input {path:?}: {source}")]
+    ReadNotaFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
     #[error("failed to decode router daemon configuration archive")]
     ConfigurationArchiveDecode,
 
@@ -95,6 +101,15 @@ pub enum Error {
 
     #[error("unexpected router observation frame: {got}")]
     UnexpectedRouterObservationFrame { got: String },
+
+    #[error("unexpected router reply frame: {got}")]
+    UnexpectedRouterReplyFrame { got: String },
+
+    #[error("unexpected router reply sub-reply: {got}")]
+    UnexpectedRouterSubReply { got: String },
+
+    #[error("router reply rejected: {reason}")]
+    RouterReplyRejected { reason: String },
 
     #[error(
         "daemon frame was neither message ingress nor router observation: signal={signal_error}; router={router_error}"

@@ -21,6 +21,8 @@ use signal_message::{
     MessageRecipient, MessageSlot, MessageSubmission, Output as SignalOutput,
     StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
 };
+#[cfg(feature = "nota-text")]
+use signal_router::{Input as RouterObservationInput, RouterSummaryQuery};
 use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterDaemonConfiguration};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
@@ -172,6 +174,66 @@ fn generated_daemon_answers_meta_signal_frame_on_meta_socket() {
         }
         other => panic!("expected ChannelGranted, got {other:?}"),
     }
+}
+
+#[cfg(feature = "nota-text")]
+#[test]
+fn router_cli_reaches_working_observation_socket_and_prints_typed_summary() {
+    let fixture = DaemonFixture::new("router-cli");
+    let _daemon = fixture.spawn_daemon();
+    let request = RouterObservationInput::Summary(RouterSummaryQuery::new(
+        "process-boundary".to_string().into(),
+    ))
+    .to_nota();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_router"))
+        .env("ROUTER_SOCKET", &fixture.socket_path)
+        .arg(request)
+        .output()
+        .expect("run router cli");
+
+    assert!(
+        output.status.success(),
+        "router cli failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("router cli stdout is utf8");
+    assert!(stdout.contains("Summary"), "unexpected stdout: {stdout}");
+    assert!(
+        stdout.contains("process-boundary"),
+        "unexpected stdout: {stdout}"
+    );
+}
+
+#[cfg(feature = "nota-text")]
+#[test]
+fn meta_router_cli_reaches_policy_socket_and_prints_typed_grant() {
+    let fixture = DaemonFixture::new("meta-router-cli");
+    let _daemon = fixture.spawn_daemon();
+    let request = MetaInput::grant(MetaChannelGrant {
+        source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+        destination: MetaChannelEndpoint::Internal(MetaComponentName::Message),
+        kinds: vec![MetaChannelMessageKind::MessageSubmission],
+        duration: MetaChannelDuration::Permanent,
+    })
+    .to_nota();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_meta-router"))
+        .env("ROUTER_META_SOCKET", &fixture.meta_socket_path)
+        .arg(request)
+        .output()
+        .expect("run meta-router cli");
+
+    assert!(
+        output.status.success(),
+        "meta-router cli failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("meta-router cli stdout is utf8");
+    assert!(
+        stdout.contains("ChannelGranted"),
+        "unexpected stdout: {stdout}"
+    );
 }
 
 fn socket_mode(path: &Path) -> u32 {

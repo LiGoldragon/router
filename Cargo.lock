@@ -249,6 +249,7 @@ name = "meta-signal-router"
 version = "0.2.0"
 source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#1cba7e4e95eeec0281a7349edbd6855f0b9fe646"
 dependencies = [
+ "nota-next",
  "rkyv",
  "schema-rust-next",
  "signal-frame",
@@ -429,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "router"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "kameo",
  "meta-signal-router",
@@ -614,6 +615,7 @@ name = "signal-router"
 version = "0.2.0"
 source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#b6d6a36b6fd5f8b97b5b76e4f20b9ef662afa6d8"
 dependencies = [
+ "nota-next",
  "rkyv",
  "schema-rust-next",
  "signal-frame",
