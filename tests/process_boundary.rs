@@ -12,6 +12,8 @@ use meta_signal_router::{
     ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass, Input as MetaInput,
     Output as MetaOutput,
 };
+#[cfg(feature = "nota-text")]
+use nota_next::NotaEncode;
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
