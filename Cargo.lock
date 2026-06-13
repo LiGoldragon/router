@@ -304,7 +304,7 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#50c2cea9ef5273d32f5f85c57ad26b0f40529a1b"
+source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#e771c5b8f968eb29620157725a74a7a84bf419f7"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -644,7 +644,7 @@ dependencies = [
 [[package]]
 name = "signal-message"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#2effe45fa7e97984640f5a2c4e7ed4e935365e0a"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#719bca0278dd2454fd079523413ad376a61f8f53"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -678,7 +678,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#023a7f835edacf847894e7f3fde314bf217d0923"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#72fbb59863a1d38d4a0b3bed18484175c473d2dd"
 dependencies = [
  "nota-next",
  "rkyv",
