@@ -30,6 +30,7 @@ struct ConfigurationWriteRequest {
     meta_router_socket_path: ConfigurationWriterPath,
     supervision_socket_path: ConfigurationWriterPath,
     store_path: ConfigurationWriterPath,
+    bootstrap_path: Option<ConfigurationWriterPath>,
     owner_user_identifier: u64,
     output_path: ConfigurationWriterPath,
 }
@@ -102,7 +103,10 @@ impl ConfigurationWriteRequest {
             supervision_socket_path: self.supervision_socket_path.as_str().to_owned().into(),
             supervision_socket_mode: 0o600.into(),
             store_path: self.store_path.as_str().to_owned().into(),
-            bootstrap_path: None,
+            bootstrap_path: self
+                .bootstrap_path
+                .as_ref()
+                .map(|path| path.as_str().to_owned().into()),
             owner_identity: OwnerIdentity::UnixUser(self.owner_user_identifier.into()),
         }
     }
@@ -113,7 +117,7 @@ impl NotaDecode for ConfigurationWriteRequest {
         let body = NotaBlock::new(block)
             .expect_body(Delimiter::Parenthesis, "ConfigurationWriteRequest")?;
         let objects = body.root_objects();
-        if objects.len() != 7 {
+        if objects.len() != 7 && objects.len() != 8 {
             return Err(NotaDecodeError::ExpectedRootCount {
                 type_name: "ConfigurationWriteRequest",
                 expected: 7,
@@ -134,14 +138,27 @@ impl NotaDecode for ConfigurationWriteRequest {
                 });
             }
         }
-        Ok(Self {
-            router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
-            meta_router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[2])?,
-            supervision_socket_path: ConfigurationWriterPath::from_nota_block(&objects[3])?,
-            store_path: ConfigurationWriterPath::from_nota_block(&objects[4])?,
-            owner_user_identifier: u64::from_nota_block(&objects[5])?,
-            output_path: ConfigurationWriterPath::from_nota_block(&objects[6])?,
-        })
+        match objects.len() {
+            7 => Ok(Self {
+                router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
+                meta_router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[2])?,
+                supervision_socket_path: ConfigurationWriterPath::from_nota_block(&objects[3])?,
+                store_path: ConfigurationWriterPath::from_nota_block(&objects[4])?,
+                bootstrap_path: None,
+                owner_user_identifier: u64::from_nota_block(&objects[5])?,
+                output_path: ConfigurationWriterPath::from_nota_block(&objects[6])?,
+            }),
+            8 => Ok(Self {
+                router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
+                meta_router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[2])?,
+                supervision_socket_path: ConfigurationWriterPath::from_nota_block(&objects[3])?,
+                store_path: ConfigurationWriterPath::from_nota_block(&objects[4])?,
+                bootstrap_path: Some(ConfigurationWriterPath::from_nota_block(&objects[5])?),
+                owner_user_identifier: u64::from_nota_block(&objects[6])?,
+                output_path: ConfigurationWriterPath::from_nota_block(&objects[7])?,
+            }),
+            _ => unreachable!("root count validated above"),
+        }
     }
 }
 
