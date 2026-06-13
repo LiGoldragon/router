@@ -62,6 +62,9 @@ flowchart LR
   `meta-signal-router::Input` channel-policy order, sends one generated
   meta frame to the meta socket, and prints one NOTA
   `meta-signal-router::Output`;
+- `router-write-configuration`, a text-edge bootstrap helper that accepts one
+  NOTA `ConfigurationWriteRequest` and writes the binary rkyv startup file
+  consumed by `router-daemon`;
 - a Signal-frame daemon ingress for `signal-message`
   `StampedMessageSubmission` and `InboxQuery` frames;
 - a startup bootstrap reader for manager-written

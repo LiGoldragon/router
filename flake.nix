@@ -86,6 +86,15 @@
               meta.mainProgram = "router-daemon";
             }
           );
+          text = context.craneLib.buildPackage (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoExtraArgs = "--features nota-text";
+              pname = "router-text";
+              meta.mainProgram = "router";
+            }
+          );
         }
       );
 

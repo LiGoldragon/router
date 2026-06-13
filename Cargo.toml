@@ -26,6 +26,11 @@ name = "meta-router"
 path = "src/bin/meta_router.rs"
 required-features = ["nota-text"]
 
+[[bin]]
+name = "router-write-configuration"
+path = "src/bin/router_write_configuration.rs"
+required-features = ["nota-text"]
+
 [dependencies]
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }

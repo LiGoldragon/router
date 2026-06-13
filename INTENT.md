@@ -18,8 +18,10 @@ without an authorized channel parks for mind adjudication.
 The CLIs are thin clients: `router` speaks the ordinary
 `signal-router` observation contract on the working socket, and
 `meta-router` speaks the `meta-signal-router` channel-policy contract
-on the meta socket. The daemon owns `RouterRuntime` for its process
-lifetime. `router-daemon` starts from exactly one
+on the meta socket. `router-write-configuration` is a bootstrap helper that
+turns one NOTA request into the binary rkyv startup file; it is not a daemon
+surface. The daemon owns `RouterRuntime` for its process lifetime.
+`router-daemon` starts from exactly one
 signal-encoded/rkyv `RouterDaemonConfiguration` file; it rejects
 inline NOTA and `.nota` startup files, and its optional bootstrap
 path names a binary rkyv `RouterBootstrapDocument` archive rather
