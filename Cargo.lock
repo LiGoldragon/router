@@ -304,7 +304,7 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#1f7c619ba72230e8a6ffca76ccec30bfdddeee4e"
+source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#50c2cea9ef5273d32f5f85c57ad26b0f40529a1b"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -538,7 +538,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#7c15bc3fa3d07f4710acca16f14eef1aa68b02dd"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#00763d676d63395d45b5f8a81dbf9a2287574ca9"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -678,7 +678,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#5ab83f0e8e180d9471a50a9a700095ed41136dfd"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#023a7f835edacf847894e7f3fde314bf217d0923"
 dependencies = [
  "nota-next",
  "rkyv",

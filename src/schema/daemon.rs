@@ -140,32 +140,32 @@ pub trait DaemonBinder: ComponentDaemon {
         let engine = Self::build_runtime(&configuration)
             .map_err(DaemonError::Component)?;
         let runtime = GeneratedDaemonRuntime::<Self>::new(engine);
-        let working_socket = AsyncListenerSocket::new(
-            ListenerTier::Working,
-            configuration.socket_path().to_path_buf(),
-        );
-        let working_socket = match configuration.socket_mode() {
-            Some(socket_mode) => working_socket.with_socket_mode(socket_mode),
-            None => working_socket,
-        };
-        let mut listener_sockets = std::vec![working_socket];
-        let meta_socket_path = configuration
-            .meta_socket_path()
-            .ok_or(DaemonError::MissingMetaSocket)?
-            .to_path_buf();
-        listener_sockets
-            .push(
-                AsyncListenerSocket::new(ListenerTier::Meta, meta_socket_path)
-                    .with_socket_mode(SocketMode::new(0o600)),
+        Ok({
+            let working_socket = AsyncListenerSocket::new(
+                ListenerTier::Working,
+                configuration.socket_path().to_path_buf(),
             );
-        Ok(
+            let working_socket = match configuration.socket_mode() {
+                Some(socket_mode) => working_socket.with_socket_mode(socket_mode),
+                None => working_socket,
+            };
+            let mut listener_sockets = std::vec![working_socket];
+            let meta_socket_path = configuration
+                .meta_socket_path()
+                .ok_or(DaemonError::MissingMetaSocket)?
+                .to_path_buf();
+            listener_sockets
+                .push(
+                    AsyncListenerSocket::new(ListenerTier::Meta, meta_socket_path)
+                        .with_socket_mode(SocketMode::new(0o600)),
+                );
             AsyncMultiListenerDaemon::new(
                     listener_sockets,
-                    runtime,
+                    runtime.clone(),
                     RequestErrorLog::new(Self::PROCESS_NAME),
                 )
-                .with_concurrency_limit(configuration.request_concurrency_limit()),
-        )
+                .with_concurrency_limit(configuration.request_concurrency_limit())
+        })
     }
 }
 #[rustfmt::skip]
@@ -174,18 +174,28 @@ impl<Daemon: ComponentDaemon> DaemonBinder for Daemon {}
 /// The generated runtime struct that owns the engine. Its
 /// `handle_connection` IS the async decode -> execute -> encode spine.
 pub struct GeneratedDaemonRuntime<Daemon: ComponentDaemon> {
-    engine: Daemon::Engine,
+    engine: std::sync::Arc<Daemon::Engine>,
 }
 #[rustfmt::skip]
 impl<Daemon: ComponentDaemon> GeneratedDaemonRuntime<Daemon> {
     fn new(engine: Daemon::Engine) -> Self {
-        Self { engine }
+        Self {
+            engine: std::sync::Arc::new(engine),
+        }
     }
     async fn handle_working_connection(
         &self,
         connection: AcceptedConnection,
     ) -> Result<(), Daemon::Error> {
-        Daemon::handle_working_connection(&self.engine, connection).await
+        Daemon::handle_working_connection(self.engine.as_ref(), connection).await
+    }
+}
+#[rustfmt::skip]
+impl<Daemon: ComponentDaemon> Clone for GeneratedDaemonRuntime<Daemon> {
+    fn clone(&self) -> Self {
+        Self {
+            engine: self.engine.clone(),
+        }
     }
 }
 #[rustfmt::skip]
@@ -194,10 +204,10 @@ for GeneratedDaemonRuntime<Daemon> {
     type Listener = ListenerTier;
     type Error = Daemon::Error;
     async fn start(&self) -> Result<(), Self::Error> {
-        Daemon::start(&self.engine)
+        Daemon::start(self.engine.as_ref())
     }
     async fn stop(&self) -> Result<(), Self::Error> {
-        Daemon::stop(&self.engine)
+        Daemon::stop(self.engine.as_ref())
     }
     async fn handle_connection(
         &self,
@@ -207,7 +217,7 @@ for GeneratedDaemonRuntime<Daemon> {
         match listener {
             ListenerTier::Working => self.handle_working_connection(connection).await,
             ListenerTier::Meta => {
-                Daemon::handle_meta_connection(&self.engine, connection).await
+                Daemon::handle_meta_connection(self.engine.as_ref(), connection).await
             }
         }
     }
