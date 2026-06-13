@@ -209,15 +209,13 @@ the `signal-mind` contract.
 The router can also consume `signal-mind::AdjudicationDeny` for a
 parked message and remove that message without touching the delivery actor.
 
-Current router-owned durable table names are `messages`, `channels`,
-`channels_by_triple`, `adjudication_pending`, `delivery_attempts`,
-and `delivery_results`. `channels_by_triple` is the one remaining
-local-index table written through `Engine::storage_kernel()` because the
-current engine commit shape is single-table; the durable record families are
-registered in the engine catalog and single-table writes/read plans go through
-`Engine`. Message acceptance, channel grants, adjudication requests, delivery
-attempts, and delivery results are written through the current runtime actor
-path. Pending delivery and
+Current router-owned durable family names are `router-message`,
+`router-channel`, `router-adjudication-pending`,
+`router-delivery-attempt`, and `router-delivery-result`, registered in
+the engine catalog with per-family schema hashes. Message acceptance,
+channel grants, adjudication requests, delivery attempts, and delivery
+results are written through the current runtime actor path and through
+`sema-engine`'s logged write surface. Pending delivery and
 delivered/failed/deferred status records still need to be wired into
 `RouterRoot`. Successful delivery is another router state transition: after
 `harness` reports the terminal effect, the router commits the delivery

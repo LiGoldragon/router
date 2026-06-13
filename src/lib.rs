@@ -92,6 +92,6 @@ pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 pub use tables::{
-    RouterTables, StoredAdjudicationRequest, StoredChannelIndex, StoredChannelRecord,
-    StoredDeliveryAttempt, StoredDeliveryResult, StoredMessageRecord,
+    RouterTables, StoredAdjudicationRequest, StoredChannelRecord, StoredDeliveryAttempt,
+    StoredDeliveryResult, StoredMessageRecord,
 };

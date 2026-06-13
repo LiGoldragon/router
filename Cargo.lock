@@ -487,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "router"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "kameo",
  "meta-signal-router",
@@ -560,9 +560,10 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.2.3"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#ebee6e44ba6ee4afcb26998007bcfd128641b54c"
+version = "0.4.0"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#dbe29427d9a2c6c194909385485ad42b008048b8"
 dependencies = [
+ "blake3",
  "rkyv",
  "sema",
  "signal-frame",

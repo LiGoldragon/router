@@ -9,9 +9,9 @@ use rkyv::validation::archive::ArchiveValidator;
 use rkyv::validation::shared::SharedValidator;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema_engine::{
-    Assertion, CommitSequence, Engine, EngineOpen, EngineRecord, Mutation, QueryPlan, RecordKey,
-    Retraction, SchemaVersion, StorageKernelTable as Table, TableDescriptor, TableName,
-    TableReference,
+    Assertion, CommitSequence, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan,
+    RecordKey, Retraction, SchemaHash, SchemaVersion, TableDescriptor, TableName, TableReference,
+    VersionedStoreName, VersioningPolicy,
 };
 use signal_message::{MessageOrigin, MessageSlot};
 use signal_persona::origin::ChannelIdentifier;
@@ -21,13 +21,17 @@ use crate::{
     MessageIdentifier, RouterResult,
 };
 
-const ROUTER_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1);
+const ROUTER_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(2);
 const CHANNELS: TableName = TableName::new("channels");
-const CHANNELS_BY_TRIPLE: Table<String, StoredChannelIndex> = Table::new("channels_by_triple");
 const ADJUDICATION_PENDING: TableName = TableName::new("adjudication_pending");
 const MESSAGES: TableName = TableName::new("messages");
 const DELIVERY_ATTEMPTS: TableName = TableName::new("delivery_attempts");
 const DELIVERY_RESULTS: TableName = TableName::new("delivery_results");
+const CHANNELS_FAMILY: &str = "router-channel";
+const ADJUDICATION_PENDING_FAMILY: &str = "router-adjudication-pending";
+const MESSAGES_FAMILY: &str = "router-message";
+const DELIVERY_ATTEMPTS_FAMILY: &str = "router-delivery-attempt";
+const DELIVERY_RESULTS_FAMILY: &str = "router-delivery-result";
 
 #[derive(Clone)]
 pub struct RouterTables {
@@ -53,20 +57,21 @@ impl std::fmt::Debug for RouterTables {
 
 impl RouterTables {
     pub fn open(path: impl AsRef<Path>) -> RouterResult<Self> {
-        let mut engine = Engine::open(EngineOpen::new(
-            path.as_ref().to_path_buf(),
-            ROUTER_SCHEMA_VERSION,
+        let mut engine = Engine::open(Self::engine_open(path.as_ref()))?;
+        let channels = engine.register_table(Self::family_descriptor(CHANNELS, CHANNELS_FAMILY))?;
+        let adjudication_pending = engine.register_table(Self::family_descriptor(
+            ADJUDICATION_PENDING,
+            ADJUDICATION_PENDING_FAMILY,
         ))?;
-        let channels = engine.register_table(TableDescriptor::new(CHANNELS))?;
-        let adjudication_pending =
-            engine.register_table(TableDescriptor::new(ADJUDICATION_PENDING))?;
-        let messages = engine.register_table(TableDescriptor::new(MESSAGES))?;
-        let delivery_attempts = engine.register_table(TableDescriptor::new(DELIVERY_ATTEMPTS))?;
-        let delivery_results = engine.register_table(TableDescriptor::new(DELIVERY_RESULTS))?;
-        engine.storage_kernel().write(|transaction| {
-            CHANNELS_BY_TRIPLE.ensure(transaction)?;
-            Ok(())
-        })?;
+        let messages = engine.register_table(Self::family_descriptor(MESSAGES, MESSAGES_FAMILY))?;
+        let delivery_attempts = engine.register_table(Self::family_descriptor(
+            DELIVERY_ATTEMPTS,
+            DELIVERY_ATTEMPTS_FAMILY,
+        ))?;
+        let delivery_results = engine.register_table(Self::family_descriptor(
+            DELIVERY_RESULTS,
+            DELIVERY_RESULTS_FAMILY,
+        ))?;
         Ok(Self {
             store: Arc::new(RouterStore {
                 engine,
@@ -77,6 +82,29 @@ impl RouterTables {
                 delivery_results,
             }),
         })
+    }
+
+    fn engine_open(path: &Path) -> EngineOpen {
+        EngineOpen::new(path.to_path_buf(), ROUTER_SCHEMA_VERSION)
+            .with_versioning(Self::versioning_policy())
+    }
+
+    fn versioning_policy() -> VersioningPolicy {
+        VersioningPolicy::new(VersionedStoreName::new("router"))
+    }
+
+    fn family_descriptor<RecordValue>(
+        table: TableName,
+        family: &str,
+    ) -> TableDescriptor<RecordValue> {
+        TableDescriptor::new(
+            table,
+            FamilyName::new(family),
+            SchemaHash::for_label(format!(
+                "router-{family}-v{}",
+                ROUTER_SCHEMA_VERSION.value()
+            )),
+        )
     }
 
     pub fn current_commit_sequence(&self) -> RouterResult<CommitSequence> {
@@ -98,20 +126,7 @@ impl RouterTables {
         grant: &GrantChannel,
     ) -> RouterResult<()> {
         let channel = StoredChannelRecord::from_grant(channel_identifier, grant);
-        let channel_key = channel.id.clone();
-        let triple_key = channel.triple_key();
-        let index = StoredChannelIndex {
-            channel: channel.id.clone(),
-        };
-        self.store.engine.storage_kernel().write(|transaction| {
-            self.store
-                .channels
-                .sema_table()
-                .insert(transaction, channel_key, &channel)?;
-            CHANNELS_BY_TRIPLE.insert(transaction, triple_key, &index)?;
-            Ok(())
-        })?;
-        Ok(())
+        self.put_record(self.store.channels, channel)
     }
 
     pub fn replace_channel_lifetime(
@@ -351,21 +366,12 @@ impl StoredChannelRecord {
             use_count: 0,
         }
     }
-
-    fn triple_key(&self) -> String {
-        format!("{}|{}|{}", self.from, self.to, self.kind.table_token())
-    }
 }
 
 impl EngineRecord for StoredChannelRecord {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(self.id.clone())
     }
-}
-
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct StoredChannelIndex {
-    pub channel: String,
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -434,17 +440,5 @@ impl StoredDeliveryResult {
 impl EngineRecord for StoredDeliveryResult {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(self.sequence.to_string())
-    }
-}
-
-trait ChannelKindTableToken {
-    fn table_token(self) -> &'static str;
-}
-
-impl ChannelKindTableToken for ChannelKind {
-    fn table_token(self) -> &'static str {
-        match self {
-            Self::DirectMessage => "direct-message",
-        }
     }
 }
