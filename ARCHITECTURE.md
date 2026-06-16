@@ -96,6 +96,25 @@ flowchart LR
   the live mind socket once the mind daemon's transport lands;
 - a Kameo `HarnessDelivery` that owns terminal delivery attempts as the
   dedicated blocking plane;
+- a Kameo `RemoteRouterRegistry` that owns the cross-host route table:
+  `RemoteRouterIdentity → TailnetAddress` (from `RegisterRemoteRouter`
+  bootstrap operations) and recipient `ActorIdentifier →
+  RemoteRouterIdentity` (from `RegisterActor` whose `home` is `Some`).
+  `ResolveRemoteRoute { recipient }` answers the seam in
+  `RouterRoot::retry_pending` after the local harness lookup misses;
+- a Kameo `RouterPeerDelivery` (`peer_delivery.rs`) that is the outbound
+  network twin of `HarnessDelivery`: `DeliverRemote` opens one
+  `TcpStream::connect`, builds one `signal-router::ForwardMessage` frame,
+  writes one length-prefixed frame, reads one
+  `ForwardAccepted`/`ForwardRefused` reply. One connection = one forward;
+- a hand-wired `TailnetForwardIngress` (`router.rs`) that implements
+  `triad_runtime::AsyncConnectionRuntime<TcpStream>`: it decodes only the
+  `signal-router::ForwardMessage` request, verifies the attestation off the
+  mailbox via the `ForwardAttestationVerifier` seam, asks the runtime to
+  apply the forwarded message, and writes the single typed reply. It holds
+  the live `ActorRef<RouterRuntime>`. The listener binds eagerly in
+  `RouterRuntime::on_start` (the mirror pattern) when a tailnet listen
+  address is configured;
 - a Kameo `RouterObservationPlane` that answers `signal-router`
   observation queries (`RouterSummaryQuery`, `RouterMessageTraceQuery`,
   `RouterChannelStateQuery`) by reading `RouterRoot` facts and
@@ -405,6 +424,79 @@ surface emerges. This is the canonical rejection enumeration;
 caller code switching on a rejection observes a typed enum, never
 a free string.
 
+## 2.9 · Networked router-to-router forwarding
+
+The router owns a networked router-to-router forwarding transport realizing
+Spirit `wckt`: a message addressed to an actor that lives on a peer router
+is forwarded over plain TCP on the tailnet. The pattern is lifted from
+mirror's proven tailnet-TCP ingress; the router stays one concern (routing
+policy + delivery state) and the transport copies mirror exactly — one
+length-prefixed `LengthPrefixedCodec` frame per connection through a
+forwarding-only contract.
+
+```mermaid
+flowchart LR
+    "submit on router A" -->|"local lookup misses"| "RouterRoot.retry_pending"
+    "RouterRoot.retry_pending" -->|"ResolveRemoteRoute"| "RemoteRouterRegistry"
+    "RemoteRouterRegistry" -->|"home + address"| "RouterRoot.retry_pending"
+    "RouterRoot.retry_pending" -->|"DeliverRemote"| "RouterPeerDelivery"
+    "RouterPeerDelivery" -->|"one ForwardMessage frame over TCP"| "router B TailnetForwardIngress"
+    "router B TailnetForwardIngress" -->|"verify attestation off-mailbox"| "ForwardAttestationVerifier"
+    "router B TailnetForwardIngress" -->|"ApplyForwardedMessage"| "router B RouterRoot"
+    "router B RouterRoot" -->|"same local deliver path"| "router B HarnessDelivery"
+    "router B TailnetForwardIngress" -->|"ForwardAccepted"| "RouterPeerDelivery"
+```
+
+Load-bearing decisions:
+
+- **Eager bind in `RouterRuntime::on_start`.** The runtime is the kameo
+  actor with the lifecycle hook; binding the `TcpListenerDaemon` there
+  (around the runtime's own `ActorRef`, serving from a background
+  `tokio::spawn`, `JoinHandle` aborted on stop) is the only correct place.
+  Binding in `RouterEngine` is structurally impossible — it is a plain
+  struct with no lifecycle hook and its runtime `OnceCell` inits lazily on
+  the first Unix connection, so a receive-only node would never bind. The
+  network `Configuration` (tailnet listen address, router identity, criome
+  socket path) is threaded into the runtime's start args.
+- **The seam is the unregistered-recipient park path.** When
+  `RouterRoot::retry_pending` finds no local harness delivery target, it
+  asks `RemoteRouterRegistry.ResolveRemoteRoute` before parking for
+  adjudication. Resolvable ⇒ `RouterPeerDelivery`; unresolvable ⇒ today's
+  park. Local-first ordering is preserved (the harness lookup always runs
+  first). This is net-new reverse resolution, not the minted
+  `network-{peer}` sender identifier (which is a sender id from an inbound
+  network origin, never a recipient).
+- **Loop guard.** Each pending message carries a `ForwardMarker`. A message
+  that arrived via forward is marked `Forwarded`; the seam only resolves
+  remote routes for `Origin` messages, so a forwarded message is
+  delivered-local-or-parked only — never re-resolved to another remote
+  route. The marker is set deterministically by the inbound handler,
+  independent of the criome-derived origin identity (a peer `Host`/`Cluster`
+  identity, so an "origin == Network" test would not fire).
+- **Inbound twin of `ApplySignalMessage`.** `ApplyForwardedMessage` stamps
+  the verifier-recovered peer identity as the authoritative `MessageOrigin`
+  (never the wire-claimed field), sets the loop-guard marker, then runs the
+  same `apply_stamped_message_submission` path — persist to sema, enqueue,
+  retry — so a forward targeting a local harness delivers locally and the
+  channel-auth check runs identically.
+- **Verifier seam for criome (milestone 3).**
+  `ForwardAttestationVerifier` is the boundary where the real criome client
+  lands. Its signing side builds each outbound `RouterPeerAttestation`; its
+  verifying side recovers the authoritative origin from an inbound
+  attestation against the payload it covers (a tampered payload fails the
+  content-digest binding). Milestone 2 ships `AcceptFixedTestIdentity`, an
+  offline implementation that signs with and admits one shared fixed test
+  identity, so the end-to-end forward runs with no criome daemon. Replay /
+  freshness defense (a bounded seen-nonce window) lands with real
+  attestation in milestone 3.
+- **Config projection.** `Configuration` projects `tailnet_listen_address →
+  Option<SocketAddr>` (the one std parse at config load), `router_identity`,
+  and `criome_socket_path → Option<PathBuf>` through dedicated accessors —
+  not on `BindingSurface`, which is Unix-socket-only. The daemon-side
+  `RouterDaemonError` carries `TailnetListener(#[from] AsyncListenerError)`
+  where the IO boundaries sit; attestation-verify domain failures map to
+  `RouterForwardRefusalReason` on the runtime path.
+
 ## 3 · Boundaries
 
 This repo owns:
@@ -518,6 +610,9 @@ src/adjudication.rs     Kameo mind-adjudication outbox for parked messages
 src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
+src/remote_router.rs    Kameo remote-router registry (cross-host route table)
+src/peer_delivery.rs    Kameo outbound peer-forward actor (network twin of harness_delivery)
+src/forward_attestation.rs ForwardAttestationVerifier trait + offline accept-fixed-identity impl (criome seam)
 src/observation.rs      Kameo router observation plane (signal-router queries)
 src/client.rs           thin router CLI/client over signal-router observation frames
 src/meta.rs             thin meta-router CLI/client over meta-signal-router policy frames
@@ -574,6 +669,7 @@ tests/                  router smoke and actor-density truth tests
 | Router observation plane query counts increment in lockstep with mailbox calls — proves observation does not bypass `RouterRoot`. | `nix build .#checks.x86_64-linux.router-observation-path-cannot-bypass-router-root-facts` |
 | `HarnessDelivery::DeliverHarness` handler keeps `DelegatedReply` + `context.spawn` + `tokio::task::spawn_blocking` around the sync deliver body. Future async-without-detach refactors fail this regression witness. | `nix build .#checks.x86_64-linux.harness-delivery-handler-cannot-drop-spawn-blocking-detach` |
 | Router daemon restart with the same `--store` path surfaces the pre-restart pending-adjudication state through the typed observation plane. | `nix build .#checks.x86_64-linux.router-daemon-restart-surfaces-persisted-adjudication-through-observation-plane` |
+| Two in-process routers forward a message over loopback TCP: router A's trace reports `ForwardedRemote`, router B verifies the attestation and delivers to its local harness, and the forward reply is `ForwardAccepted` — fully offline, no criome daemon. | `nix build .#checks.x86_64-linux.router-two-router-loopback-forward-delivers-remotely` |
 
 ## See Also
 

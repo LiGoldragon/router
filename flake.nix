@@ -314,6 +314,13 @@
               cargoTestExtraArgs = "--test actor_runtime_truth harness_delivery_handler_cannot_drop_spawn_blocking_detach -- --exact";
             }
           );
+          router-two-router-loopback-forward-delivers-remotely = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test end_to_end_remote_forward message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_locally -- --exact";
+            }
+          );
         }
       );
 

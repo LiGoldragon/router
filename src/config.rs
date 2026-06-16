@@ -1,6 +1,7 @@
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use signal_router::RouterDaemonConfiguration;
+use signal_router::{RemoteRouterIdentity, RouterDaemonConfiguration};
 use thiserror::Error;
 use triad_runtime::{BindingSurface, SocketMode as RuntimeSocketMode};
 
@@ -11,6 +12,8 @@ pub struct Configuration {
     meta_socket_path: PathBuf,
     database_path: PathBuf,
     bootstrap_path: Option<PathBuf>,
+    tailnet_listen_address: Option<SocketAddr>,
+    criome_socket_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Error)]
@@ -23,11 +26,33 @@ pub enum ConfigurationError {
 
     #[error("failed to decode router daemon configuration archive {path:?}")]
     Decode { path: PathBuf },
+
+    #[error("router daemon configuration tailnet listen address {address:?} is invalid: {detail}")]
+    TailnetListenAddress { address: String, detail: String },
 }
 
 impl Configuration {
-    pub fn from_raw(raw: RouterDaemonConfiguration) -> Self {
-        Self {
+    /// Project the typed daemon configuration into the daemon's working
+    /// view. The one std parse at config load lives here:
+    /// `tailnet_listen_address` is a NOTA `TailnetAddress` string on the
+    /// wire (`[2001:db8::1]:7777` / `127.0.0.1:0`) projected to a
+    /// `SocketAddr`. The daemon never parses NOTA; this is a `str::parse`
+    /// on a field the bootstrap tool already encoded.
+    pub fn from_raw(raw: RouterDaemonConfiguration) -> Result<Self, ConfigurationError> {
+        let tailnet_listen_address = raw
+            .tailnet_listen_address
+            .as_ref()
+            .map(|address| {
+                address
+                    .payload()
+                    .parse::<SocketAddr>()
+                    .map_err(|error| ConfigurationError::TailnetListenAddress {
+                        address: address.payload().clone(),
+                        detail: error.to_string(),
+                    })
+            })
+            .transpose()?;
+        Ok(Self {
             socket_path: PathBuf::from(raw.router_socket_path.payload()),
             meta_socket_path: PathBuf::from(raw.meta_router_socket_path.payload()),
             database_path: PathBuf::from(raw.store_path.payload()),
@@ -35,8 +60,13 @@ impl Configuration {
                 .bootstrap_path
                 .as_ref()
                 .map(|path| PathBuf::from(path.payload())),
+            tailnet_listen_address,
+            criome_socket_path: raw
+                .criome_socket_path
+                .as_ref()
+                .map(|path| PathBuf::from(path.payload())),
             raw,
-        }
+        })
     }
 
     pub fn from_binary_path(path: &Path) -> Result<Self, ConfigurationError> {
@@ -49,7 +79,7 @@ impl Configuration {
                 path: path.to_path_buf(),
             }
         })?;
-        Ok(Self::from_raw(raw))
+        Self::from_raw(raw)
     }
 
     pub fn raw(&self) -> &RouterDaemonConfiguration {
@@ -58,6 +88,27 @@ impl Configuration {
 
     pub fn bootstrap_path(&self) -> Option<&Path> {
         self.bootstrap_path.as_deref()
+    }
+
+    /// The tailnet TCP ingress bind address, projected from the NOTA
+    /// `tailnet_listen_address` once at config load. `None` means
+    /// single-host operation with no TCP tier. Dedicated accessor, never
+    /// on `BindingSurface` (that trait is Unix-socket-only).
+    pub fn tailnet_listen_address(&self) -> Option<SocketAddr> {
+        self.tailnet_listen_address
+    }
+
+    /// This router's own stable identity, carried into outbound
+    /// attestations as the signer and admitted by peers' registries.
+    pub fn router_identity(&self) -> &RemoteRouterIdentity {
+        &self.raw.router_identity
+    }
+
+    /// The local criome daemon's socket the receiving ingress would ask to
+    /// verify attestations. `None` in milestone 2 (offline verifier);
+    /// milestone 3 dials this path.
+    pub fn criome_socket_path(&self) -> Option<&Path> {
+        self.criome_socket_path.as_deref()
     }
 
     fn router_socket_mode(&self) -> RuntimeSocketMode {
@@ -88,11 +139,5 @@ impl BindingSurface for Configuration {
 
     fn meta_socket_mode(&self) -> Option<RuntimeSocketMode> {
         Some(self.meta_router_socket_mode())
-    }
-}
-
-impl From<RouterDaemonConfiguration> for Configuration {
-    fn from(raw: RouterDaemonConfiguration) -> Self {
-        Self::from_raw(raw)
     }
 }

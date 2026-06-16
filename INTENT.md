@@ -63,3 +63,53 @@ authorize. A message without an active channel never reaches HarnessDelivery. De
 attempts produce typed observable state: delivered, deferred, or rejected. Durable effects
 commit before externally visible delivery events. Router does not depend on terminal crates
 directly; terminal delivery stays behind harness.
+
+## Networked router-to-router forwarding (Spirit wckt)
+
+The router now owns a networked router-to-router forwarding transport: a
+message addressed to an actor that lives on a peer router is forwarded over
+plain TCP on the tailnet, realizing the Spirit intent that the router
+carries cross-host delivery (`wckt`). Encryption stays tailnet-transparent
+— the tailnet encrypts the bytes; a criome attestation inside the forwarded
+frame authenticates the sending router's identity (two separate concerns).
+The router itself never holds keys or verifies signatures; that is criome's
+job, reached through a verifier seam.
+
+The transport copies mirror's proven tailnet-TCP pattern. `RouterRuntime`
+gains a second ingress — a hand-wired `triad_runtime::TcpListenerDaemon`
+bound to the host's tailnet address — plus a symmetric outbound peer
+client, the network twin of `HarnessDelivery`. The router stays one
+concern: routing policy and delivery state. The TCP ingress decodes only
+the `signal-router` forwarding contract, so a network peer structurally
+cannot reach the meta policy surface.
+
+Mechanism (realized in milestone 2):
+
+- The TCP listener binds eagerly in `RouterRuntime::on_start` when a
+  tailnet listen address is configured — the runtime is the actor with the
+  lifecycle hook, so even a receive-only node binds (it must not be bound
+  lazily in a plain struct or a node that only receives forwards would
+  never listen).
+- `RemoteRouterRegistry` owns which actors live on which peer router
+  (recipient → home identity) and how to reach each peer (identity →
+  tailnet address), populated from the deploy-time bootstrap document.
+- The forwarding seam sits at the unregistered-recipient park path: when
+  the local harness lookup misses, the router consults the remote-route
+  table before parking. Local-first ordering is preserved.
+- A first-class loop guard marks any message that arrived via forward; such
+  a message is delivered-local-or-parked only and is never re-resolved to
+  another remote route.
+- The verifier seam (`ForwardAttestationVerifier`) is where milestone 3
+  swaps in the real criome client. Milestone 2 ships an offline
+  accept-fixed-test-identity implementation so the end-to-end forward runs
+  with no criome daemon.
+
+Authority direction is unchanged: forwarding is a delivery decision the
+router makes, not an authority order. An inbound forward stamps the
+criome-verified peer identity as the authoritative origin (never the
+wire-claimed field), then runs the same local persist/channel-auth/deliver
+path — so a forward targeting a local harness delivers locally and the
+channel-authorization check runs identically to a locally-submitted
+message. Replay/freshness defense (a seen-nonce window) lands with real
+attestation in milestone 3, because a valid attestation is trivially
+replayable until the window exists.

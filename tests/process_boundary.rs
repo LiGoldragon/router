@@ -76,6 +76,9 @@ impl DaemonFixture {
             store_path: self.database_path.display().to_string().into(),
             bootstrap_path: None,
             owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
+            tailnet_listen_address: None,
+            router_identity: signal_router::RemoteRouterIdentity::new("router-local"),
+            criome_socket_path: None,
         };
         let bytes = configuration
             .to_rkyv_bytes()
@@ -308,8 +311,12 @@ fn test_exchange() -> ExchangeIdentifier {
 }
 
 fn wait_for_socket(path: &Path) {
+    // Generous timeout: the freshly-built daemon binary cold-starts (dynamic
+    // link + first socket bind) under whatever load the nix remote builder is
+    // carrying, which can exceed a few seconds. The socket normally appears in
+    // well under a second; this headroom only matters on a loaded builder.
     let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(5) {
+    while started.elapsed() < Duration::from_secs(30) {
         if path.exists() {
             return;
         }

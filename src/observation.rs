@@ -37,6 +37,14 @@ impl RouterObservationPlane {
             SignalRouterInput::Summary(query) => self.answer_summary(query).await,
             SignalRouterInput::MessageTrace(query) => self.answer_message_trace(query).await,
             SignalRouterInput::ChannelState(query) => self.answer_channel_state(query).await,
+            // `ForwardMessage` is router-to-router forwarding traffic; it
+            // enters through the tailnet TCP ingress, never the working
+            // observation surface. The observation plane refuses it as
+            // out-of-scope rather than treating it as a query.
+            SignalRouterInput::ForwardMessage(_) => Err(Error::UnexpectedRouterObservationFrame {
+                got: "ForwardMessage is a peer-forward request, not an observation query"
+                    .to_string(),
+            }),
         }
     }
 
@@ -135,6 +143,7 @@ impl RouterObservationPlane {
                 RouterTraceStep::AdjudicationDenied => RouterDeliveryStatus::Failed,
                 RouterTraceStep::DeliveryAttempted => RouterDeliveryStatus::Routed,
                 RouterTraceStep::DeliveryMarked => RouterDeliveryStatus::Delivered,
+                RouterTraceStep::ForwardedRemote => RouterDeliveryStatus::ForwardedRemote,
             };
         }
         Some(status)

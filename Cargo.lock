@@ -693,7 +693,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#81221e0a24ffec5eb2a7915151c3742dc25c62f1"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#7331456fd665c202cbf8b845df49d897ef36a1be"
 dependencies = [
  "nota-next",
  "rkyv",

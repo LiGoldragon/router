@@ -5,7 +5,7 @@ use std::{
 
 use nota_next::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use router::RouterDaemonConfigurationFile;
-use signal_router::{OwnerIdentity, RouterDaemonConfiguration};
+use signal_router::{OwnerIdentity, RemoteRouterIdentity, RouterDaemonConfiguration};
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
 
@@ -108,6 +108,13 @@ impl ConfigurationWriteRequest {
                 .as_ref()
                 .map(|path| path.as_str().to_owned().into()),
             owner_identity: OwnerIdentity::UnixUser(self.owner_user_identifier.into()),
+            // Single-host defaults: no networked router tier from this
+            // bootstrap helper yet. A networked deployment writes these
+            // through the deploy/bootstrap tooling (milestone 4); the
+            // identity is the router-local placeholder until then.
+            tailnet_listen_address: None,
+            router_identity: RemoteRouterIdentity::new("router-local"),
+            criome_socket_path: None,
         }
     }
 }
