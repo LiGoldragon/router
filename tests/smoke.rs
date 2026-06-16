@@ -128,8 +128,8 @@ fn router_bootstrap_constructs_direct_message_channel_grant() {
 
 #[test]
 fn router_bootstrap_constructs_registered_pty_endpoint() {
-    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
-        signal_router::Actor {
+    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor {
+        actor: signal_router::Actor {
             name: signal_router::ActorIdentifier::new("responder"),
             process: 42,
             endpoint: Some(signal_router::EndpointTransport {
@@ -138,12 +138,13 @@ fn router_bootstrap_constructs_registered_pty_endpoint() {
                 auxiliary: None,
             }),
         },
-    ));
+        home: None,
+    });
 
     assert!(matches!(
         operation,
         RouterBootstrapOperation::RegisterActor(registration) if {
-            let actor = registration.payload();
+            let actor = &registration.actor;
             actor.name.payload() == "responder" && actor.process == 42 && actor.endpoint.is_some()
         }
     ));
@@ -151,8 +152,8 @@ fn router_bootstrap_constructs_registered_pty_endpoint() {
 
 #[test]
 fn router_bootstrap_constructs_registered_harness_socket_endpoint() {
-    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
-        signal_router::Actor {
+    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor {
+        actor: signal_router::Actor {
             name: signal_router::ActorIdentifier::new("responder"),
             process: 42,
             endpoint: Some(signal_router::EndpointTransport {
@@ -161,12 +162,13 @@ fn router_bootstrap_constructs_registered_harness_socket_endpoint() {
                 auxiliary: None,
             }),
         },
-    ));
+        home: None,
+    });
 
     assert!(matches!(
         operation,
         RouterBootstrapOperation::RegisterActor(registration) if {
-            let actor = registration.payload();
+            let actor = &registration.actor;
             actor.name.payload() == "responder" && actor.process == 42 && actor.endpoint.is_some()
         }
     ));
@@ -192,6 +194,9 @@ fn router_daemon_configuration_accepts_binary_file_argument() {
             .into(),
         bootstrap_path: None,
         owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
+        tailnet_listen_address: None,
+        router_identity: signal_router::RemoteRouterIdentity::new("router-local"),
+        criome_socket_path: None,
     };
     RouterDaemonConfigurationFile::new(&configuration_path)
         .write_configuration(&configuration)

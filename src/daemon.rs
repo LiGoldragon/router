@@ -17,6 +17,12 @@ use triad_runtime::{
     LengthPrefixedCodec,
 };
 
+use std::sync::Arc;
+
+use signal_router::RemoteRouterIdentity;
+
+use crate::forward_attestation::AcceptFixedTestIdentity;
+use crate::router::RouterNetworkConfiguration;
 use crate::{
     ApplyMetaRouterPolicy, ApplyRouterObservation, ApplySignalMessage, Configuration,
     ConfigurationError, Error as RouterError, RouterBootstrap, RouterIngressContext, RouterResult,
@@ -30,6 +36,7 @@ pub struct RouterProcessDaemon;
 pub struct RouterEngine {
     tables: RouterTables,
     bootstrap: Option<RouterBootstrap>,
+    network: RouterNetworkConfiguration,
     runtime: OnceCell<ActorRef<RouterRuntime>>,
 }
 
@@ -49,15 +56,32 @@ pub enum RouterDaemonError {
 
     #[error("daemon router error: {0}")]
     Router(#[from] RouterError),
+
+    #[error("daemon tailnet listener error: {0}")]
+    TailnetListener(#[from] triad_runtime::AsyncListenerError),
 }
 
 impl RouterEngine {
     pub fn from_configuration(configuration: &Configuration) -> RouterResult<Self> {
+        // Milestone 2: the criome verifier is the offline
+        // accept-fixed-test-identity stand-in keyed on the shared cluster
+        // test identity (a sender's attestation must carry an identity the
+        // receiver admits). Milestone 3 swaps this for a criome client over
+        // `configuration.criome_socket_path()` admitting per-router
+        // cluster-root identities.
+        let network = RouterNetworkConfiguration::new(
+            configuration.tailnet_listen_address(),
+            configuration.router_identity().clone(),
+            Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
+                RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
+            ))),
+        );
         Ok(Self {
             tables: RouterTables::open(configuration.database_path())?,
             bootstrap: configuration
                 .bootstrap_path()
                 .map(RouterBootstrap::from_path),
+            network,
             runtime: OnceCell::new(),
         })
     }
@@ -65,7 +89,9 @@ impl RouterEngine {
     async fn runtime(&self) -> Result<&ActorRef<RouterRuntime>, RouterDaemonError> {
         self.runtime
             .get_or_try_init(|| async {
-                let router = RouterRuntime::start_with_tables(self.tables.clone()).await;
+                let router =
+                    RouterRuntime::start_networked(Some(self.tables.clone()), self.network.clone())
+                        .await;
                 if let Some(bootstrap) = &self.bootstrap {
                     bootstrap.apply_async(&router).await?;
                 }

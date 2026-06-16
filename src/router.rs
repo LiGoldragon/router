@@ -1,11 +1,13 @@
 use std::ffi::OsString;
 use std::io::{BufReader, Read, Write};
+use std::net::SocketAddr;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use kameo::actor::{ActorRef, Spawn};
+use kameo::actor::{ActorRef, Spawn, WeakActorRef};
 use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use meta_signal_router::{
@@ -48,8 +50,9 @@ use signal_persona::origin::{
 };
 use signal_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
-    EndpointTransport as BootstrapEndpointTransport, RouterBootstrapDocument,
-    RouterBootstrapOperation, RouterDaemonConfiguration,
+    EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
+    RemoteRouterIdentity, RouterBootstrapDocument, RouterBootstrapOperation,
+    RouterDaemonConfiguration, RouterForwardRefusalReason, RouterForwardRequest,
 };
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
@@ -66,10 +69,17 @@ use crate::channel::{
     ExtendChannel, GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus,
     ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier, UseChannel,
 };
+use crate::daemon::RouterDaemonError;
+use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
     HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
     RegisterHarness,
+};
+use crate::peer_delivery::{DeliverRemote, RouterPeerDelivery};
+use crate::remote_router::{
+    RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute, RemoteRouterRegistry,
+    ResolveRemoteRoute,
 };
 use crate::observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
@@ -80,7 +90,12 @@ use crate::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
     RouterResult, RouterTables, ThreadIdentifier,
 };
-use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream as TokioTcpStream;
+use triad_runtime::{
+    AcceptedConnection, AsyncConnectionRuntime, FrameBody as RuntimeFrameBody, LengthPrefixedCodec,
+    RequestErrorLog, TcpListenerDaemon,
+};
 
 #[derive(Debug)]
 pub struct RouterDaemon {
@@ -309,6 +324,111 @@ impl RouterMetaServer {
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
         connection.write_output(output)?;
+        Ok(())
+    }
+}
+
+/// The hand-wired tailnet TCP ingress: the network twin of the Unix
+/// working tier. It decodes ONLY the `signal-router` forwarding contract
+/// (`Input::ForwardMessage`) — never meta, never observation writes — so a
+/// TCP peer structurally cannot reach the policy surface, the same way
+/// mirror's `TailnetIngress` decodes only the working `signal-mirror`
+/// contract. It verifies the attestation OFF the mailbox (in this ingress
+/// task, before handing to the actor), then asks the runtime to apply the
+/// forwarded message, and writes the single `ForwardAccepted`/`ForwardRefused`
+/// reply. Holds the live `ActorRef<RouterRuntime>`.
+pub struct TailnetForwardIngress {
+    runtime: ActorRef<RouterRuntime>,
+    verifier: Arc<dyn ForwardAttestationVerifier>,
+    codec: LengthPrefixedCodec,
+}
+
+impl TailnetForwardIngress {
+    pub fn new(
+        runtime: ActorRef<RouterRuntime>,
+        verifier: Arc<dyn ForwardAttestationVerifier>,
+    ) -> Self {
+        Self {
+            runtime,
+            verifier,
+            codec: LengthPrefixedCodec::default(),
+        }
+    }
+
+    /// Decode the one inbound frame to a forward request, refusing anything
+    /// that is not `Input::ForwardMessage` (observation queries do not
+    /// belong on the network tier).
+    fn decode_forward_request(
+        bytes: &[u8],
+    ) -> std::result::Result<RouterForwardRequest, RouterForwardRefusalReason> {
+        let (_route, input) = SignalRouterInput::decode_signal_frame(bytes)
+            .map_err(|_| RouterForwardRefusalReason::AttestationInvalid)?;
+        match input {
+            SignalRouterInput::ForwardMessage(request) => Ok(request),
+            _ => Err(RouterForwardRefusalReason::RecipientUnknown),
+        }
+    }
+
+    /// The off-mailbox verification + application step. Returns the typed
+    /// `Output` reply to write back: the verifier recovers the
+    /// authoritative origin from the attestation (against the payload it
+    /// covers), then the runtime applies it; a verify failure or a runtime
+    /// refusal becomes `ForwardRefused`.
+    async fn handle_forward(&self, request: RouterForwardRequest) -> SignalRouterOutput {
+        let verified_origin = match self
+            .verifier
+            .verify(&request.attestation, &request.submission)
+        {
+            Ok(identity) => identity,
+            Err(reason) => return SignalRouterOutput::forward_refused(reason),
+        };
+        match self
+            .runtime
+            .ask(ApplyForwardedMessage {
+                verified_origin,
+                payload: request.submission,
+            })
+            .await
+        {
+            Ok(outcome) => match outcome.into_result() {
+                Ok(ForwardApplied::Accepted) => {
+                    SignalRouterOutput::forward_accepted(signal_router::MessageSlot::new(0))
+                }
+                Ok(ForwardApplied::Refused(reason)) => SignalRouterOutput::forward_refused(reason),
+                Err(_) => SignalRouterOutput::forward_refused(
+                    RouterForwardRefusalReason::RecipientUnknown,
+                ),
+            },
+            Err(_) => {
+                SignalRouterOutput::forward_refused(RouterForwardRefusalReason::RecipientUnknown)
+            }
+        }
+    }
+}
+
+impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
+    type Error = RouterDaemonError;
+
+    async fn handle_connection(
+        &self,
+        mut connection: AcceptedConnection<TokioTcpStream>,
+    ) -> std::result::Result<(), Self::Error> {
+        let body = self.codec.read_body_async(connection.stream_mut()).await?;
+        let output = match Self::decode_forward_request(body.bytes()) {
+            Ok(request) => self.handle_forward(request).await,
+            Err(reason) => SignalRouterOutput::forward_refused(reason),
+        };
+        let frame = output
+            .encode_signal_frame()
+            .map_err(crate::Error::from)?;
+        self.codec
+            .write_body_async(connection.stream_mut(), &RuntimeFrameBody::new(frame))
+            .await?;
+        connection
+            .stream_mut()
+            .flush()
+            .await
+            .map_err(triad_runtime::FrameError::from)?;
         Ok(())
     }
 }
@@ -801,6 +921,88 @@ struct ReceivedRouterObservationInput {
     request: SignalRouterInput,
 }
 
+/// The network parameters threaded into `RouterRuntime` at start so its
+/// own `on_start` can eagerly bind the tailnet TCP ingress. Absent
+/// `listen_address` ⇒ single-host operation, no TCP tier. The verifier is
+/// the criome seam: milestone 2 carries an offline accept-fixed-identity
+/// impl; milestone 3 swaps in a criome client.
+#[derive(Clone)]
+pub struct RouterNetworkConfiguration {
+    listen_address: Option<SocketAddr>,
+    identity: RemoteRouterIdentity,
+    verifier: Arc<dyn ForwardAttestationVerifier>,
+}
+
+impl RouterNetworkConfiguration {
+    pub fn new(
+        listen_address: Option<SocketAddr>,
+        identity: RemoteRouterIdentity,
+        verifier: Arc<dyn ForwardAttestationVerifier>,
+    ) -> Self {
+        Self {
+            listen_address,
+            identity,
+            verifier,
+        }
+    }
+
+    /// The one fixed cluster test identity the offline verifier signs with
+    /// and admits. In milestone 2 every offline node shares it (a sending
+    /// node's attestation must carry an identity the receiver admits), so
+    /// it is decoupled from each router's own `router_identity`. Milestone 3
+    /// replaces the offline verifier with a criome client that admits
+    /// cluster-root-admitted per-router identities instead.
+    pub const OFFLINE_TEST_IDENTITY: &'static str = "router-offline-test";
+
+    fn offline_verifier() -> Arc<dyn ForwardAttestationVerifier> {
+        Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
+            Self::OFFLINE_TEST_IDENTITY,
+        )))
+    }
+
+    /// The offline single-host default: no TCP tier, a placeholder
+    /// identity, and the shared offline accept-fixed-identity verifier.
+    /// Existing non-networked starts use this so the actor tree shape is
+    /// uniform.
+    pub fn offline() -> Self {
+        Self::new(
+            None,
+            RemoteRouterIdentity::new("router-local"),
+            Self::offline_verifier(),
+        )
+    }
+
+    /// A loopback/tailnet listener bound to `listen_address` with this
+    /// router's own `identity`, signing/verifying with the shared offline
+    /// verifier. The end-to-end witness builds each node this way: A signs
+    /// with the shared test identity and B admits it, with no criome daemon.
+    pub fn offline_listening(listen_address: SocketAddr, identity: RemoteRouterIdentity) -> Self {
+        Self::new(Some(listen_address), identity, Self::offline_verifier())
+    }
+
+    pub fn listen_address(&self) -> Option<SocketAddr> {
+        self.listen_address
+    }
+
+    pub fn identity(&self) -> &RemoteRouterIdentity {
+        &self.identity
+    }
+
+    pub fn verifier(&self) -> Arc<dyn ForwardAttestationVerifier> {
+        self.verifier.clone()
+    }
+}
+
+impl std::fmt::Debug for RouterNetworkConfiguration {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RouterNetworkConfiguration")
+            .field("listen_address", &self.listen_address)
+            .field("identity", &self.identity)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug)]
 pub struct RouterRuntime {
     root: Option<ActorRef<RouterRoot>>,
@@ -809,14 +1011,19 @@ pub struct RouterRuntime {
     channels: Option<ActorRef<ChannelAuthority>>,
     mind_adjudication: Option<ActorRef<MindAdjudicationOutbox>>,
     observation: Option<ActorRef<RouterObservationPlane>>,
+    remote_routers: Option<ActorRef<RemoteRouterRegistry>>,
+    peer_delivery: Option<ActorRef<RouterPeerDelivery>>,
     tables: Option<RouterTables>,
+    network: RouterNetworkConfiguration,
+    tailnet_bound_address: Option<SocketAddr>,
+    tailnet_listener_task: Option<tokio::task::JoinHandle<()>>,
     started_child_count: u64,
     applied_input_count: u64,
 }
 
 impl RouterRuntime {
     pub async fn start() -> ActorRef<Self> {
-        let runtime = Self::spawn(Self::new(None));
+        let runtime = Self::spawn(Self::new(None, RouterNetworkConfiguration::offline()));
         runtime.wait_for_startup().await;
         runtime
     }
@@ -826,12 +1033,24 @@ impl RouterRuntime {
     }
 
     async fn start_with_optional_tables(tables: Option<RouterTables>) -> ActorRef<Self> {
-        let runtime = Self::spawn(Self::new(tables));
+        let runtime = Self::spawn(Self::new(tables, RouterNetworkConfiguration::offline()));
         runtime.wait_for_startup().await;
         runtime
     }
 
-    fn new(tables: Option<RouterTables>) -> Self {
+    /// Start the router with explicit network configuration — the daemon
+    /// path and the end-to-end witness both enter here, so the tailnet
+    /// ingress binds eagerly in `on_start` even on a receive-only node.
+    pub async fn start_networked(
+        tables: Option<RouterTables>,
+        network: RouterNetworkConfiguration,
+    ) -> ActorRef<Self> {
+        let runtime = Self::spawn(Self::new(tables, network));
+        runtime.wait_for_startup().await;
+        runtime
+    }
+
+    fn new(tables: Option<RouterTables>, network: RouterNetworkConfiguration) -> Self {
         Self {
             root: None,
             registry: None,
@@ -839,7 +1058,12 @@ impl RouterRuntime {
             channels: None,
             mind_adjudication: None,
             observation: None,
+            remote_routers: None,
+            peer_delivery: None,
             tables,
+            network,
+            tailnet_bound_address: None,
+            tailnet_listener_task: None,
             started_child_count: 0,
             applied_input_count: 0,
         }
@@ -858,11 +1082,18 @@ impl RouterRuntime {
         channels.wait_for_startup().await;
         let mind_adjudication = MindAdjudicationOutbox::spawn(MindAdjudicationOutbox::new());
         mind_adjudication.wait_for_startup().await;
+        let remote_routers = RemoteRouterRegistry::spawn(RemoteRouterRegistry::new());
+        remote_routers.wait_for_startup().await;
+        let peer_delivery =
+            RouterPeerDelivery::spawn(RouterPeerDelivery::new(self.network.verifier()));
+        peer_delivery.wait_for_startup().await;
         let root = RouterRoot::spawn(RouterRoot::new(
             registry.clone(),
             delivery.clone(),
             channels.clone(),
             mind_adjudication.clone(),
+            remote_routers.clone(),
+            peer_delivery.clone(),
             self.tables.clone(),
         ));
         root.wait_for_startup().await;
@@ -877,7 +1108,72 @@ impl RouterRuntime {
         self.channels = Some(channels);
         self.mind_adjudication = Some(mind_adjudication);
         self.observation = Some(observation);
-        self.started_child_count = 6;
+        self.remote_routers = Some(remote_routers);
+        self.peer_delivery = Some(peer_delivery);
+        self.started_child_count = 8;
+    }
+
+    /// Eagerly bind the tailnet TCP ingress around this runtime's own
+    /// `ActorRef` and serve it from a background task. This is the mirror
+    /// pattern (`mirror/src/service.rs` `on_start`): the runtime IS the
+    /// actor, so a receive-only node still binds. `RouterEngine` cannot do
+    /// this — it has no lifecycle hook and its runtime `OnceCell` is lazy.
+    async fn bind_tailnet_ingress(
+        &mut self,
+        actor_reference: ActorRef<Self>,
+    ) -> RouterResult<()> {
+        let Some(listen_address) = self.network.listen_address() else {
+            return Ok(());
+        };
+        let ingress = TailnetForwardIngress::new(actor_reference, self.network.verifier());
+        let listener = TcpListenerDaemon::new(
+            listen_address,
+            ingress,
+            RequestErrorLog::new("router-daemon-tailnet"),
+        )
+        .bind()
+        .await
+        .map_err(|error| Error::ActorCall(error.to_string()))?;
+        self.tailnet_bound_address = Some(
+            listener
+                .local_address()
+                .map_err(|error| Error::ActorCall(error.to_string()))?,
+        );
+        let error_log = RequestErrorLog::new("router-daemon-tailnet");
+        self.tailnet_listener_task = Some(tokio::spawn(async move {
+            if let Err(error) = listener.serve_connections().await {
+                error_log.report(&error);
+            }
+        }));
+        Ok(())
+    }
+
+    async fn install_remote_route(
+        &self,
+        recipient: ActorIdentifier,
+        home: RemoteRouterIdentity,
+    ) -> RouterResult<()> {
+        if let Some(remote_routers) = &self.remote_routers {
+            remote_routers
+                .ask(RegisterRemoteActorHome { recipient, home })
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    async fn install_remote_peer(
+        &self,
+        identity: RemoteRouterIdentity,
+        address: crate::TailnetAddress,
+    ) -> RouterResult<()> {
+        if let Some(remote_routers) = &self.remote_routers {
+            remote_routers
+                .ask(RegisterRemotePeer { identity, address })
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn root(&self) -> RouterResult<&ActorRef<RouterRoot>> {
@@ -895,6 +1191,17 @@ impl RouterRuntime {
     }
 
     async fn stop_children(&mut self) {
+        if let Some(task) = self.tailnet_listener_task.take() {
+            task.abort();
+        }
+        if let Some(peer_delivery) = self.peer_delivery.take() {
+            let _ = peer_delivery.stop_gracefully().await;
+            peer_delivery.wait_for_shutdown().await;
+        }
+        if let Some(remote_routers) = self.remote_routers.take() {
+            let _ = remote_routers.stop_gracefully().await;
+            remote_routers.wait_for_shutdown().await;
+        }
         if let Some(observation) = self.observation.take() {
             let _ = observation.stop_gracefully().await;
             observation.wait_for_shutdown().await;
@@ -937,6 +1244,40 @@ pub struct ApplyMetaRouterPolicy {
     pub input: MetaInput,
 }
 
+/// An inbound forward arriving on the tailnet TCP ingress, after the
+/// ingress task verified the attestation off-mailbox. `verified_origin` is
+/// the authoritative identity the verifier recovered — never the
+/// wire-claimed field. This is the inbound twin of `ApplySignalMessage`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyForwardedMessage {
+    pub verified_origin: RemoteRouterIdentity,
+    pub payload: ForwardedMessagePayload,
+}
+
+/// Read the address the tailnet ingress actually bound (the
+/// operating-system-assigned port when configured with `:0`). `None` until
+/// `on_start` binds, or when no listen address is configured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadRouterTailnetAddress;
+
+/// Register a remote actor's home peer through the runtime — the
+/// recipient → home-identity half of `RemoteRouterRegistry`. Bootstrap
+/// `RegisterActor { home: Some(_) }` and the witness drive this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallRemoteRoute {
+    pub recipient: ActorIdentifier,
+    pub home: RemoteRouterIdentity,
+}
+
+/// Register a peer router's reachable address through the runtime — the
+/// identity → address half of `RemoteRouterRegistry`. Bootstrap
+/// `RegisterRemoteRouter` and the witness drive this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallRemotePeer {
+    pub identity: RemoteRouterIdentity,
+    pub address: crate::TailnetAddress,
+}
+
 #[derive(Debug, kameo::Reply)]
 pub struct RouterApplyOutcome {
     result: RouterResult<RouterOutput>,
@@ -967,6 +1308,30 @@ impl SignalMessageOutcome {
     }
 }
 
+/// The reply of `ApplyForwardedMessage`: the verified forward was either
+/// accepted (delivered locally or parked for adjudication) or refused with
+/// a typed reason the ingress maps to `Output::ForwardRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForwardApplied {
+    Accepted,
+    Refused(RouterForwardRefusalReason),
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct ForwardedMessageOutcome {
+    result: RouterResult<ForwardApplied>,
+}
+
+impl ForwardedMessageOutcome {
+    fn new(result: RouterResult<ForwardApplied>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> RouterResult<ForwardApplied> {
+        self.result
+    }
+}
+
 #[derive(Debug, kameo::Reply)]
 pub struct MetaRouterPolicyOutcome {
     result: RouterResult<MetaOutput>,
@@ -988,15 +1353,22 @@ impl kameo::actor::Actor for RouterRuntime {
 
     async fn on_start(
         mut actor: Self::Args,
-        _actor_reference: ActorRef<Self>,
+        actor_reference: ActorRef<Self>,
     ) -> std::result::Result<Self, Self::Error> {
         actor.start_children().await;
+        if let Err(error) = actor.bind_tailnet_ingress(actor_reference).await {
+            // A failed bind on a configured listen address is fatal to the
+            // network tier, but the local router stays serviceable; report
+            // and continue with no TCP ingress rather than refusing to
+            // start at all.
+            eprintln!("router tailnet ingress failed to bind: {error}");
+        }
         Ok(actor)
     }
 
     async fn on_stop(
         &mut self,
-        _actor_reference: kameo::actor::WeakActorRef<Self>,
+        _actor_reference: WeakActorRef<Self>,
         _reason: ActorStopReason,
     ) -> std::result::Result<(), Self::Error> {
         self.stop_children().await;
@@ -1088,6 +1460,65 @@ impl kameo::message::Message<ApplyRouterObservation> for RouterRuntime {
     }
 }
 
+impl kameo::message::Message<ApplyForwardedMessage> for RouterRuntime {
+    type Reply = ForwardedMessageOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyForwardedMessage,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.applied_input_count = self.applied_input_count.saturating_add(1);
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(ForwardedMessageOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        ForwardedMessageOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ReadRouterTailnetAddress> for RouterRuntime {
+    type Reply = Option<SocketAddr>;
+
+    async fn handle(
+        &mut self,
+        _message: ReadRouterTailnetAddress,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.tailnet_bound_address
+    }
+}
+
+impl kameo::message::Message<InstallRemoteRoute> for RouterRuntime {
+    type Reply = RouterResult<()>;
+
+    async fn handle(
+        &mut self,
+        message: InstallRemoteRoute,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.install_remote_route(message.recipient, message.home)
+            .await
+    }
+}
+
+impl kameo::message::Message<InstallRemotePeer> for RouterRuntime {
+    type Reply = RouterResult<()>;
+
+    async fn handle(
+        &mut self,
+        message: InstallRemotePeer,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.install_remote_peer(message.identity, message.address)
+            .await
+    }
+}
+
 impl kameo::message::Message<ReadRouterObservationPlaneStatus> for RouterRuntime {
     type Reply = RouterObservationPlaneStatus;
 
@@ -1123,6 +1554,8 @@ pub struct RouterRoot {
     delivery: ActorRef<HarnessDelivery>,
     channels: ActorRef<ChannelAuthority>,
     mind_adjudication: ActorRef<MindAdjudicationOutbox>,
+    remote_routers: ActorRef<RemoteRouterRegistry>,
+    peer_delivery: ActorRef<RouterPeerDelivery>,
     tables: Option<RouterTables>,
     trace: RouterTrace,
     signal_message_sequence: u64,
@@ -1136,6 +1569,8 @@ impl RouterRoot {
         delivery: ActorRef<HarnessDelivery>,
         channels: ActorRef<ChannelAuthority>,
         mind_adjudication: ActorRef<MindAdjudicationOutbox>,
+        remote_routers: ActorRef<RemoteRouterRegistry>,
+        peer_delivery: ActorRef<RouterPeerDelivery>,
         tables: Option<RouterTables>,
     ) -> Self {
         Self {
@@ -1144,6 +1579,8 @@ impl RouterRoot {
             delivery,
             channels,
             mind_adjudication,
+            remote_routers,
+            peer_delivery,
             tables,
             trace: RouterTrace::new(),
             signal_message_sequence: 0,
@@ -1603,6 +2040,37 @@ impl RouterRoot {
                 }
             };
             let Some(target) = target else {
+                // Local-first: the harness lookup ran and missed. Before
+                // parking for adjudication, consult the remote-route table
+                // — but only for `Origin` messages. A message that already
+                // arrived via forward (`Forwarded`) is never re-resolved to
+                // a remote route (the loop guard); it parks here as today.
+                if pending.may_resolve_remote()
+                    && let Some(route) = self.resolve_remote_route(&message.to).await?
+                {
+                    match self.forward_to_remote(&message, route).await {
+                        Ok(true) => {
+                            // The message left for a peer: drop it from
+                            // pending (via `continue` without re-queueing)
+                            // but keep its signal slot so the trace query
+                            // can report `ForwardedRemote` for it.
+                            self.trace
+                                .record(message.id.clone(), RouterTraceStep::ForwardedRemote);
+                            delivered += 1;
+                            continue;
+                        }
+                        Ok(false) => {
+                            // The peer refused (or replied unexpectedly):
+                            // park for adjudication rather than dropping.
+                            next.push(pending);
+                            continue;
+                        }
+                        Err(error) => {
+                            self.restore_pending_after_error(next, Some(pending), messages);
+                            return Err(error);
+                        }
+                    }
+                }
                 next.push(pending);
                 continue;
             };
@@ -1717,6 +2185,79 @@ impl RouterRoot {
         self.pending = next;
     }
 
+    /// The remote-route lookup half of the seam: ask `RemoteRouterRegistry`
+    /// whether this recipient has a known home peer and address. Runs only
+    /// after the local harness lookup misses.
+    async fn resolve_remote_route(
+        &self,
+        recipient: &ActorIdentifier,
+    ) -> RouterResult<Option<RemoteRoute>> {
+        self.remote_routers
+            .ask(ResolveRemoteRoute {
+                recipient: recipient.clone(),
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))
+    }
+
+    /// The forward half of the seam: hand the message to `RouterPeerDelivery`
+    /// for one outbound TCP forward. Returns `Ok(true)` when the peer
+    /// accepted, `Ok(false)` when it refused (park for adjudication),
+    /// `Err` on a transport/actor failure (restore pending).
+    async fn forward_to_remote(
+        &self,
+        message: &Message,
+        route: RemoteRoute,
+    ) -> RouterResult<bool> {
+        let outcome = self
+            .peer_delivery
+            .ask(DeliverRemote {
+                remote_address: route.address,
+                message: message.clone(),
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?
+            .into_result()?;
+        Ok(outcome.is_accepted())
+    }
+
+    /// The inbound twin of `apply_stamped_message_submission`. The verified
+    /// criome identity is the authoritative origin (never the wire-claimed
+    /// field); the message is marked `Forwarded` so the loop guard prevents
+    /// any further remote resolution, then it runs the SAME local
+    /// persist/enqueue/retry path — so a forward targeting a local harness
+    /// delivers locally and the channel-auth check runs identically.
+    async fn apply_forwarded(
+        &mut self,
+        verified_origin: RemoteRouterIdentity,
+        payload: ForwardedMessagePayload,
+    ) -> RouterResult<ForwardApplied> {
+        let sender = ActorIdentifier::new(payload.from.payload().as_str());
+        let recipient = ActorIdentifier::new(payload.to.payload().as_str());
+        // The authoritative origin is the verified peer router identity,
+        // carried as a network connection class — provenance, not auth
+        // proof (the attestation was the proof, already verified).
+        let origin = SignalMessageOrigin::External(SignalConnectionClass::network(
+            verified_origin.payload().clone(),
+        ));
+        let slot = self.next_signal_message_slot();
+        let submission = SignalMessageSubmission {
+            recipient: SignalMessageRecipient::new(recipient.as_str().to_string()),
+            kind: MessageKind::Send,
+            body: SignalMessageBody::new(payload.body.clone()),
+        };
+        let message = self.signal_message(sender, submission, slot.clone());
+        self.persist_message(&message, &origin, Some(slot.clone()))?;
+        self.pending
+            .push(PendingRouterMessage::forwarded(message.clone(), origin));
+        self.signal_slots
+            .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
+        self.trace
+            .record(message.id.clone(), RouterTraceStep::MessageCommitted);
+        self.retry_pending().await?;
+        Ok(ForwardApplied::Accepted)
+    }
+
     async fn deny_adjudication(&mut self, deny: &MindAdjudicationDeny) -> RouterResult<u64> {
         let rejected = self.reject_pending_adjudication(deny);
         if rejected == 0 {
@@ -1763,11 +2304,23 @@ impl RouterRoot {
 struct PendingRouterMessage {
     message: Message,
     origin: SignalMessageOrigin,
+    /// The loop guard. `Origin` means this router minted the submission and
+    /// may resolve it to a remote route; `Forwarded` means it arrived over
+    /// the tailnet ingress and must be delivered-local-or-parked only —
+    /// never re-resolved to another remote route. This is set
+    /// deterministically by the inbound handler, independent of the
+    /// criome-derived origin identity (which is a peer `Host`/`Cluster`
+    /// identity, so an "origin == Network" test would not fire).
+    forward_marker: ForwardMarker,
 }
 
 impl PendingRouterMessage {
     fn new(message: Message, origin: SignalMessageOrigin) -> Self {
-        Self { message, origin }
+        Self {
+            message,
+            origin,
+            forward_marker: ForwardMarker::Origin,
+        }
     }
 
     fn internal_router(message: Message) -> Self {
@@ -1775,6 +2328,19 @@ impl PendingRouterMessage {
             message,
             SignalMessageOrigin::Internal(SignalComponentName::Router),
         )
+    }
+
+    /// A message that arrived via forward — local-or-park only.
+    fn forwarded(message: Message, origin: SignalMessageOrigin) -> Self {
+        Self {
+            message,
+            origin,
+            forward_marker: ForwardMarker::Forwarded,
+        }
+    }
+
+    fn may_resolve_remote(&self) -> bool {
+        matches!(self.forward_marker, ForwardMarker::Origin)
     }
 }
 
@@ -1825,24 +2391,14 @@ impl RouterBootstrap {
         runtime: &tokio::runtime::Runtime,
         router: &ActorRef<RouterRuntime>,
     ) -> RouterResult<()> {
-        for operation in self.operations()? {
-            let input = RouterInput::from_bootstrap_operation(operation)?;
-            runtime
-                .block_on(async { router.ask(ApplyRouterInput { input }).await })
-                .map_err(|error| Error::ActorCall(error.to_string()))?
-                .into_result()?;
-        }
-        Ok(())
+        runtime.block_on(self.apply_async(router))
     }
 
     pub async fn apply_async(&self, router: &ActorRef<RouterRuntime>) -> RouterResult<()> {
         for operation in self.operations()? {
-            let input = RouterInput::from_bootstrap_operation(operation)?;
-            router
-                .ask(ApplyRouterInput { input })
-                .await
-                .map_err(|error| Error::ActorCall(error.to_string()))?
-                .into_result()?;
+            BootstrapApply::from_operation(operation)?
+                .apply(router)
+                .await?;
         }
         Ok(())
     }
@@ -2288,6 +2844,21 @@ impl kameo::message::Message<ApplyMetaRouterPolicy> for RouterRoot {
     }
 }
 
+impl kameo::message::Message<ApplyForwardedMessage> for RouterRoot {
+    type Reply = ForwardedMessageOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyForwardedMessage,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        ForwardedMessageOutcome::new(
+            self.apply_forwarded(message.verified_origin, message.payload)
+                .await,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadRouterTrace {
     pub since: usize,
@@ -2587,6 +3158,9 @@ pub enum RouterTraceStep {
     AdjudicationDenied,
     DeliveryAttempted,
     DeliveryMarked,
+    /// The message was handed to a peer router over the tailnet transport
+    /// and the peer accepted it. Surfaces as `RouterDeliveryStatus::ForwardedRemote`.
+    ForwardedRemote,
 }
 
 #[derive(NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq)]
@@ -2724,38 +3298,112 @@ pub enum RouterInput {
     ApplyMindAdjudicationDeny(ApplyMindAdjudicationDeny),
 }
 
-impl RouterInput {
-    fn from_bootstrap_operation(operation: RouterBootstrapOperation) -> RouterResult<Self> {
+/// One bootstrap operation projected to its actor-tree destination. Local
+/// operations (`RegisterActor` with `home = None`, grants, structural
+/// channels) target `RouterRoot` via `ApplyRouterInput`; remote operations
+/// (`RegisterRemoteRouter`, and `RegisterActor` with `home = Some(peer)`)
+/// target `RemoteRouterRegistry` via the runtime. Keeping both behind one
+/// typed enum lets `RouterBootstrap::apply*` dispatch without re-matching
+/// raw contract variants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BootstrapApply {
+    Local(RouterInput),
+    RegisterRemotePeer(InstallRemotePeer),
+    RegisterRemoteActorHome(InstallRemoteRoute),
+    /// A `RegisterActor { home: Some(peer) }` carries both the home
+    /// resolution and (optionally) a local registration of the actor row.
+    /// Decision (A) keeps the actor model uniform, so both halves apply.
+    RegisterRemoteActor {
+        local: RouterInput,
+        home: InstallRemoteRoute,
+    },
+}
+
+impl BootstrapApply {
+    fn from_operation(operation: RouterBootstrapOperation) -> RouterResult<Self> {
         match operation {
             RouterBootstrapOperation::RegisterActor(operation) => {
-                Ok(Self::RegisterActor(RegisterActor {
-                    actor: Self::actor_from_bootstrap(operation.into_payload())?,
-                }))
+                let recipient =
+                    RouterInput::actor_identifier_from_bootstrap(operation.actor.name.clone());
+                let local = RouterInput::RegisterActor(RegisterActor {
+                    actor: RouterInput::actor_from_bootstrap(operation.actor)?,
+                });
+                match operation.home {
+                    Some(home) => Ok(Self::RegisterRemoteActor {
+                        local,
+                        home: InstallRemoteRoute { recipient, home },
+                    }),
+                    None => Ok(Self::Local(local)),
+                }
             }
             RouterBootstrapOperation::GrantDirectMessage(operation) => {
-                Ok(Self::GrantChannel(GrantRouteChannel {
+                Ok(Self::Local(RouterInput::GrantChannel(GrantRouteChannel {
                     channel: GrantChannel::direct_message(
-                        Self::actor_identifier_from_bootstrap(operation.from),
-                        Self::actor_identifier_from_bootstrap(operation.to),
+                        RouterInput::actor_identifier_from_bootstrap(operation.from),
+                        RouterInput::actor_identifier_from_bootstrap(operation.to),
                         ChannelLifetime::Persistent,
                     ),
-                }))
+                })))
             }
-            RouterBootstrapOperation::InstallStructuralChannels(_) => Ok(
-                Self::InstallStructuralChannels(InstallRouteStructuralChannels {
+            RouterBootstrapOperation::InstallStructuralChannels(_) => Ok(Self::Local(
+                RouterInput::InstallStructuralChannels(InstallRouteStructuralChannels {
                     channels: InstallStructuralChannels {
                         channels: EngineStructuralChannels::first_stack(),
                     },
                 }),
-            ),
+            )),
+            RouterBootstrapOperation::RegisterRemoteRouter(operation) => {
+                Ok(Self::RegisterRemotePeer(InstallRemotePeer {
+                    identity: operation.identity,
+                    address: operation.address,
+                }))
+            }
         }
     }
 
+    async fn apply(self, router: &ActorRef<RouterRuntime>) -> RouterResult<()> {
+        match self {
+            Self::Local(input) => {
+                router
+                    .ask(ApplyRouterInput { input })
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?
+                    .into_result()?;
+            }
+            Self::RegisterRemotePeer(peer) => {
+                router
+                    .ask(peer)
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+            }
+            Self::RegisterRemoteActorHome(home) => {
+                router
+                    .ask(home)
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+            }
+            Self::RegisterRemoteActor { local, home } => {
+                router
+                    .ask(ApplyRouterInput { input: local })
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?
+                    .into_result()?;
+                router
+                    .ask(home)
+                    .await
+                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl RouterInput {
     fn actor_from_bootstrap(actor: BootstrapActor) -> RouterResult<Actor> {
         Ok(Actor {
             name: Self::actor_identifier_from_bootstrap(actor.name),
             pid: Self::process_identifier_from_bootstrap(actor.process)?,
-            endpoint: actor.endpoint.map(Self::endpoint_from_bootstrap),
+            endpoint: actor.endpoint.map(Self::endpoint_from_bootstrap).transpose()?,
         })
     }
 
@@ -2763,16 +3411,29 @@ impl RouterInput {
         u32::try_from(process).map_err(|_| Error::BootstrapProcessIdentifierOutOfRange { process })
     }
 
-    fn endpoint_from_bootstrap(endpoint: BootstrapEndpointTransport) -> EndpointTransport {
-        EndpointTransport {
+    fn endpoint_from_bootstrap(
+        endpoint: BootstrapEndpointTransport,
+    ) -> RouterResult<EndpointTransport> {
+        Ok(EndpointTransport {
             kind: match endpoint.kind {
                 BootstrapEndpointKind::Human => EndpointKind::Human,
                 BootstrapEndpointKind::HarnessSocket => EndpointKind::HarnessSocket,
                 BootstrapEndpointKind::PtySocket => EndpointKind::PtySocket,
+                // A `RemoteRouter` endpoint is not a locally-deliverable
+                // endpoint kind. Decision (A) carries remote reachability
+                // through `RegisterActor.home`, not through a local actor's
+                // endpoint, so this combination is rejected at bootstrap.
+                BootstrapEndpointKind::RemoteRouter => {
+                    return Err(Error::DeliveryBlocked {
+                        reason: "RemoteRouter endpoint is not a local delivery target; use \
+                                 RegisterActor.home for remote reachability"
+                            .to_string(),
+                    });
+                }
             },
             target: endpoint.target,
             aux: endpoint.auxiliary,
-        }
+        })
     }
 
     fn actor_identifier_from_bootstrap(actor: signal_router::ActorIdentifier) -> ActorIdentifier {

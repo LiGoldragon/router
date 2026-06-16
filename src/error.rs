@@ -13,6 +13,9 @@ pub enum Error {
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_frame::FrameError),
 
+    #[error("signal-router frame: {0}")]
+    SignalRouterFrame(#[from] signal_router::SignalFrameError),
+
     #[error("meta-signal-router frame: {0}")]
     MetaSignalFrame(#[from] meta_signal_router::SignalFrameError),
 
@@ -39,6 +42,14 @@ pub enum Error {
 
     #[error("delivery blocked: {reason}")]
     DeliveryBlocked { reason: String },
+
+    #[error("remote router address {address:?} is not a valid socket address: {detail}")]
+    RemoteAddressInvalid { address: String, detail: String },
+
+    #[error("forwarded message refused by this router: {reason:?}")]
+    ForwardRefused {
+        reason: signal_router::RouterForwardRefusalReason,
+    },
 
     #[error("router socket path is missing")]
     MissingSocket,

@@ -42,7 +42,7 @@ signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git
 signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "router-network-transport", default-features = false }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
