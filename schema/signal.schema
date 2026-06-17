@@ -17,13 +17,23 @@
   ErrorMessage String
 
   MessageKind [DirectMessage SystemNotice]
-  MessageIngress { Recipient * Body * MessageKind * }
+  MessageIngress {
+    recipient Recipient
+    body Body
+    message_kind MessageKind
+  }
   RouterObservation [Summary ChannelState DeliveryTrace PendingAdjudication]
-  MessageAcceptance { RouteMessageIdentifier * }
-  AdjudicationQueued { RouteMessageIdentifier * ChannelIdentifier * }
+  MessageAcceptance RouteMessageIdentifier
+  AdjudicationQueued {
+    route_message_identifier RouteMessageIdentifier
+    channel_identifier ChannelIdentifier
+  }
 
   OperationKind [AcceptMessage ObserveRouter]
   UnimplementedReason [NotInPrototypeScope ChannelMissing RouterUnavailable]
-  RequestUnimplemented { OperationKind * UnimplementedReason * }
-  ErrorReport { ErrorMessage * }
+  RequestUnimplemented {
+    operation_kind OperationKind
+    unimplemented_reason UnimplementedReason
+  }
+  ErrorReport ErrorMessage
 }
