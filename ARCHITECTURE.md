@@ -497,6 +497,47 @@ Load-bearing decisions:
   where the IO boundaries sit; attestation-verify domain failures map to
   `RouterForwardRefusalReason` on the runtime path.
 
+### 2.9.1 · Short-term live fabric: service-scoped `.criome` names
+
+The short-term live fabric for testing and using networked Router is
+Yggdrasil plus service-scoped CriomOS host names. This is the path that lets
+the system start exercising Router as the cross-host message fabric for the
+spirit-vcs remote mirroring loop while criome authentication hardens:
+spirit ships version-control notices, router forwards them across hosts,
+the peer mirror fetches/restores the announced head, and criome attests the
+router-to-router frame once milestone 3 lands.
+
+The naming shape is:
+
+- `<node>.<cluster>.criome` remains the node's primary Yggdrasil host name.
+- `router.<node>.<cluster>.criome` is the Router service endpoint name for
+  that node, aliasing to the same Yggdrasil address.
+- The Router port is not part of `/etc/hosts`; the configuration writer
+  supplies the port and lowers the service endpoint to a literal
+  `[yggdrasil-address]:router-port` socket address in the binary startup
+  archive.
+
+This is intentionally a component-level invariant, not a general DNS
+assumption. Because Router is our component, the config writer and daemon
+startup can prove the binding they rely on:
+
+1. Horizon/CriomOS projects the peer's `.criome` service name and expected
+   Yggdrasil address.
+2. The Router startup archive carries the audited service name, the literal
+   Yggdrasil socket address, and the peer `RemoteRouterIdentity`.
+3. Startup verifies that the socket address is a Yggdrasil address and that
+   the service name resolves through the CriomOS host-resolution path to the
+   same address.
+4. A mismatch is a startup failure, not a best-effort warning.
+5. The outbound peer dial uses the literal socket address, while criome
+   authentication still proves who signed the forwarded message.
+
+So `.criome` supplies the trustworthy network target for this component:
+`router.prometheus.goldragon.criome` names prometheus's Router endpoint on
+the Yggdrasil fabric, and Router lowers that to the exact socket it dials.
+Criome remains the message-level peer identity proof. The two are separate:
+`.criome` answers *where to connect*; criome answers *who spoke*.
+
 ## 3 · Boundaries
 
 This repo owns:
@@ -533,6 +574,14 @@ This repo does not own:
   `ChannelAuthority`.
 - Router daemon startup applies the managed socket modes from the
   signal-encoded configuration to `router.sock` and the meta socket.
+- Networked Router live-fabric configuration may use a service-scoped
+  `.criome` name (`router.<node>.<cluster>.criome`) only as an audited
+  startup binding. The daemon dials a literal Yggdrasil socket address
+  lowered from the managed startup archive, and startup fails closed if the
+  audited service name does not resolve to that same address.
+- A `.criome` service-name match proves the intended Yggdrasil network
+  target for Router; it does not replace criome's forwarded-frame
+  attestation as the peer-identity proof.
 - Router engine setup can install first-stack structural channels through the
   actor tree.
 - A typed mind channel grant can install a channel before a parked message is

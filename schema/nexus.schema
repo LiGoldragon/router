@@ -10,22 +10,14 @@
   SemaWriteOutput router_crate:sema:WriteOutput
   SemaReadOutput router_crate:sema:ReadOutput
 }
-[SignalArrived SemaWriteCompleted SemaReadCompleted EffectCompleted]
-[ReplyToSignal CommandSemaWrite CommandSemaRead CommandEffect Continue]
+(Work SignalInput SemaWriteOutput SemaReadOutput NexusEffectResult)
+(Action SignalOutput SemaWriteInput SemaReadInput NexusEffectCommand (Work SignalInput SemaWriteOutput SemaReadOutput NexusEffectResult))
 {
-  SignalArrived SignalInput
-  SemaWriteCompleted SemaWriteOutput
-  SemaReadCompleted SemaReadOutput
-  EffectCompleted NexusEffectResult
+  (| Work Event WriteDone ReadDone EffectDone |) [(SignalArrived Event) (SemaWriteCompleted WriteDone) (SemaReadCompleted ReadDone) (EffectCompleted EffectDone)]
+  (| Action Reply Write Read Effect Continuation |) [(ReplyToSignal Reply) (CommandSemaWrite Write) (CommandSemaRead Read) (CommandEffect Effect) (Continue Continuation)]
 
-  ReplyToSignal SignalOutput
-  CommandSemaWrite SemaWriteInput
-  CommandSemaRead SemaReadInput
-  CommandEffect NexusEffectCommand
-  Continue NexusWork
-
-  NexusWork [(SignalArrived SignalArrived) (SemaWriteCompleted SemaWriteCompleted) (SemaReadCompleted SemaReadCompleted) (EffectCompleted EffectCompleted)]
-  NexusAction [(ReplyToSignal ReplyToSignal) (CommandSemaWrite CommandSemaWrite) (CommandSemaRead CommandSemaRead) (CommandEffect CommandEffect) (Continue Continue)]
+  NexusWork (Work SignalInput SemaWriteOutput SemaReadOutput NexusEffectResult)
+  NexusAction (Action SignalOutput SemaWriteInput SemaReadInput NexusEffectCommand NexusWork)
 
   DeliveryCommand [(AttemptDelivery AttemptDelivery) (RequestAdjudication RequestAdjudication)]
   AttemptDelivery MessageIngress

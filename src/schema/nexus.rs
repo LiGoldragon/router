@@ -37,67 +37,43 @@ pub use nota_next::{NotaDecodeError, NotaEncode, NotaSource};
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct SignalArrived(SignalInput);
+pub enum Work<Event, WriteDone, ReadDone, EffectDone> {
+    SignalArrived(Event),
+    SemaWriteCompleted(WriteDone),
+    SemaReadCompleted(ReadDone),
+    EffectCompleted(EffectDone),
+}
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct SemaWriteCompleted(SemaWriteOutput);
-
-#[rustfmt::skip]
-#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct SemaReadCompleted(SemaReadOutput);
-
-#[rustfmt::skip]
-#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct EffectCompleted(NexusEffectResult);
-
-#[rustfmt::skip]
-#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct ReplyToSignal(SignalOutput);
-
-#[rustfmt::skip]
-#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct CommandSemaWrite(SemaWriteInput);
-
-#[rustfmt::skip]
-#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct CommandSemaRead(SemaReadInput);
-
-#[rustfmt::skip]
-#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct CommandEffect(NexusEffectCommand);
-
-#[rustfmt::skip]
-#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Continue(NexusWork);
+pub enum Action<Reply, Write, Read, Effect, Continuation> {
+    ReplyToSignal(Reply),
+    CommandSemaWrite(Write),
+    CommandSemaRead(Read),
+    CommandEffect(Effect),
+    Continue(Continuation),
+}
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum NexusWork {
-    SignalArrived(SignalArrived),
-    SemaWriteCompleted(SemaWriteCompleted),
-    SemaReadCompleted(SemaReadCompleted),
-    EffectCompleted(EffectCompleted),
+    SignalArrived(SignalInput),
+    SemaWriteCompleted(SemaWriteOutput),
+    SemaReadCompleted(SemaReadOutput),
+    EffectCompleted(NexusEffectResult),
 }
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum NexusAction {
-    ReplyToSignal(ReplyToSignal),
-    CommandSemaWrite(CommandSemaWrite),
-    CommandSemaRead(CommandSemaRead),
-    CommandEffect(CommandEffect),
-    Continue(Continue),
+    ReplyToSignal(SignalOutput),
+    CommandSemaWrite(SemaWriteInput),
+    CommandSemaRead(SemaReadInput),
+    CommandEffect(NexusEffectCommand),
+    Continue(NexusWork),
 }
 
 #[rustfmt::skip]
@@ -164,192 +140,21 @@ pub enum NexusEffectResult {
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Input {
-    SignalArrived(SignalArrived),
-    SemaWriteCompleted(SemaWriteCompleted),
-    SemaReadCompleted(SemaReadCompleted),
-    EffectCompleted(EffectCompleted),
+    SignalArrived(SignalInput),
+    SemaWriteCompleted(SemaWriteOutput),
+    SemaReadCompleted(SemaReadOutput),
+    EffectCompleted(NexusEffectResult),
 }
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Output {
-    ReplyToSignal(ReplyToSignal),
-    CommandSemaWrite(CommandSemaWrite),
-    CommandSemaRead(CommandSemaRead),
-    CommandEffect(CommandEffect),
-    Continue(Continue),
-}
-
-#[rustfmt::skip]
-impl SignalArrived {
-    pub fn new(payload: SignalInput) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &SignalInput {
-        &self.0
-    }
-    pub fn into_payload(self) -> SignalInput {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<SignalInput> for SignalArrived {
-    fn from(payload: SignalInput) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl SemaWriteCompleted {
-    pub fn new(payload: SemaWriteOutput) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &SemaWriteOutput {
-        &self.0
-    }
-    pub fn into_payload(self) -> SemaWriteOutput {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<SemaWriteOutput> for SemaWriteCompleted {
-    fn from(payload: SemaWriteOutput) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl SemaReadCompleted {
-    pub fn new(payload: SemaReadOutput) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &SemaReadOutput {
-        &self.0
-    }
-    pub fn into_payload(self) -> SemaReadOutput {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<SemaReadOutput> for SemaReadCompleted {
-    fn from(payload: SemaReadOutput) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl EffectCompleted {
-    pub fn new(payload: NexusEffectResult) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &NexusEffectResult {
-        &self.0
-    }
-    pub fn into_payload(self) -> NexusEffectResult {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<NexusEffectResult> for EffectCompleted {
-    fn from(payload: NexusEffectResult) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl ReplyToSignal {
-    pub fn new(payload: SignalOutput) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &SignalOutput {
-        &self.0
-    }
-    pub fn into_payload(self) -> SignalOutput {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<SignalOutput> for ReplyToSignal {
-    fn from(payload: SignalOutput) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl CommandSemaWrite {
-    pub fn new(payload: SemaWriteInput) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &SemaWriteInput {
-        &self.0
-    }
-    pub fn into_payload(self) -> SemaWriteInput {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<SemaWriteInput> for CommandSemaWrite {
-    fn from(payload: SemaWriteInput) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl CommandSemaRead {
-    pub fn new(payload: SemaReadInput) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &SemaReadInput {
-        &self.0
-    }
-    pub fn into_payload(self) -> SemaReadInput {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<SemaReadInput> for CommandSemaRead {
-    fn from(payload: SemaReadInput) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl CommandEffect {
-    pub fn new(payload: NexusEffectCommand) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &NexusEffectCommand {
-        &self.0
-    }
-    pub fn into_payload(self) -> NexusEffectCommand {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<NexusEffectCommand> for CommandEffect {
-    fn from(payload: NexusEffectCommand) -> Self {
-        Self::new(payload)
-    }
-}
-
-#[rustfmt::skip]
-impl Continue {
-    pub fn new(payload: NexusWork) -> Self {
-        Self(payload)
-    }
-    pub fn payload(&self) -> &NexusWork {
-        &self.0
-    }
-    pub fn into_payload(self) -> NexusWork {
-        self.0
-    }
-}
-#[rustfmt::skip]
-impl From<NexusWork> for Continue {
-    fn from(payload: NexusWork) -> Self {
-        Self::new(payload)
-    }
+    ReplyToSignal(SignalOutput),
+    CommandSemaWrite(SemaWriteInput),
+    CommandSemaRead(SemaReadInput),
+    CommandEffect(NexusEffectCommand),
+    Continue(Input),
 }
 
 #[rustfmt::skip]
@@ -488,35 +293,35 @@ impl From<ErrorReport> for DeliveryFailed {
 #[rustfmt::skip]
 impl NexusWork {
     pub fn signal_arrived(payload: SignalInput) -> Self {
-        Self::SignalArrived(SignalArrived::new(payload))
+        Self::SignalArrived(payload)
     }
     pub fn sema_write_completed(payload: SemaWriteOutput) -> Self {
-        Self::SemaWriteCompleted(SemaWriteCompleted::new(payload))
+        Self::SemaWriteCompleted(payload)
     }
     pub fn sema_read_completed(payload: SemaReadOutput) -> Self {
-        Self::SemaReadCompleted(SemaReadCompleted::new(payload))
+        Self::SemaReadCompleted(payload)
     }
     pub fn effect_completed(payload: NexusEffectResult) -> Self {
-        Self::EffectCompleted(EffectCompleted::new(payload))
+        Self::EffectCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
 impl NexusAction {
     pub fn reply_to_signal(payload: SignalOutput) -> Self {
-        Self::ReplyToSignal(ReplyToSignal::new(payload))
+        Self::ReplyToSignal(payload)
     }
     pub fn command_sema_write(payload: SemaWriteInput) -> Self {
-        Self::CommandSemaWrite(CommandSemaWrite::new(payload))
+        Self::CommandSemaWrite(payload)
     }
     pub fn command_sema_read(payload: SemaReadInput) -> Self {
-        Self::CommandSemaRead(CommandSemaRead::new(payload))
+        Self::CommandSemaRead(payload)
     }
     pub fn command_effect(payload: NexusEffectCommand) -> Self {
-        Self::CommandEffect(CommandEffect::new(payload))
+        Self::CommandEffect(payload)
     }
     pub fn r#continue(payload: NexusWork) -> Self {
-        Self::Continue(Continue::new(payload))
+        Self::Continue(payload)
     }
 }
 
@@ -556,97 +361,97 @@ impl NexusEffectResult {
 #[rustfmt::skip]
 impl Input {
     pub fn signal_arrived(payload: SignalInput) -> Self {
-        Self::SignalArrived(SignalArrived::new(payload))
+        Self::SignalArrived(payload)
     }
     pub fn sema_write_completed(payload: SemaWriteOutput) -> Self {
-        Self::SemaWriteCompleted(SemaWriteCompleted::new(payload))
+        Self::SemaWriteCompleted(payload)
     }
     pub fn sema_read_completed(payload: SemaReadOutput) -> Self {
-        Self::SemaReadCompleted(SemaReadCompleted::new(payload))
+        Self::SemaReadCompleted(payload)
     }
     pub fn effect_completed(payload: NexusEffectResult) -> Self {
-        Self::EffectCompleted(EffectCompleted::new(payload))
+        Self::EffectCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
 impl Output {
     pub fn reply_to_signal(payload: SignalOutput) -> Self {
-        Self::ReplyToSignal(ReplyToSignal::new(payload))
+        Self::ReplyToSignal(payload)
     }
     pub fn command_sema_write(payload: SemaWriteInput) -> Self {
-        Self::CommandSemaWrite(CommandSemaWrite::new(payload))
+        Self::CommandSemaWrite(payload)
     }
     pub fn command_sema_read(payload: SemaReadInput) -> Self {
-        Self::CommandSemaRead(CommandSemaRead::new(payload))
+        Self::CommandSemaRead(payload)
     }
     pub fn command_effect(payload: NexusEffectCommand) -> Self {
-        Self::CommandEffect(CommandEffect::new(payload))
+        Self::CommandEffect(payload)
     }
-    pub fn r#continue(payload: NexusWork) -> Self {
-        Self::Continue(Continue::new(payload))
+    pub fn r#continue(payload: Input) -> Self {
+        Self::Continue(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<SignalArrived> for NexusWork {
-    fn from(payload: SignalArrived) -> Self {
+impl From<SignalInput> for NexusWork {
+    fn from(payload: SignalInput) -> Self {
         Self::SignalArrived(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<SemaWriteCompleted> for NexusWork {
-    fn from(payload: SemaWriteCompleted) -> Self {
+impl From<SemaWriteOutput> for NexusWork {
+    fn from(payload: SemaWriteOutput) -> Self {
         Self::SemaWriteCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<SemaReadCompleted> for NexusWork {
-    fn from(payload: SemaReadCompleted) -> Self {
+impl From<SemaReadOutput> for NexusWork {
+    fn from(payload: SemaReadOutput) -> Self {
         Self::SemaReadCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<EffectCompleted> for NexusWork {
-    fn from(payload: EffectCompleted) -> Self {
+impl From<NexusEffectResult> for NexusWork {
+    fn from(payload: NexusEffectResult) -> Self {
         Self::EffectCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<ReplyToSignal> for NexusAction {
-    fn from(payload: ReplyToSignal) -> Self {
+impl From<SignalOutput> for NexusAction {
+    fn from(payload: SignalOutput) -> Self {
         Self::ReplyToSignal(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<CommandSemaWrite> for NexusAction {
-    fn from(payload: CommandSemaWrite) -> Self {
+impl From<SemaWriteInput> for NexusAction {
+    fn from(payload: SemaWriteInput) -> Self {
         Self::CommandSemaWrite(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<CommandSemaRead> for NexusAction {
-    fn from(payload: CommandSemaRead) -> Self {
+impl From<SemaReadInput> for NexusAction {
+    fn from(payload: SemaReadInput) -> Self {
         Self::CommandSemaRead(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<CommandEffect> for NexusAction {
-    fn from(payload: CommandEffect) -> Self {
+impl From<NexusEffectCommand> for NexusAction {
+    fn from(payload: NexusEffectCommand) -> Self {
         Self::CommandEffect(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<Continue> for NexusAction {
-    fn from(payload: Continue) -> Self {
+impl From<NexusWork> for NexusAction {
+    fn from(payload: NexusWork) -> Self {
         Self::Continue(payload)
     }
 }
@@ -701,64 +506,64 @@ impl From<DeliveryFailed> for NexusEffectResult {
 }
 
 #[rustfmt::skip]
-impl From<SignalArrived> for Input {
-    fn from(payload: SignalArrived) -> Self {
+impl From<SignalInput> for Input {
+    fn from(payload: SignalInput) -> Self {
         Self::SignalArrived(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<SemaWriteCompleted> for Input {
-    fn from(payload: SemaWriteCompleted) -> Self {
+impl From<SemaWriteOutput> for Input {
+    fn from(payload: SemaWriteOutput) -> Self {
         Self::SemaWriteCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<SemaReadCompleted> for Input {
-    fn from(payload: SemaReadCompleted) -> Self {
+impl From<SemaReadOutput> for Input {
+    fn from(payload: SemaReadOutput) -> Self {
         Self::SemaReadCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<EffectCompleted> for Input {
-    fn from(payload: EffectCompleted) -> Self {
+impl From<NexusEffectResult> for Input {
+    fn from(payload: NexusEffectResult) -> Self {
         Self::EffectCompleted(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<ReplyToSignal> for Output {
-    fn from(payload: ReplyToSignal) -> Self {
+impl From<SignalOutput> for Output {
+    fn from(payload: SignalOutput) -> Self {
         Self::ReplyToSignal(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<CommandSemaWrite> for Output {
-    fn from(payload: CommandSemaWrite) -> Self {
+impl From<SemaWriteInput> for Output {
+    fn from(payload: SemaWriteInput) -> Self {
         Self::CommandSemaWrite(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<CommandSemaRead> for Output {
-    fn from(payload: CommandSemaRead) -> Self {
+impl From<SemaReadInput> for Output {
+    fn from(payload: SemaReadInput) -> Self {
         Self::CommandSemaRead(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<CommandEffect> for Output {
-    fn from(payload: CommandEffect) -> Self {
+impl From<NexusEffectCommand> for Output {
+    fn from(payload: NexusEffectCommand) -> Self {
         Self::CommandEffect(payload)
     }
 }
 
 #[rustfmt::skip]
-impl From<Continue> for Output {
-    fn from(payload: Continue) -> Self {
+impl From<Input> for Output {
+    fn from(payload: Input) -> Self {
         Self::Continue(payload)
     }
 }
@@ -1034,6 +839,12 @@ impl NexusAction {
 impl triad_runtime::NexusWork for NexusWork {}
 
 #[rustfmt::skip]
+impl triad_runtime::NexusEffectCommand for NexusEffectCommand {}
+
+#[rustfmt::skip]
+impl triad_runtime::NexusEffectResult for NexusEffectResult {}
+
+#[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EngineStartFailure {
     ResourceBusy(String),
@@ -1077,6 +888,32 @@ impl std::fmt::Display for EngineStopFailure {
 impl std::error::Error for EngineStopFailure {}
 
 #[rustfmt::skip]
+pub type NexusRunnerNextStep = triad_runtime::NextStep<
+    SignalOutput,
+    SemaWriteInput,
+    SemaReadInput,
+    NexusEffectCommand,
+    NexusWork,
+>;
+#[rustfmt::skip]
+impl triad_runtime::NexusAction for NexusAction {
+    type Reply = SignalOutput;
+    type SemaWrite = SemaWriteInput;
+    type SemaRead = SemaReadInput;
+    type Effect = NexusEffectCommand;
+    type Work = NexusWork;
+    fn into_next_step(self) -> NexusRunnerNextStep {
+        match self {
+            Self::CommandSemaWrite(input) => triad_runtime::NextStep::SemaWrite(input),
+            Self::CommandSemaRead(input) => triad_runtime::NextStep::SemaRead(input),
+            Self::ReplyToSignal(output) => triad_runtime::NextStep::Reply(output),
+            Self::CommandEffect(effect) => triad_runtime::NextStep::RunEffect(effect),
+            Self::Continue(work) => triad_runtime::NextStep::Continue(work),
+        }
+    }
+}
+
+#[rustfmt::skip]
 pub trait NexusEngine: Send {
     fn on_start(&mut self) -> Result<(), EngineStartFailure> {
         Ok(())
@@ -1091,6 +928,27 @@ pub trait NexusEngine: Send {
     fn trace_nexus_decided(&self) {
         self.trace_nexus_activation(NexusObjectName::Decided);
     }
+    fn continuation_limit(&self) -> triad_runtime::ContinuationLimit {
+        triad_runtime::ContinuationLimit::default()
+    }
+    fn apply_sema_write(
+        &mut self,
+        origin_route: OriginRoute,
+        input: SemaWriteInput,
+    ) -> impl std::future::Future<Output = SemaWriteOutput> + Send + '_;
+    fn observe_sema_read(
+        &mut self,
+        origin_route: OriginRoute,
+        input: SemaReadInput,
+    ) -> impl std::future::Future<Output = SemaReadOutput> + Send + '_;
+    fn run_effect(
+        &mut self,
+        input: NexusEffectCommand,
+    ) -> impl std::future::Future<Output = NexusEffectResult> + Send + '_;
+    fn budget_exhausted_reply(
+        &self,
+        exhausted: triad_runtime::ContinuationExhausted,
+    ) -> SignalOutput;
     fn decide(
         &mut self,
         input: nexus::Nexus<nexus::Work>,
@@ -1098,13 +956,86 @@ pub trait NexusEngine: Send {
     fn execute(
         &mut self,
         input: nexus::Nexus<nexus::Work>,
-    ) -> impl std::future::Future<Output = nexus::Nexus<nexus::Action>> + Send + '_ {
+    ) -> impl std::future::Future<Output = nexus::Nexus<nexus::Action>> + Send + '_
+    where
+        Self: Sized,
+    {
         async move {
             self.trace_nexus_entered();
-            let output = self.decide(input);
+            let origin_route = input.origin_route();
+            let first_work = input.into_root();
+            let runner = triad_runtime::Runner::new(self.continuation_limit());
+            let mut runner_adapter = NexusRunnerAdapter::new(self, origin_route);
+            let reply = runner.drive(&mut runner_adapter, first_work).await;
+            let output = NexusAction::reply_to_signal(reply)
+                .with_origin_route(origin_route);
             self.trace_nexus_decided();
             output
         }
+    }
+}
+
+#[rustfmt::skip]
+struct NexusRunnerAdapter<'engine, Engine> {
+    engine: &'engine mut Engine,
+    origin_route: OriginRoute,
+}
+#[rustfmt::skip]
+impl<'engine, Engine> NexusRunnerAdapter<'engine, Engine> {
+    fn new(engine: &'engine mut Engine, origin_route: OriginRoute) -> Self {
+        Self { engine, origin_route }
+    }
+}
+#[rustfmt::skip]
+impl<'engine, Engine> triad_runtime::RunnerEngines
+for NexusRunnerAdapter<'engine, Engine>
+where
+    Engine: NexusEngine,
+{
+    type Reply = SignalOutput;
+    type SemaWrite = SemaWriteInput;
+    type SemaRead = SemaReadInput;
+    type Effect = NexusEffectCommand;
+    type Work = NexusWork;
+    fn decide_next_step(
+        &mut self,
+        work: Self::Work,
+    ) -> triad_runtime::runner::RunnerNextStep<Self> {
+        let action = NexusEngine::decide(
+                self.engine,
+                work.with_origin_route(self.origin_route),
+            )
+            .into_root();
+        triad_runtime::NexusAction::into_next_step(action)
+    }
+    async fn apply_sema_write(&mut self, write: Self::SemaWrite) -> Self::Work {
+        let output: SemaWriteOutput = NexusEngine::apply_sema_write(
+                self.engine,
+                self.origin_route,
+                write,
+            )
+            .await;
+        NexusWork::sema_write_completed(output)
+    }
+    async fn observe_sema_read(&mut self, read: Self::SemaRead) -> Self::Work {
+        let output: SemaReadOutput = NexusEngine::observe_sema_read(
+                self.engine,
+                self.origin_route,
+                read,
+            )
+            .await;
+        NexusWork::sema_read_completed(output)
+    }
+    async fn run_effect(&mut self, effect: Self::Effect) -> Self::Work {
+        let output: NexusEffectResult = NexusEngine::run_effect(self.engine, effect)
+            .await;
+        NexusWork::effect_completed(output)
+    }
+    fn budget_exhausted_reply(
+        &self,
+        exhausted: triad_runtime::ContinuationExhausted,
+    ) -> Self::Reply {
+        NexusEngine::budget_exhausted_reply(self.engine, exhausted)
     }
 }
 
