@@ -54,6 +54,9 @@ nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 [build-dependencies]
 schema-rust-next = { git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
+[dev-dependencies]
+signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
+
 [lints.rust]
 unsafe_code = "forbid"
 unused = { level = "warn", priority = -1 }

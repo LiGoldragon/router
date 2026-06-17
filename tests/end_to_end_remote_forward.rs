@@ -48,6 +48,7 @@ use signal_router::{
     Input as SignalRouterInput, MessageSlot, Output as SignalRouterOutput,
     RouterForwardRefusalReason, RouterForwardRequest, RouterMessageTraceQuery,
 };
+use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 /// A local harness witness on router B: a Unix socket that accepts one
 /// `signal-harness` delivery and reports it back to the test thread.
@@ -131,6 +132,74 @@ impl Drop for HarnessWitness {
     }
 }
 
+/// A component-signal witness that speaks the generic daemon wire:
+/// length-prefixed signal-frame body in, length-prefixed signal-frame body
+/// out. The router must treat both bodies as opaque bytes.
+struct ComponentSignalWitness {
+    path: std::path::PathBuf,
+    received: Receiver<signal_mirror::Input>,
+}
+
+impl ComponentSignalWitness {
+    fn new(name: &str) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "router-e2e-component-{name}-{}-{now}.sock",
+            std::process::id()
+        ));
+        let listener = UnixListener::bind(&path).expect("component witness socket binds");
+        let (sender, received) = channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener
+                .accept()
+                .expect("component witness accepts delivery");
+            let codec = LengthPrefixedCodec::default();
+            let body = codec
+                .read_body(&mut stream)
+                .expect("component witness reads frame body");
+            let (_route, input) = signal_mirror::Input::decode_signal_frame(body.bytes())
+                .expect("component witness decodes signal-mirror input");
+            sender
+                .send(input.clone())
+                .expect("component witness reports delivery");
+            let signal_mirror::Input::NotifyObject(notice) = input else {
+                panic!("expected signal-mirror NotifyObject");
+            };
+            let reply =
+                signal_mirror::Output::ObjectNoticeAccepted(signal_mirror::ObjectNoticeReceipt {
+                    store: notice.store,
+                    head: notice.head,
+                })
+                .encode_signal_frame()
+                .expect("component witness reply encodes");
+            codec
+                .write_body(&mut stream, &FrameBody::new(reply))
+                .expect("component witness writes reply");
+            stream.flush().expect("component witness flushes reply");
+        });
+        Self { path, received }
+    }
+
+    fn target(&self) -> String {
+        self.path.to_string_lossy().into_owned()
+    }
+
+    fn received(&self) -> signal_mirror::Input {
+        self.received
+            .recv_timeout(Duration::from_secs(5))
+            .expect("component witness receives delivery")
+    }
+}
+
+impl Drop for ComponentSignalWitness {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 fn read_harness_frame(stream: &mut impl Read) -> HarnessFrame {
     let mut prefix = [0_u8; 4];
     stream
@@ -208,10 +277,16 @@ fn direct_forward_request_with_objects(
 }
 
 fn spirit_mirror_notice_object() -> signal_router::RoutedContractObject {
-    let payload = vec![
-        0x91, 0x26, 0xec, 0xcb, 0xb5, 0x00, 0x00, 0x00, b's', b'p', b'i', b'r', b'i', b't', 0x00,
-        0x00, 0x07, 0x42,
-    ];
+    let payload = signal_mirror::Input::NotifyObject(signal_mirror::ObjectNotice {
+        store: signal_mirror::StoreName::new("spirit"),
+        head: signal_mirror::HeadMark {
+            sequence: signal_mirror::CommitSequence::new(1),
+            digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new([0x42; 32])),
+        },
+        source: None,
+    })
+    .encode_signal_frame()
+    .expect("signal-mirror object notice frame encodes");
     signal_router::RoutedContractObject {
         contract: signal_router::ContractName::new("signal-mirror"),
         operation: signal_router::ContractOperation::new("NotifyObject"),
@@ -453,6 +528,57 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     );
     let direct_witness = second_harness.received();
     assert_eq!(direct_witness.harness, "direct-target");
+
+    // The same forward protocol can carry an opaque component-owned
+    // object to a component socket. Router B delivers the payload octets
+    // under the generic length-prefix envelope; the test witness decodes
+    // them as signal-mirror only after the router has finished its
+    // payload-blind delivery.
+    let mirror_socket = ComponentSignalWitness::new("mirror");
+    apply_router_input(
+        &router_b,
+        RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: ActorIdentifier::new("mirror"),
+                pid: 9,
+                endpoint: Some(EndpointTransport {
+                    kind: EndpointKind::ComponentSocket,
+                    target: mirror_socket.target(),
+                    aux: None,
+                }),
+            },
+        }),
+    )
+    .await;
+    apply_router_input(
+        &router_b,
+        RouterInput::GrantChannel(GrantRouteChannel {
+            channel: GrantChannel::direct_message(
+                operator.clone(),
+                ActorIdentifier::new("mirror"),
+                ChannelLifetime::Persistent,
+            ),
+        }),
+    )
+    .await;
+    let mirror_reply = send_forward(
+        router_b_address,
+        direct_forward_request_with_objects(
+            "mirror",
+            "router-e2e-mirror-object-1",
+            vec![spirit_mirror_notice_object()],
+        ),
+    )
+    .await;
+    assert!(
+        matches!(mirror_reply, SignalRouterOutput::ForwardAccepted(_)),
+        "router B ingress should accept the mirror object forward, got {mirror_reply:?}"
+    );
+    let signal_mirror::Input::NotifyObject(notice) = mirror_socket.received() else {
+        panic!("expected mirror object notice");
+    };
+    assert_eq!(notice.store, signal_mirror::StoreName::new("spirit"));
+    assert_eq!(notice.head.sequence, signal_mirror::CommitSequence::new(1));
 
     // A validly attested frame with the same verified signer and nonce is
     // refused on the second arrival before it reaches routing policy. The

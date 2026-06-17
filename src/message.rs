@@ -146,6 +146,7 @@ pub enum EndpointKind {
     Human,
     HarnessSocket,
     PtySocket,
+    ComponentSocket,
 }
 
 #[derive(

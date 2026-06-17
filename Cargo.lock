@@ -499,6 +499,7 @@ dependencies = [
  "signal-harness",
  "signal-message",
  "signal-mind",
+ "signal-mirror",
  "signal-persona",
  "signal-router",
  "thiserror",
@@ -681,6 +682,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-mirror"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-mirror.git?branch=main#24ee1949fdd3487317590136054dfd846a6a80b2"
+dependencies = [
+ "nota-next",
+ "rkyv",
+ "schema-rust-next",
+ "signal-frame",
+]
+
+[[package]]
 name = "signal-persona"
 version = "0.1.0"
 source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#5953c8fc98b81e06034ebffbf8bc92d216de4777"
@@ -693,7 +705,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#e551f103a4cd17ccd544212da45e9be9339f0691"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#2022200e66ad0133df54bca9b3fceb378ddf74d4"
 dependencies = [
  "nota-next",
  "rkyv",

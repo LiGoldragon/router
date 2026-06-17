@@ -13,6 +13,8 @@ use signal_harness::{
     HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest, MessageBody,
     MessageDelivery, MessageSender, MessageSlot,
 };
+use signal_router::RoutedContractObject;
+use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 use crate::{Actor, EndpointKind, Error, Message, RouterResult};
 
@@ -30,7 +32,12 @@ impl HarnessDelivery {
         }
     }
 
-    fn deliver(actor: &Actor, message: &Message, message_slot: u64) -> RouterResult<bool> {
+    fn deliver(
+        actor: &Actor,
+        message: &Message,
+        message_slot: u64,
+        routed_objects: &[RoutedContractObject],
+    ) -> RouterResult<bool> {
         let Some(endpoint) = &actor.endpoint else {
             return Ok(false);
         };
@@ -43,6 +50,9 @@ impl HarnessDelivery {
                 got: "harness socket endpoint cannot be treated as terminal transport".to_string(),
             }),
             EndpointKind::PtySocket => Self::deliver_to_terminal_socket(message, &endpoint.target),
+            EndpointKind::ComponentSocket => {
+                Self::deliver_to_component_socket(routed_objects, &endpoint.target)
+            }
         }
     }
 
@@ -116,6 +126,43 @@ impl HarnessDelivery {
             }),
         }
     }
+
+    fn deliver_to_component_socket(
+        routed_objects: &[RoutedContractObject],
+        path: &str,
+    ) -> RouterResult<bool> {
+        if routed_objects.is_empty() {
+            return Ok(false);
+        }
+        for object in routed_objects {
+            let octets = Self::object_payload_octets(object)?;
+            let mut stream = UnixStream::connect(Path::new(path))?;
+            let codec = LengthPrefixedCodec::default();
+            codec.write_body(&mut stream, &FrameBody::new(octets))?;
+            stream.flush()?;
+            let _reply = codec.read_body(&mut stream)?;
+        }
+        Ok(true)
+    }
+
+    fn object_payload_octets(object: &RoutedContractObject) -> RouterResult<Vec<u8>> {
+        let declared = *object.payload_size.payload();
+        let actual = object.payload_octets.len() as u64;
+        if declared != actual {
+            return Err(Error::UnexpectedSignalFrame {
+                got: format!("routed object declared {declared} octets but carried {actual}"),
+            });
+        }
+        object
+            .payload_octets
+            .iter()
+            .map(|octet| {
+                u8::try_from(*octet).map_err(|_| Error::UnexpectedSignalFrame {
+                    got: format!("routed object octet {octet} is outside 0..=255"),
+                })
+            })
+            .collect()
+    }
 }
 
 impl Default for HarnessDelivery {
@@ -129,6 +176,7 @@ pub struct DeliverHarness {
     pub actor: Actor,
     pub message: Message,
     pub message_slot: u64,
+    pub routed_objects: Vec<RoutedContractObject>,
 }
 
 #[derive(Debug, kameo::Reply)]
@@ -170,7 +218,12 @@ impl kameo::message::Message<DeliverHarness> for HarnessDelivery {
         self.delegated_delivery_count = self.delegated_delivery_count.saturating_add(1);
         context.spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
-                HarnessDelivery::deliver(&message.actor, &message.message, message.message_slot)
+                HarnessDelivery::deliver(
+                    &message.actor,
+                    &message.message,
+                    message.message_slot,
+                    &message.routed_objects,
+                )
             })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))

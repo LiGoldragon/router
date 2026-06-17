@@ -2125,6 +2125,7 @@ impl RouterRoot {
                     actor: target.actor,
                     message: message.clone(),
                     message_slot,
+                    routed_objects: pending.routed_objects.clone(),
                 })
                 .await
             {
@@ -2252,7 +2253,11 @@ impl RouterRoot {
         let message = self.signal_message(sender, submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
         self.pending
-            .push(PendingRouterMessage::forwarded(message.clone(), origin));
+            .push(PendingRouterMessage::forwarded_with_objects(
+                message.clone(),
+                origin,
+                payload.routed_objects,
+            ));
         self.signal_slots
             .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
         self.trace
@@ -2307,6 +2312,7 @@ impl RouterRoot {
 struct PendingRouterMessage {
     message: Message,
     origin: SignalMessageOrigin,
+    routed_objects: Vec<signal_router::RoutedContractObject>,
     /// The loop guard. `Origin` means this router minted the submission and
     /// may resolve it to a remote route; `Forwarded` means it arrived over
     /// the tailnet ingress and must be delivered-local-or-parked only —
@@ -2322,6 +2328,7 @@ impl PendingRouterMessage {
         Self {
             message,
             origin,
+            routed_objects: Vec::new(),
             forward_marker: ForwardMarker::Origin,
         }
     }
@@ -2333,11 +2340,18 @@ impl PendingRouterMessage {
         )
     }
 
-    /// A message that arrived via forward — local-or-park only.
-    fn forwarded(message: Message, origin: SignalMessageOrigin) -> Self {
+    /// A message that arrived via forward carrying contract-owned
+    /// objects. The message body still drives router policy; the opaque
+    /// objects ride to component-socket delivery without router decode.
+    fn forwarded_with_objects(
+        message: Message,
+        origin: SignalMessageOrigin,
+        routed_objects: Vec<signal_router::RoutedContractObject>,
+    ) -> Self {
         Self {
             message,
             origin,
+            routed_objects,
             forward_marker: ForwardMarker::Forwarded,
         }
     }
@@ -3425,6 +3439,7 @@ impl RouterInput {
                 BootstrapEndpointKind::Human => EndpointKind::Human,
                 BootstrapEndpointKind::HarnessSocket => EndpointKind::HarnessSocket,
                 BootstrapEndpointKind::PtySocket => EndpointKind::PtySocket,
+                BootstrapEndpointKind::ComponentSocket => EndpointKind::ComponentSocket,
                 // A `RemoteRouter` endpoint is not a locally-deliverable
                 // endpoint kind. Decision (A) carries remote reachability
                 // through `RegisterActor.home`, not through a local actor's
