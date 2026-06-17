@@ -45,7 +45,8 @@ use signal_message::{
     TimestampNanos as SignalTimestampNanos,
 };
 use signal_router::{
-    Input as SignalRouterInput, MessageSlot, Output as SignalRouterOutput, RouterMessageTraceQuery,
+    Input as SignalRouterInput, MessageSlot, Output as SignalRouterOutput,
+    RouterForwardRefusalReason, RouterForwardRequest, RouterMessageTraceQuery,
 };
 
 /// A local harness witness on router B: a Unix socket that accepts one
@@ -162,32 +163,68 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
         .expect("router input applies");
 }
 
-/// Send one `signal-router::ForwardMessage` frame to a router's tailnet
-/// ingress as a bare loopback TCP client and decode the single reply. The
-/// attestation is signed with the shared offline cluster test identity, so
-/// the receiver's accept-fixed-identity verifier admits it — exactly the
-/// proof the forwarding contract carries on the wire.
-async fn forward_directly(address: SocketAddr, recipient: &str) -> SignalRouterOutput {
+fn timestamp_now() -> signal_router::TimestampNanos {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    signal_router::TimestampNanos::new(u64::try_from(nanos).unwrap_or(u64::MAX))
+}
+
+/// Build one direct `signal-router::ForwardMessage` request. The attestation
+/// is signed with the shared offline cluster test identity, so the receiver's
+/// accept-fixed-identity verifier admits it — exactly the proof the
+/// forwarding contract carries on the wire.
+fn direct_forward_request(recipient: &str, nonce: &str) -> RouterForwardRequest {
+    direct_forward_request_with_objects(recipient, nonce, Vec::new())
+}
+
+fn direct_forward_request_with_objects(
+    recipient: &str,
+    nonce: &str,
+    routed_objects: Vec<signal_router::RoutedContractObject>,
+) -> RouterForwardRequest {
     let payload = signal_router::ForwardedMessagePayload {
         from: signal_router::ActorIdentifier::new("operator"),
         to: signal_router::ActorIdentifier::new(recipient),
         body: "direct client forward".to_string(),
         attachments: Vec::new(),
+        routed_objects,
     };
-    let nonce = signal_router::ReplayNonce::new("router-e2e-direct-1");
-    let issued_at = signal_router::TimestampNanos::new(2);
+    let nonce = signal_router::ReplayNonce::new(nonce);
+    let issued_at = timestamp_now();
     let verifier = router::AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
         RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
     ));
     let attestation =
         router::ForwardAttestationVerifier::attest(&verifier, &payload, &nonce, issued_at.clone());
-    let request = signal_router::RouterForwardRequest {
+    signal_router::RouterForwardRequest {
         submission: payload,
         attestation,
         forwarded: signal_router::ForwardMarker::Origin,
         nonce,
         issued_at,
-    };
+    }
+}
+
+fn spirit_mirror_notice_object() -> signal_router::RoutedContractObject {
+    let payload = vec![
+        0x91, 0x26, 0xec, 0xcb, 0xb5, 0x00, 0x00, 0x00, b's', b'p', b'i', b'r', b'i', b't', 0x00,
+        0x00, 0x07, 0x42,
+    ];
+    signal_router::RoutedContractObject {
+        contract: signal_router::ContractName::new("signal-mirror"),
+        operation: signal_router::ContractOperation::new("NotifyObject"),
+        payload_size: signal_router::ContractPayloadSize::new(
+            u64::try_from(payload.len()).expect("payload size fits"),
+        ),
+        payload_octets: payload.into_iter().map(u64::from).collect(),
+    }
+}
+
+/// Send one `signal-router::ForwardMessage` frame to a router's tailnet
+/// ingress as a bare loopback TCP client and decode the single reply.
+async fn send_forward(address: SocketAddr, request: RouterForwardRequest) -> SignalRouterOutput {
     let codec = triad_runtime::LengthPrefixedCodec::default();
     let mut stream = tokio::net::TcpStream::connect(address)
         .await
@@ -401,13 +438,41 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
         }),
     )
     .await;
-    let direct_reply = forward_directly(router_b_address, "direct-target").await;
+    let direct_reply = send_forward(
+        router_b_address,
+        direct_forward_request_with_objects(
+            "direct-target",
+            "router-e2e-direct-1",
+            vec![spirit_mirror_notice_object()],
+        ),
+    )
+    .await;
     assert!(
         matches!(direct_reply, SignalRouterOutput::ForwardAccepted(_)),
         "router B ingress should reply ForwardAccepted, got {direct_reply:?}"
     );
     let direct_witness = second_harness.received();
     assert_eq!(direct_witness.harness, "direct-target");
+
+    // A validly attested frame with the same verified signer and nonce is
+    // refused on the second arrival before it reaches routing policy. The
+    // first attempt consumes the nonce even though the recipient is unknown:
+    // replay defense is an ingress property, not a local-delivery property.
+    let replay_request = direct_forward_request("missing-replay-target", "router-e2e-replay-1");
+    let first_replay_reply = send_forward(router_b_address, replay_request.clone()).await;
+    assert!(
+        matches!(first_replay_reply, SignalRouterOutput::ForwardAccepted(_)),
+        "first unknown-recipient forward should be accepted into router state, got {first_replay_reply:?}"
+    );
+    let second_replay_reply = send_forward(router_b_address, replay_request).await;
+    assert!(
+        matches!(
+            second_replay_reply,
+            SignalRouterOutput::ForwardRefused(ref reason)
+                if *reason.payload() == RouterForwardRefusalReason::ReplayDetected
+        ),
+        "second same-nonce forward should be refused as replay, got {second_replay_reply:?}"
+    );
 
     let _ = router_a.stop_gracefully().await;
     router_a.wait_for_shutdown().await;

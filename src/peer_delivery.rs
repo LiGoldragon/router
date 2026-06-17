@@ -76,6 +76,7 @@ impl RouterPeerDelivery {
                 .iter()
                 .map(|attachment| attachment.path.clone())
                 .collect(),
+            routed_objects: Vec::new(),
         }
     }
 

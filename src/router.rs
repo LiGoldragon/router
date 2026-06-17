@@ -70,7 +70,10 @@ use crate::channel::{
     ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier, UseChannel,
 };
 use crate::daemon::RouterDaemonError;
-use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
+use crate::forward_attestation::{
+    AcceptFixedTestIdentity, ForwardAdmissionInstant, ForwardAdmissionWindow,
+    ForwardAttestationVerifier,
+};
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
     HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
@@ -386,7 +389,7 @@ impl TailnetForwardIngress {
             .runtime
             .ask(ApplyForwardedMessage {
                 verified_origin,
-                payload: request.submission,
+                request,
             })
             .await
         {
@@ -1013,6 +1016,7 @@ pub struct RouterRuntime {
     peer_delivery: Option<ActorRef<RouterPeerDelivery>>,
     tables: Option<RouterTables>,
     network: RouterNetworkConfiguration,
+    admission_window: ForwardAdmissionWindow,
     tailnet_bound_address: Option<SocketAddr>,
     tailnet_listener_task: Option<tokio::task::JoinHandle<()>>,
     started_child_count: u64,
@@ -1060,6 +1064,7 @@ impl RouterRuntime {
             peer_delivery: None,
             tables,
             network,
+            admission_window: ForwardAdmissionWindow::live_default(),
             tailnet_bound_address: None,
             tailnet_listener_task: None,
             started_child_count: 0,
@@ -1246,7 +1251,7 @@ pub struct ApplyMetaRouterPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyForwardedMessage {
     pub verified_origin: RemoteRouterIdentity,
-    pub payload: ForwardedMessagePayload,
+    pub request: RouterForwardRequest,
 }
 
 /// Read the address the tailnet ingress actually bound (the
@@ -1464,6 +1469,13 @@ impl kameo::message::Message<ApplyForwardedMessage> for RouterRuntime {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.applied_input_count = self.applied_input_count.saturating_add(1);
+        if let Err(reason) = self.admission_window.admit(
+            &message.verified_origin,
+            &message.request,
+            ForwardAdmissionInstant::now(),
+        ) {
+            return ForwardedMessageOutcome::new(Ok(ForwardApplied::Refused(reason)));
+        }
         let result = match self.root() {
             Ok(root) => root
                 .ask(message)
@@ -2844,7 +2856,7 @@ impl kameo::message::Message<ApplyForwardedMessage> for RouterRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         ForwardedMessageOutcome::new(
-            self.apply_forwarded(message.verified_origin, message.payload)
+            self.apply_forwarded(message.verified_origin, message.request.submission)
                 .await,
         )
     }

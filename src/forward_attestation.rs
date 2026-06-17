@@ -13,9 +13,12 @@
 //! client over `criome_socket_path` without touching the router's routing
 //! or transport code.
 
+use std::collections::{HashSet, VecDeque};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use signal_router::{
     ForwardedMessagePayload, RemoteRouterIdentity, ReplayNonce, RouterForwardRefusalReason,
-    RouterPeerAttestation, SignatureScheme, TimestampNanos,
+    RouterForwardRequest, RouterPeerAttestation, SignatureScheme, TimestampNanos,
 };
 
 /// The signing/verifying boundary for cross-host forwards. A sending
@@ -79,6 +82,16 @@ impl AcceptFixedTestIdentity {
         for attachment in &payload.attachments {
             hash.feed_str(attachment);
         }
+        hash.feed_u64(payload.routed_objects.len() as u64);
+        for object in &payload.routed_objects {
+            hash.feed_str(object.contract.payload());
+            hash.feed_str(object.operation.payload());
+            hash.feed_u64(*object.payload_size.payload());
+            hash.feed_u64(object.payload_octets.len() as u64);
+            for octet in &object.payload_octets {
+                hash.feed_u64(*octet);
+            }
+        }
         hash.finish_hex()
     }
 }
@@ -116,6 +129,119 @@ impl ForwardAttestationVerifier for AcceptFixedTestIdentity {
     }
 }
 
+/// Router-owned m3 admission state for forwarded frames. The criome
+/// verifier proves identity and content binding; this window proves the
+/// frame is fresh enough and has not already been accepted from the same
+/// verified router identity.
+#[derive(Debug, Clone)]
+pub struct ForwardAdmissionWindow {
+    freshness_window_nanos: u64,
+    capacity: usize,
+    seen: HashSet<ForwardAdmissionKey>,
+    order: VecDeque<ForwardAdmissionKey>,
+}
+
+impl ForwardAdmissionWindow {
+    pub const DEFAULT_FRESHNESS_WINDOW_NANOS: u64 = 300_000_000_000;
+    pub const DEFAULT_CAPACITY: usize = 4096;
+
+    pub fn new(freshness_window_nanos: u64, capacity: usize) -> Self {
+        Self {
+            freshness_window_nanos,
+            capacity,
+            seen: HashSet::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    pub fn live_default() -> Self {
+        Self::new(Self::DEFAULT_FRESHNESS_WINDOW_NANOS, Self::DEFAULT_CAPACITY)
+    }
+
+    pub fn admit(
+        &mut self,
+        verified_origin: &RemoteRouterIdentity,
+        request: &RouterForwardRequest,
+        now: ForwardAdmissionInstant,
+    ) -> Result<(), RouterForwardRefusalReason> {
+        if request.attestation.nonce != request.nonce
+            || request.attestation.issued_at != request.issued_at
+        {
+            return Err(RouterForwardRefusalReason::AttestationInvalid);
+        }
+        self.reject_clock_skew(&request.issued_at, now)?;
+        let key = ForwardAdmissionKey::new(verified_origin, &request.nonce);
+        if self.seen.contains(&key) {
+            return Err(RouterForwardRefusalReason::ReplayDetected);
+        }
+        self.remember(key);
+        Ok(())
+    }
+
+    fn reject_clock_skew(
+        &self,
+        issued_at: &TimestampNanos,
+        now: ForwardAdmissionInstant,
+    ) -> Result<(), RouterForwardRefusalReason> {
+        let issued = *issued_at.payload();
+        if now.nanos().abs_diff(issued) > self.freshness_window_nanos {
+            return Err(RouterForwardRefusalReason::ClockSkew);
+        }
+        Ok(())
+    }
+
+    fn remember(&mut self, key: ForwardAdmissionKey) {
+        if self.capacity == 0 {
+            return;
+        }
+        self.seen.insert(key.clone());
+        self.order.push_back(key);
+        while self.order.len() > self.capacity {
+            if let Some(expired) = self.order.pop_front() {
+                self.seen.remove(&expired);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForwardAdmissionInstant {
+    nanos: u64,
+}
+
+impl ForwardAdmissionInstant {
+    pub fn new(nanos: u64) -> Self {
+        Self { nanos }
+    }
+
+    pub fn now() -> Self {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        Self::new(u64::try_from(nanos).unwrap_or(u64::MAX))
+    }
+
+    pub fn nanos(self) -> u64 {
+        self.nanos
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ForwardAdmissionKey {
+    router: String,
+    nonce: String,
+}
+
+impl ForwardAdmissionKey {
+    fn new(router: &RemoteRouterIdentity, nonce: &ReplayNonce) -> Self {
+        Self {
+            router: router.payload().clone(),
+            nonce: nonce.payload().clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ContentDigest {
     value: u64,
@@ -143,7 +269,125 @@ impl ContentDigest {
         }
     }
 
+    fn feed_u64(&mut self, value: u64) {
+        self.feed_bytes(value.to_le_bytes().as_slice());
+    }
+
     fn finish_hex(self) -> String {
         format!("{:016x}", self.value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct ForwardAdmissionFixture {
+        verifier: AcceptFixedTestIdentity,
+        identity: RemoteRouterIdentity,
+        payload: ForwardedMessagePayload,
+    }
+
+    impl ForwardAdmissionFixture {
+        fn new() -> Self {
+            let identity = RemoteRouterIdentity::new("router-a");
+            Self {
+                verifier: AcceptFixedTestIdentity::new(identity.clone()),
+                identity,
+                payload: ForwardedMessagePayload {
+                    from: signal_router::ActorIdentifier::new("sender"),
+                    to: signal_router::ActorIdentifier::new("receiver"),
+                    body: "payload".to_string(),
+                    attachments: Vec::new(),
+                    routed_objects: Vec::new(),
+                },
+            }
+        }
+
+        fn request(&self, nonce: &str, issued_at: u64) -> RouterForwardRequest {
+            let nonce = ReplayNonce::new(nonce);
+            let issued_at = TimestampNanos::new(issued_at);
+            RouterForwardRequest {
+                submission: self.payload.clone(),
+                attestation: self
+                    .verifier
+                    .attest(&self.payload, &nonce, issued_at.clone()),
+                forwarded: signal_router::ForwardMarker::Origin,
+                nonce,
+                issued_at,
+            }
+        }
+    }
+
+    #[test]
+    fn forward_admission_rejects_replayed_nonce_for_same_identity() {
+        let fixture = ForwardAdmissionFixture::new();
+        let mut window = ForwardAdmissionWindow::new(10, 8);
+        let request = fixture.request("same-nonce", 100);
+        let now = ForwardAdmissionInstant::new(105);
+
+        assert_eq!(window.admit(&fixture.identity, &request, now), Ok(()));
+        assert_eq!(
+            window.admit(&fixture.identity, &request, now),
+            Err(RouterForwardRefusalReason::ReplayDetected)
+        );
+    }
+
+    #[test]
+    fn forward_admission_rejects_clock_skew() {
+        let fixture = ForwardAdmissionFixture::new();
+        let mut window = ForwardAdmissionWindow::new(10, 8);
+        let request = fixture.request("freshness-nonce", 100);
+
+        assert_eq!(
+            window.admit(
+                &fixture.identity,
+                &request,
+                ForwardAdmissionInstant::new(111)
+            ),
+            Err(RouterForwardRefusalReason::ClockSkew)
+        );
+    }
+
+    #[test]
+    fn forward_admission_rejects_request_attestation_mismatch() {
+        let fixture = ForwardAdmissionFixture::new();
+        let mut window = ForwardAdmissionWindow::new(10, 8);
+        let mut request = fixture.request("outer-nonce", 100);
+        request.attestation.nonce = ReplayNonce::new("inner-nonce");
+
+        assert_eq!(
+            window.admit(
+                &fixture.identity,
+                &request,
+                ForwardAdmissionInstant::new(100)
+            ),
+            Err(RouterForwardRefusalReason::AttestationInvalid)
+        );
+    }
+
+    #[test]
+    fn attestation_digest_covers_routed_contract_object_octets() {
+        let fixture = ForwardAdmissionFixture::new();
+        let nonce = ReplayNonce::new("object-nonce");
+        let issued_at = TimestampNanos::new(100);
+        let attestation = fixture
+            .verifier
+            .attest(&fixture.payload, &nonce, issued_at.clone());
+        let mut tampered_payload = fixture.payload.clone();
+        tampered_payload
+            .routed_objects
+            .push(signal_router::RoutedContractObject {
+                contract: signal_router::ContractName::new("signal-mirror"),
+                operation: signal_router::ContractOperation::new("NotifyObject"),
+                payload_size: signal_router::ContractPayloadSize::new(2),
+                payload_octets: vec![1, 2],
+            });
+
+        assert_eq!(
+            fixture.verifier.verify(&attestation, &tampered_payload),
+            Err(RouterForwardRefusalReason::AttestationInvalid)
+        );
     }
 }

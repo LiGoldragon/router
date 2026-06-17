@@ -434,6 +434,33 @@ policy + delivery state) and the transport copies mirror exactly — one
 length-prefixed `LengthPrefixedCodec` frame per connection through a
 forwarding-only contract.
 
+For the spirit-vcs remote-mirroring milestone clarified in Spirit `d6he`,
+Router sits after local criome authentication and before the peer-side
+mirror action:
+
+```mermaid
+sequenceDiagram
+    participant SpiritA as spirit A
+    participant CriomeA as criome A
+    participant RouterA as router A
+    participant RouterB as router B
+    participant MirrorB as mirror B
+
+    SpiritA->>SpiritA: accept new log object
+    SpiritA->>CriomeA: authenticate exact content-addressed object/event
+    CriomeA->>CriomeA: validate expected Spirit-object type and shape
+    CriomeA->>RouterA: authenticated propagation event
+    RouterA->>RouterB: ForwardMessage with RoutedContractObject over Yggdrasil/.criome target
+    RouterB->>RouterB: verify attestation and actor-owned replay/freshness
+    RouterB->>MirrorB: deliver authenticated object-accepted notice
+    MirrorB->>MirrorB: fetch/restore announced object state
+```
+
+The local Spirit-to-criome trust boundary is structural: Router does not
+decide whether Spirit had permission to ask criome to sign. Router accepts
+only the resulting authenticated propagation as transport input and applies
+its own peer attestation, freshness, replay, routing, and channel policy.
+
 ```mermaid
 flowchart LR
     "submit on router A" -->|"local lookup misses"| "RouterRoot.retry_pending"
@@ -486,9 +513,14 @@ Load-bearing decisions:
   attestation against the payload it covers (a tampered payload fails the
   content-digest binding). Milestone 2 ships `AcceptFixedTestIdentity`, an
   offline implementation that signs with and admits one shared fixed test
-  identity, so the end-to-end forward runs with no criome daemon. Replay /
-  freshness defense (a bounded seen-nonce window) lands with real
-  attestation in milestone 3.
+  identity, so the end-to-end forward runs with no criome daemon. The m3
+  admission scaffold now exists in `ForwardAdmissionWindow`: after
+  attestation verification and before forwarded-message application,
+  `RouterRuntime` refuses request/attestation nonce or timestamp mismatch,
+  `ClockSkew` outside the live freshness window, and `ReplayDetected` for
+  repeated `(verified router identity, nonce)` pairs. The current window is
+  actor-owned process-local memory; durable
+  `router-forward-replay` SEMA state still lands with the real criome client.
 - **Config projection.** `Configuration` projects `tailnet_listen_address →
   Option<SocketAddr>` (the one std parse at config load), `router_identity`,
   and `criome_socket_path → Option<PathBuf>` through dedicated accessors —

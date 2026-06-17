@@ -75,6 +75,21 @@ frame authenticates the sending router's identity (two separate concerns).
 The router itself never holds keys or verifies signatures; that is criome's
 job, reached through a verifier seam.
 
+For the first spirit-vcs remote-mirroring production milestone, Router's
+place in the chain is transport-only and event-causal, per Spirit `d6he`.
+When Spirit accepts a new log object, Spirit asks its local criome daemon to
+authenticate that exact content-addressed object/event. The local
+Spirit-to-criome trust boundary is structural: the system side will ensure the
+request came from Spirit, while criome verifies that the request has the
+expected Spirit-object type and shape before signing or authorizing it. Router
+then carries the authenticated propagation to the peer side; remote criome and
+mirror participants act on the authenticated event, and mirror fetches/restores
+the announced object state. The router protocol carries that propagation as a
+router-owned `RoutedContractObject` envelope: contract name, operation name,
+declared payload size, and opaque rkyv octets. Threshold or majority logic for
+when criome announces acceptance belongs to future criome contract logic, not
+to Router's first m3 transport slice.
+
 The transport copies mirror's proven tailnet-TCP pattern. `RouterRuntime`
 gains a second ingress — a hand-wired `triad_runtime::TcpListenerDaemon`
 bound to the host's tailnet address — plus a symmetric outbound peer
@@ -112,4 +127,10 @@ path — so a forward targeting a local harness delivers locally and the
 channel-authorization check runs identically to a locally-submitted
 message. Replay/freshness defense (a seen-nonce window) lands with real
 attestation in milestone 3, because a valid attestation is trivially
-replayable until the window exists.
+replayable until the window exists. The current m3 scaffolding has the
+Router-owned in-memory admission window in place: after attestation
+verification and before forwarded-message application, RouterRuntime refuses
+request/attestation nonce or timestamp mismatch, clock skew outside the live
+freshness window, and repeated `(verified router identity, nonce)` pairs.
+The window is actor-owned process-local state; durable SEMA replay state lands
+with the real criome client.
