@@ -28,13 +28,13 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
+use router::ChannelLifetime;
 use router::{
     Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, EndpointKind, EndpointTransport,
-    GrantChannel, GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress,
-    ReadRouterTrace, RegisterActor, RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration,
-    RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
+    GrantChannel, GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute,
+    ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor, RemoteRouterIdentity, RouterInput,
+    RouterNetworkConfiguration, RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
 };
-use router::ChannelLifetime;
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,

@@ -528,7 +528,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema-cc"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e721626038e81cce49a7b193b07903b2868e1f68"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#abae95f999c09491c706f39b6fdef48a3530b7f1"
 dependencies = [
  "nota-next",
  "prettyplease",
@@ -541,7 +541,7 @@ dependencies = [
 [[package]]
 name = "schema-next"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e721626038e81cce49a7b193b07903b2868e1f68"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#abae95f999c09491c706f39b6fdef48a3530b7f1"
 dependencies = [
  "blake3",
  "nota-next",
@@ -553,7 +553,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#6e04d70ff679181938c50b6a5488035efa0979b8"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#e2e20b6607afb473204b2adbec0df81697fd38fc"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -647,7 +647,7 @@ dependencies = [
 [[package]]
 name = "signal-harness"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#623baf60312c0e5a711012a533eab87520ed9235"
+source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#b2dcba72b33047957a3b0594d5fcee94fb7e6ebd"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -671,7 +671,7 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#129fd8acdee252f6e1a0ea70374f8d4b53e25fe8"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#42cbf6e6cefcfcb03e748a864eeb5424688090c3"
 dependencies = [
  "nota-next",
  "rkyv",

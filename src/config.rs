@@ -43,13 +43,12 @@ impl Configuration {
             .tailnet_listen_address
             .as_ref()
             .map(|address| {
-                address
-                    .payload()
-                    .parse::<SocketAddr>()
-                    .map_err(|error| ConfigurationError::TailnetListenAddress {
+                address.payload().parse::<SocketAddr>().map_err(|error| {
+                    ConfigurationError::TailnetListenAddress {
                         address: address.payload().clone(),
                         detail: error.to_string(),
-                    })
+                    }
+                })
             })
             .transpose()?;
         Ok(Self {

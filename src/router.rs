@@ -76,14 +76,14 @@ use crate::harness_registry::{
     HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
     RegisterHarness,
 };
+use crate::observation::{
+    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
+    RouterObservationPlane, RouterObservationPlaneStatus,
+};
 use crate::peer_delivery::{DeliverRemote, RouterPeerDelivery};
 use crate::remote_router::{
     RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute, RemoteRouterRegistry,
     ResolveRemoteRoute,
-};
-use crate::observation::{
-    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
-    RouterObservationPlane, RouterObservationPlaneStatus,
 };
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
@@ -418,9 +418,7 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
             Ok(request) => self.handle_forward(request).await,
             Err(reason) => SignalRouterOutput::forward_refused(reason),
         };
-        let frame = output
-            .encode_signal_frame()
-            .map_err(crate::Error::from)?;
+        let frame = output.encode_signal_frame().map_err(crate::Error::from)?;
         self.codec
             .write_body_async(connection.stream_mut(), &RuntimeFrameBody::new(frame))
             .await?;
@@ -1118,10 +1116,7 @@ impl RouterRuntime {
     /// pattern (`mirror/src/service.rs` `on_start`): the runtime IS the
     /// actor, so a receive-only node still binds. `RouterEngine` cannot do
     /// this — it has no lifecycle hook and its runtime `OnceCell` is lazy.
-    async fn bind_tailnet_ingress(
-        &mut self,
-        actor_reference: ActorRef<Self>,
-    ) -> RouterResult<()> {
+    async fn bind_tailnet_ingress(&mut self, actor_reference: ActorRef<Self>) -> RouterResult<()> {
         let Some(listen_address) = self.network.listen_address() else {
             return Ok(());
         };
@@ -2204,11 +2199,7 @@ impl RouterRoot {
     /// for one outbound TCP forward. Returns `Ok(true)` when the peer
     /// accepted, `Ok(false)` when it refused (park for adjudication),
     /// `Err` on a transport/actor failure (restore pending).
-    async fn forward_to_remote(
-        &self,
-        message: &Message,
-        route: RemoteRoute,
-    ) -> RouterResult<bool> {
+    async fn forward_to_remote(&self, message: &Message, route: RemoteRoute) -> RouterResult<bool> {
         let outcome = self
             .peer_delivery
             .ask(DeliverRemote {
@@ -3403,7 +3394,10 @@ impl RouterInput {
         Ok(Actor {
             name: Self::actor_identifier_from_bootstrap(actor.name),
             pid: Self::process_identifier_from_bootstrap(actor.process)?,
-            endpoint: actor.endpoint.map(Self::endpoint_from_bootstrap).transpose()?,
+            endpoint: actor
+                .endpoint
+                .map(Self::endpoint_from_bootstrap)
+                .transpose()?,
         })
     }
 
