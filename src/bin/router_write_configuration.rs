@@ -95,7 +95,7 @@ impl ConfigurationWriteRequest {
     }
 
     fn configuration(&self) -> RouterDaemonConfiguration {
-        RouterDaemonConfiguration {
+        RouterDaemonConfiguration::from(signal_router::RouterDaemonConfigurationParts {
             router_socket_path: self.router_socket_path.as_str().to_owned().into(),
             router_socket_mode: 0o600.into(),
             meta_router_socket_path: self.meta_router_socket_path.as_str().to_owned().into(),
@@ -115,7 +115,7 @@ impl ConfigurationWriteRequest {
             tailnet_listen_address: None,
             router_identity: RemoteRouterIdentity::new("router-local"),
             criome_socket_path: None,
-        }
+        })
     }
 }
 

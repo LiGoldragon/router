@@ -146,15 +146,15 @@ impl HarnessDelivery {
     }
 
     fn object_payload_octets(object: &RoutedContractObject) -> RouterResult<Vec<u8>> {
-        let declared = *object.payload_size.payload();
-        let actual = object.payload_octets.len() as u64;
+        let declared = *object.contract_payload_size.payload();
+        let actual = object.payload_octets().len() as u64;
         if declared != actual {
             return Err(Error::UnexpectedSignalFrame {
                 got: format!("routed object declared {declared} octets but carried {actual}"),
             });
         }
         object
-            .payload_octets
+            .payload_octets()
             .iter()
             .map(|octet| {
                 u8::try_from(*octet).map_err(|_| Error::UnexpectedSignalFrame {

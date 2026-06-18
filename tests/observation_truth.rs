@@ -170,12 +170,12 @@ async fn meta_grant_installs_channel_visible_to_working_observation() {
     let router = ObservationFixture::start_with_tables(tables).await;
 
     let output = router
-        .apply_meta(MetaInput::grant(MetaChannelGrant {
-            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
-            kinds: vec![MetaChannelMessageKind::MessageSubmission],
-            duration: MetaChannelDuration::Permanent,
-        }))
+        .apply_meta(MetaInput::grant(MetaChannelGrant::new(
+            MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            vec![MetaChannelMessageKind::MessageSubmission],
+            MetaChannelDuration::Permanent,
+        )))
         .await
         .expect("meta grant passes through router runtime");
     let MetaOutput::ChannelGranted(granted) = output else {
@@ -205,12 +205,12 @@ async fn meta_revoke_disables_channel_visible_to_working_observation() {
     let router = ObservationFixture::start_with_tables(tables).await;
 
     let grant = router
-        .apply_meta(MetaInput::grant(MetaChannelGrant {
-            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
-            kinds: vec![MetaChannelMessageKind::MessageSubmission],
-            duration: MetaChannelDuration::Permanent,
-        }))
+        .apply_meta(MetaInput::grant(MetaChannelGrant::new(
+            MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            vec![MetaChannelMessageKind::MessageSubmission],
+            MetaChannelDuration::Permanent,
+        )))
         .await
         .expect("meta grant passes through router runtime");
     let MetaOutput::ChannelGranted(granted) = grant else {
@@ -252,12 +252,12 @@ async fn meta_extend_updates_channel_lifetime_in_router_tables() {
     let router = ObservationFixture::start_with_tables(tables.clone()).await;
 
     let grant = router
-        .apply_meta(MetaInput::grant(MetaChannelGrant {
-            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
-            kinds: vec![MetaChannelMessageKind::MessageSubmission],
-            duration: MetaChannelDuration::Permanent,
-        }))
+        .apply_meta(MetaInput::grant(MetaChannelGrant::new(
+            MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            vec![MetaChannelMessageKind::MessageSubmission],
+            MetaChannelDuration::Permanent,
+        )))
         .await
         .expect("meta grant passes through router runtime");
     let MetaOutput::ChannelGranted(granted) = grant else {

@@ -61,25 +61,26 @@ impl DaemonFixture {
 
     fn write_configuration(&self) {
         std::fs::create_dir_all(&self.directory).expect("create router process fixture");
-        let configuration = RouterDaemonConfiguration {
-            router_socket_path: self.socket_path.display().to_string().into(),
-            router_socket_mode: 0o640.into(),
-            meta_router_socket_path: self.meta_socket_path.display().to_string().into(),
-            meta_router_socket_mode: 0o600.into(),
-            supervision_socket_path: self
-                .directory
-                .join("router-supervision.sock")
-                .display()
-                .to_string()
-                .into(),
-            supervision_socket_mode: 0o600.into(),
-            store_path: self.database_path.display().to_string().into(),
-            bootstrap_path: None,
-            owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
-            tailnet_listen_address: None,
-            router_identity: signal_router::RemoteRouterIdentity::new("router-local"),
-            criome_socket_path: None,
-        };
+        let configuration =
+            RouterDaemonConfiguration::from(signal_router::RouterDaemonConfigurationParts {
+                router_socket_path: self.socket_path.display().to_string().into(),
+                router_socket_mode: 0o640.into(),
+                meta_router_socket_path: self.meta_socket_path.display().to_string().into(),
+                meta_router_socket_mode: 0o600.into(),
+                supervision_socket_path: self
+                    .directory
+                    .join("router-supervision.sock")
+                    .display()
+                    .to_string()
+                    .into(),
+                supervision_socket_mode: 0o600.into(),
+                store_path: self.database_path.display().to_string().into(),
+                bootstrap_path: None,
+                owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
+                tailnet_listen_address: None,
+                router_identity: signal_router::RemoteRouterIdentity::new("router-local"),
+                criome_socket_path: None,
+            });
         let bytes = configuration
             .to_rkyv_bytes()
             .expect("encode router daemon configuration");
@@ -161,12 +162,12 @@ fn generated_daemon_answers_meta_signal_frame_on_meta_socket() {
 
     let output = meta_signal_exchange(
         &fixture.meta_socket_path,
-        MetaInput::grant(MetaChannelGrant {
-            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-            destination: MetaChannelEndpoint::Internal(MetaComponentName::Message),
-            kinds: vec![MetaChannelMessageKind::MessageSubmission],
-            duration: MetaChannelDuration::Permanent,
-        }),
+        MetaInput::grant(MetaChannelGrant::new(
+            MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            MetaChannelEndpoint::Internal(MetaComponentName::Message),
+            vec![MetaChannelMessageKind::MessageSubmission],
+            MetaChannelDuration::Permanent,
+        )),
     );
 
     match output {
@@ -215,12 +216,12 @@ fn router_cli_reaches_working_observation_socket_and_prints_typed_summary() {
 fn meta_router_cli_reaches_policy_socket_and_prints_typed_grant() {
     let fixture = DaemonFixture::new("meta-router-cli");
     let _daemon = fixture.spawn_daemon();
-    let request = MetaInput::grant(MetaChannelGrant {
-        source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-        destination: MetaChannelEndpoint::Internal(MetaComponentName::Message),
-        kinds: vec![MetaChannelMessageKind::MessageSubmission],
-        duration: MetaChannelDuration::Permanent,
-    })
+    let request = MetaInput::grant(MetaChannelGrant::new(
+        MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+        MetaChannelEndpoint::Internal(MetaComponentName::Message),
+        vec![MetaChannelMessageKind::MessageSubmission],
+        MetaChannelDuration::Permanent,
+    ))
     .to_nota();
 
     let output = Command::new(env!("CARGO_BIN_EXE_meta-router"))

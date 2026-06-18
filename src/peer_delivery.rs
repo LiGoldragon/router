@@ -67,17 +67,17 @@ impl RouterPeerDelivery {
     }
 
     fn payload_for(message: &Message) -> ForwardedMessagePayload {
-        ForwardedMessagePayload {
-            from: signal_router::ActorIdentifier::new(message.from.as_str()),
-            to: signal_router::ActorIdentifier::new(message.to.as_str()),
-            body: message.body.clone(),
-            attachments: message
+        ForwardedMessagePayload::new(
+            signal_router::ActorIdentifier::new(message.from.as_str()),
+            signal_router::ActorIdentifier::new(message.to.as_str()),
+            message.body.clone(),
+            message
                 .attachments
                 .iter()
                 .map(|attachment| attachment.path.clone())
                 .collect(),
-            routed_objects: Vec::new(),
-        }
+            Vec::new(),
+        )
     }
 
     fn forward_request(&mut self, message: &Message) -> RouterForwardRequest {

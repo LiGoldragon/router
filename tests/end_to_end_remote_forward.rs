@@ -253,13 +253,13 @@ fn direct_forward_request_with_objects(
     nonce: &str,
     routed_objects: Vec<signal_router::RoutedContractObject>,
 ) -> RouterForwardRequest {
-    let payload = signal_router::ForwardedMessagePayload {
-        from: signal_router::ActorIdentifier::new("operator"),
-        to: signal_router::ActorIdentifier::new(recipient),
-        body: "direct client forward".to_string(),
-        attachments: Vec::new(),
+    let payload = signal_router::ForwardedMessagePayload::new(
+        signal_router::ActorIdentifier::new("operator"),
+        signal_router::ActorIdentifier::new(recipient),
+        "direct client forward".to_string(),
+        Vec::new(),
         routed_objects,
-    };
+    );
     let nonce = signal_router::ReplayNonce::new(nonce);
     let issued_at = timestamp_now();
     let verifier = router::AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
@@ -277,24 +277,24 @@ fn direct_forward_request_with_objects(
 }
 
 fn spirit_mirror_notice_object() -> signal_router::RoutedContractObject {
-    let payload = signal_mirror::Input::NotifyObject(signal_mirror::ObjectNotice {
-        store: signal_mirror::StoreName::new("spirit"),
-        head: signal_mirror::HeadMark {
+    let payload = signal_mirror::Input::NotifyObject(signal_mirror::ObjectNotice::new(
+        signal_mirror::StoreName::new("spirit"),
+        signal_mirror::HeadMark {
             sequence: signal_mirror::CommitSequence::new(1),
             digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new([0x42; 32])),
         },
-        source: None,
-    })
+        None,
+    ))
     .encode_signal_frame()
     .expect("signal-mirror object notice frame encodes");
-    signal_router::RoutedContractObject {
-        contract: signal_router::ContractName::new("signal-mirror"),
-        operation: signal_router::ContractOperation::new("NotifyObject"),
-        payload_size: signal_router::ContractPayloadSize::new(
+    signal_router::RoutedContractObject::new(
+        signal_router::ContractName::new("signal-mirror"),
+        signal_router::ContractOperation::new("NotifyObject"),
+        signal_router::ContractPayloadSize::new(
             u64::try_from(payload.len()).expect("payload size fits"),
         ),
-        payload_octets: payload.into_iter().map(u64::from).collect(),
-    }
+        payload.into_iter().map(u64::from).collect(),
+    )
 }
 
 /// Send one `signal-router::ForwardMessage` frame to a router's tailnet

@@ -79,16 +79,16 @@ impl AcceptFixedTestIdentity {
         hash.feed_str(payload.from.payload());
         hash.feed_str(payload.to.payload());
         hash.feed_str(&payload.body);
-        for attachment in &payload.attachments {
+        for attachment in payload.attachments() {
             hash.feed_str(attachment);
         }
-        hash.feed_u64(payload.routed_objects.len() as u64);
-        for object in &payload.routed_objects {
-            hash.feed_str(object.contract.payload());
-            hash.feed_str(object.operation.payload());
-            hash.feed_u64(*object.payload_size.payload());
-            hash.feed_u64(object.payload_octets.len() as u64);
-            for octet in &object.payload_octets {
+        hash.feed_u64(payload.routed_objects().len() as u64);
+        for object in payload.routed_objects() {
+            hash.feed_str(object.contract_name.payload());
+            hash.feed_str(object.contract_operation.payload());
+            hash.feed_u64(*object.contract_payload_size.payload());
+            hash.feed_u64(object.payload_octets().len() as u64);
+            for octet in object.payload_octets() {
                 hash.feed_u64(*octet);
             }
         }
@@ -295,13 +295,13 @@ mod tests {
             Self {
                 verifier: AcceptFixedTestIdentity::new(identity.clone()),
                 identity,
-                payload: ForwardedMessagePayload {
-                    from: signal_router::ActorIdentifier::new("sender"),
-                    to: signal_router::ActorIdentifier::new("receiver"),
-                    body: "payload".to_string(),
-                    attachments: Vec::new(),
-                    routed_objects: Vec::new(),
-                },
+                payload: ForwardedMessagePayload::new(
+                    signal_router::ActorIdentifier::new("sender"),
+                    signal_router::ActorIdentifier::new("receiver"),
+                    "payload".to_string(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
             }
         }
 
@@ -376,14 +376,12 @@ mod tests {
             .verifier
             .attest(&fixture.payload, &nonce, issued_at.clone());
         let mut tampered_payload = fixture.payload.clone();
-        tampered_payload
-            .routed_objects
-            .push(signal_router::RoutedContractObject {
-                contract: signal_router::ContractName::new("signal-mirror"),
-                operation: signal_router::ContractOperation::new("NotifyObject"),
-                payload_size: signal_router::ContractPayloadSize::new(2),
-                payload_octets: vec![1, 2],
-            });
+        tampered_payload.push_routed_object(signal_router::RoutedContractObject::new(
+            signal_router::ContractName::new("signal-mirror"),
+            signal_router::ContractOperation::new("NotifyObject"),
+            signal_router::ContractPayloadSize::new(2),
+            vec![1, 2],
+        ));
 
         assert_eq!(
             fixture.verifier.verify(&attestation, &tampered_payload),

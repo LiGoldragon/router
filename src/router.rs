@@ -119,7 +119,7 @@ impl RouterDaemon {
     pub fn from_configuration(configuration: RouterDaemonConfiguration) -> RouterResult<Self> {
         let tables = RouterTables::open(PathBuf::from(configuration.store_path.payload()))?;
         let bootstrap = configuration
-            .bootstrap_path
+            .bootstrap_path()
             .map(|path| RouterBootstrap::from_path(path.payload()));
         let supervision = SupervisionListener::new(
             SupervisionProfile::router(),
@@ -1718,7 +1718,7 @@ impl RouterRoot {
             }
             SignalMessageContractInput::QueryInbox(query) => {
                 Ok(SignalMessageContractOutput::InboxListing(
-                    SignalInboxListing::new(self.signal_inbox(query.payload())),
+                    SignalInboxListing::from_entries(self.signal_inbox(query.payload())),
                 ))
             }
         }
@@ -1832,7 +1832,7 @@ impl RouterRoot {
     fn channel_grant_from_meta(
         grant: MetaChannelGrant,
     ) -> std::result::Result<GrantChannel, MetaChannelOrderRejectionReason> {
-        if !Self::meta_channel_kinds_fit_direct_message(grant.kinds.as_slice()) {
+        if !Self::meta_channel_kinds_fit_direct_message(grant.kinds()) {
             return Err(MetaChannelOrderRejectionReason::PolicyRefused);
         }
         Ok(GrantChannel::direct_message(
@@ -2256,7 +2256,7 @@ impl RouterRoot {
             .push(PendingRouterMessage::forwarded_with_objects(
                 message.clone(),
                 origin,
-                payload.routed_objects,
+                payload.routed_objects().to_vec(),
             ));
         self.signal_slots
             .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
@@ -2765,7 +2765,7 @@ impl RouterSignalOutput {
             SignalMessageContractOutput::InboxListing(reply) => {
                 Self::RouterInboxListing(RouterInboxListing {
                     messages: reply
-                        .into_payload()
+                        .into_entries()
                         .into_iter()
                         .map(RouterInboxEntry::from_signal)
                         .collect(),
@@ -3340,12 +3340,13 @@ impl BootstrapApply {
     fn from_operation(operation: RouterBootstrapOperation) -> RouterResult<Self> {
         match operation {
             RouterBootstrapOperation::RegisterActor(operation) => {
+                let home = operation.home().cloned();
                 let recipient =
                     RouterInput::actor_identifier_from_bootstrap(operation.actor.name.clone());
                 let local = RouterInput::RegisterActor(RegisterActor {
                     actor: RouterInput::actor_from_bootstrap(operation.actor)?,
                 });
-                match operation.home {
+                match home {
                     Some(home) => Ok(Self::RegisterRemoteActor {
                         local,
                         home: InstallRemoteRoute { recipient, home },
@@ -3417,13 +3418,11 @@ impl BootstrapApply {
 
 impl RouterInput {
     fn actor_from_bootstrap(actor: BootstrapActor) -> RouterResult<Actor> {
+        let endpoint = actor.endpoint().cloned();
         Ok(Actor {
             name: Self::actor_identifier_from_bootstrap(actor.name),
             pid: Self::process_identifier_from_bootstrap(actor.process)?,
-            endpoint: actor
-                .endpoint
-                .map(Self::endpoint_from_bootstrap)
-                .transpose()?,
+            endpoint: endpoint.map(Self::endpoint_from_bootstrap).transpose()?,
         })
     }
 
@@ -3434,6 +3433,7 @@ impl RouterInput {
     fn endpoint_from_bootstrap(
         endpoint: BootstrapEndpointTransport,
     ) -> RouterResult<EndpointTransport> {
+        let auxiliary = endpoint.auxiliary().cloned();
         Ok(EndpointTransport {
             kind: match endpoint.kind {
                 BootstrapEndpointKind::Human => EndpointKind::Human,
@@ -3453,7 +3453,7 @@ impl RouterInput {
                 }
             },
             target: endpoint.target,
-            aux: endpoint.auxiliary,
+            aux: auxiliary,
         })
     }
 
@@ -3608,12 +3608,12 @@ mod receiver_validation_tests {
 
         let codec = LengthPrefixedCodec::default();
         let mut good = UnixStream::connect(&socket).expect("valid client connects after bad one");
-        let grant = MetaInput::grant(MetaChannelGrant {
-            source: MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-            destination: MetaChannelEndpoint::Internal(MetaComponentName::Router),
-            kinds: vec![MetaChannelMessageKind::MessageSubmission],
-            duration: MetaChannelDuration::Permanent,
-        });
+        let grant = MetaInput::grant(MetaChannelGrant::new(
+            MetaChannelEndpoint::External(MetaConnectionClass::Owner),
+            MetaChannelEndpoint::Internal(MetaComponentName::Router),
+            vec![MetaChannelMessageKind::MessageSubmission],
+            MetaChannelDuration::Permanent,
+        ));
         codec
             .write_body(
                 &mut good,

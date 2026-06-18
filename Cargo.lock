@@ -304,7 +304,7 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#12c085fd0adf7c4c411ef3bdc31758ed69b9687f"
+source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#00634e89f8c81c5c1375781d6a04e270e6bc599d"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -529,7 +529,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema-cc"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#abae95f999c09491c706f39b6fdef48a3530b7f1"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#1de72dde6241b15299cd37fe096b3ef0e2f618b6"
 dependencies = [
  "nota-next",
  "prettyplease",
@@ -542,7 +542,7 @@ dependencies = [
 [[package]]
 name = "schema-next"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#abae95f999c09491c706f39b6fdef48a3530b7f1"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#1de72dde6241b15299cd37fe096b3ef0e2f618b6"
 dependencies = [
  "blake3",
  "nota-next",
@@ -660,7 +660,7 @@ dependencies = [
 [[package]]
 name = "signal-message"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#2e9c9cca1058bbb83706f329c2e51be18a4ef1f5"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#56c6b873f263ebf10cc6c90923c902aec9bee4ba"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -684,7 +684,7 @@ dependencies = [
 [[package]]
 name = "signal-mirror"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mirror.git?branch=main#24ee1949fdd3487317590136054dfd846a6a80b2"
+source = "git+https://github.com/LiGoldragon/signal-mirror.git?branch=main#4ecfa050077115fade9127b5048dc7e23c32a2d0"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -705,7 +705,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#2022200e66ad0133df54bca9b3fceb378ddf74d4"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#e36e773d165d0a996208b7702d14416c559539c6"
 dependencies = [
  "nota-next",
  "rkyv",

@@ -40,8 +40,7 @@ impl Configuration {
     /// on a field the bootstrap tool already encoded.
     pub fn from_raw(raw: RouterDaemonConfiguration) -> Result<Self, ConfigurationError> {
         let tailnet_listen_address = raw
-            .tailnet_listen_address
-            .as_ref()
+            .tailnet_listen_address()
             .map(|address| {
                 address.payload().parse::<SocketAddr>().map_err(|error| {
                     ConfigurationError::TailnetListenAddress {
@@ -56,13 +55,11 @@ impl Configuration {
             meta_socket_path: PathBuf::from(raw.meta_router_socket_path.payload()),
             database_path: PathBuf::from(raw.store_path.payload()),
             bootstrap_path: raw
-                .bootstrap_path
-                .as_ref()
+                .bootstrap_path()
                 .map(|path| PathBuf::from(path.payload())),
             tailnet_listen_address,
             criome_socket_path: raw
-                .criome_socket_path
-                .as_ref()
+                .criome_socket_path()
                 .map(|path| PathBuf::from(path.payload())),
             raw,
         })

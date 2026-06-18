@@ -18,22 +18,22 @@
 
   MessageKind [DirectMessage SystemNotice]
   MessageIngress {
-    recipient Recipient
-    body Body
-    message_kind MessageKind
+    Recipient
+    Body
+    MessageKind
   }
   RouterObservation [Summary ChannelState DeliveryTrace PendingAdjudication]
   MessageAcceptance RouteMessageIdentifier
   AdjudicationQueued {
-    route_message_identifier RouteMessageIdentifier
-    channel_identifier ChannelIdentifier
+    RouteMessageIdentifier
+    ChannelIdentifier
   }
 
   OperationKind [AcceptMessage ObserveRouter]
   UnimplementedReason [NotInPrototypeScope ChannelMissing RouterUnavailable]
   RequestUnimplemented {
-    operation_kind OperationKind
-    unimplemented_reason UnimplementedReason
+    OperationKind
+    UnimplementedReason
   }
   ErrorReport ErrorMessage
 }
