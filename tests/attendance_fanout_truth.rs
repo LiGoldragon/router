@@ -381,11 +381,34 @@ async fn withdraw_stops_further_pushes() {
         panic!("Attend must open");
     };
 
-    // Before Withdraw: a matching admit pushes.
+    // A SECOND attender with a non-matching interest stays open across the
+    // whole test. A Spirit reference never matches its (Mind) interest, so it
+    // never receives a push — and crucially its row is never removed. Its
+    // presence proves the post-Withdraw silence is the Withdraw deleting the
+    // matching row, NOT the matcher running against an empty table.
+    let bystander_witness = ComponentSocketWitness::bind("withdraw-bystander");
+    register_actor(&runtime, "bystander-daemon").await;
+    let bystander_interest = AuthorizedObjectInterest::Component(ComponentKind::Mind);
+    let SignalRouterOutput::AttendanceOpened(_bystander) = open_attendance(
+        &runtime,
+        "bystander-daemon",
+        bystander_interest,
+        bystander_witness.endpoint(),
+    )
+    .await
+    else {
+        panic!("bystander Attend must open");
+    };
+
+    // Before Withdraw: a matching admit pushes — to the matching attender only.
     assert_eq!(fan_out(&runtime, spirit_contract_reference()).await, 1);
     assert!(
         witness.try_recv_push().is_some(),
         "push lands before Withdraw"
+    );
+    assert!(
+        bystander_witness.try_recv_push().is_none(),
+        "the non-matching bystander never receives a Spirit push, even before Withdraw"
     );
 
     // Withdraw by token.
@@ -405,15 +428,23 @@ async fn withdraw_stops_further_pushes() {
         "Withdraw closes the named token"
     );
 
-    // After Withdraw: the same matching admit pushes nothing.
+    // After Withdraw: the same matching admit pushes nothing. The table is NOT
+    // empty — the bystander row survives — so a fan-out count of 0 isolates the
+    // Withdraw as the cause: the matching row is gone, while the surviving
+    // bystander still does not match a Spirit reference.
     assert_eq!(
         fan_out(&runtime, spirit_contract_reference()).await,
         0,
-        "Withdraw stops further pushes"
+        "Withdraw stops further pushes even with another attendance still open"
     );
     assert!(
         witness.try_recv_push().is_none(),
         "no further frame reaches the attender after Withdraw"
+    );
+    assert!(
+        bystander_witness.try_recv_push().is_none(),
+        "the surviving bystander still never matches a Spirit reference — \
+         so the post-Withdraw silence is the deleted row, not an empty table"
     );
 
     runtime.stop_gracefully().await.expect("runtime stops");
