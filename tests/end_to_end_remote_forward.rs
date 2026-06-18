@@ -28,13 +28,13 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
+use router::ChannelLifetime;
 use router::{
     Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, EndpointKind, EndpointTransport,
-    GrantChannel, GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress,
-    ReadRouterTrace, RegisterActor, RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration,
-    RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
+    GrantChannel, GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute,
+    ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor, RemoteRouterIdentity, RouterInput,
+    RouterNetworkConfiguration, RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
 };
-use router::ChannelLifetime;
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
@@ -122,6 +122,13 @@ impl HarnessWitness {
             .recv_timeout(Duration::from_secs(5))
             .expect("harness witness receives delivery")
     }
+
+    /// Wait a bounded window for a delivery and return it only if one
+    /// arrived. A refused forward must NOT deliver, so the loop-guard test
+    /// asserts this stays `None`.
+    fn try_received(&self) -> Option<WitnessedDelivery> {
+        self.received.recv_timeout(Duration::from_secs(1)).ok()
+    }
 }
 
 impl Drop for HarnessWitness {
@@ -166,8 +173,14 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
 /// ingress as a bare loopback TCP client and decode the single reply. The
 /// attestation is signed with the shared offline cluster test identity, so
 /// the receiver's accept-fixed-identity verifier admits it — exactly the
-/// proof the forwarding contract carries on the wire.
-async fn forward_directly(address: SocketAddr, recipient: &str) -> SignalRouterOutput {
+/// proof the forwarding contract carries on the wire. `marker` is the
+/// wire `ForwardMarker`: `Origin` is a first hop the receiver accepts,
+/// `Forwarded` is an already-forwarded object the loop guard must refuse.
+async fn forward_directly(
+    address: SocketAddr,
+    recipient: &str,
+    marker: signal_router::ForwardMarker,
+) -> SignalRouterOutput {
     let payload = signal_router::ForwardedMessagePayload {
         from: signal_router::ActorIdentifier::new("operator"),
         to: signal_router::ActorIdentifier::new(recipient),
@@ -184,7 +197,7 @@ async fn forward_directly(address: SocketAddr, recipient: &str) -> SignalRouterO
     let request = signal_router::RouterForwardRequest {
         submission: payload,
         attestation,
-        forwarded: signal_router::ForwardMarker::Origin,
+        forwarded: marker,
         nonce,
         issued_at,
     };
@@ -401,16 +414,105 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
         }),
     )
     .await;
-    let direct_reply = forward_directly(router_b_address, "direct-target").await;
-    assert!(
-        matches!(direct_reply, SignalRouterOutput::ForwardAccepted(_)),
-        "router B ingress should reply ForwardAccepted, got {direct_reply:?}"
+    let direct_reply = forward_directly(
+        router_b_address,
+        "direct-target",
+        signal_router::ForwardMarker::Origin,
+    )
+    .await;
+    let SignalRouterOutput::ForwardAccepted(accepted) = &direct_reply else {
+        panic!("router B ingress should reply ForwardAccepted, got {direct_reply:?}");
+    };
+    // The accept carries the REAL slot router B minted, not a placeholder
+    // zero — the second forward B accepts is its second minted slot.
+    assert_ne!(
+        *accepted.payload().payload(),
+        0,
+        "ForwardAccepted must carry the real minted slot, not a placeholder zero"
     );
     let direct_witness = second_harness.received();
     assert_eq!(direct_witness.harness, "direct-target");
 
     let _ = router_a.stop_gracefully().await;
     router_a.wait_for_shutdown().await;
+    let _ = router_b.stop_gracefully().await;
+    router_b.wait_for_shutdown().await;
+}
+
+/// The loop guard on network ingress: an inbound forward already stamped
+/// `ForwardMarker::Forwarded` has crossed a peer hop once already, so the
+/// receiver refuses it with `AlreadyForwarded` BEFORE persisting or
+/// delivering anything — even though the recipient is locally registered
+/// and channel-authorized (the same setup that an `Origin` forward
+/// accepts). This prevents an A→B→A re-forward cycle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn already_forwarded_ingress_is_refused_and_not_delivered() {
+    let operator = ActorIdentifier::new("operator");
+    let target = ActorIdentifier::new("loop-target");
+    let router_b_identity = RemoteRouterIdentity::new("router-b-loop");
+
+    let harness = HarnessWitness::new("router-b-loop");
+    let router_b = RouterRuntime::start_networked(
+        None,
+        RouterNetworkConfiguration::offline_listening(
+            "127.0.0.1:0".parse().expect("loopback address"),
+            router_b_identity,
+        ),
+    )
+    .await;
+    let router_b_address = bound_tailnet_address(&router_b).await;
+
+    apply_router_input(
+        &router_b,
+        RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: target.clone(),
+                pid: 9,
+                endpoint: Some(EndpointTransport {
+                    kind: EndpointKind::HarnessSocket,
+                    target: harness.target(),
+                    aux: None,
+                }),
+            },
+        }),
+    )
+    .await;
+    apply_router_input(
+        &router_b,
+        RouterInput::GrantChannel(GrantRouteChannel {
+            channel: GrantChannel::direct_message(
+                operator,
+                target.clone(),
+                ChannelLifetime::Persistent,
+            ),
+        }),
+    )
+    .await;
+
+    // The forward arrives already marked Forwarded — the loop guard fires.
+    let reply = forward_directly(
+        router_b_address,
+        "loop-target",
+        signal_router::ForwardMarker::Forwarded,
+    )
+    .await;
+    match reply {
+        SignalRouterOutput::ForwardRefused(refused) => {
+            assert_eq!(
+                refused.into_payload(),
+                signal_router::RouterForwardRefusalReason::AlreadyForwarded,
+                "an already-forwarded ingress must be refused as AlreadyForwarded"
+            );
+        }
+        other => panic!("expected ForwardRefused(AlreadyForwarded), got {other:?}"),
+    }
+
+    // Nothing was delivered: the refusal happened before the local path.
+    assert!(
+        harness.try_received().is_none(),
+        "a refused loop forward must not reach the local harness"
+    );
+
     let _ = router_b.stop_gracefully().await;
     router_b.wait_for_shutdown().await;
 }

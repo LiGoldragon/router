@@ -51,6 +51,14 @@ pub enum Error {
         reason: signal_router::RouterForwardRefusalReason,
     },
 
+    #[error(
+        "router identity {identity:?} configures a criome-backed verifier at {criome_socket_path:?}, but the criome forward-attestation client is not yet built (milestone 3); refusing to start with the offline test verifier in production"
+    )]
+    CriomeVerifierUnavailable {
+        identity: String,
+        criome_socket_path: PathBuf,
+    },
+
     #[error("router socket path is missing")]
     MissingSocket,
 

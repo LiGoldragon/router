@@ -96,13 +96,31 @@ Mechanism (realized in milestone 2):
 - The forwarding seam sits at the unregistered-recipient park path: when
   the local harness lookup misses, the router consults the remote-route
   table before parking. Local-first ordering is preserved.
-- A first-class loop guard marks any message that arrived via forward; such
-  a message is delivered-local-or-parked only and is never re-resolved to
-  another remote route.
+- A first-class loop guard works on both directions of the hop. Inbound:
+  the network ingress inspects the wire `ForwardMarker`, and an object
+  already stamped `Forwarded` is refused with `AlreadyForwarded` before
+  anything is persisted — a router only ever emits `Origin` on a first
+  hop, so an inbound `Forwarded` object has crossed a peer already and
+  re-forwarding it would risk an A→B→A cycle. Outbound: a message that
+  arrived via forward is marked `Forwarded` internally, so it is
+  delivered-local-or-parked only and is never re-resolved to another
+  remote route.
+- A forward acceptance means durable-peer-receipt, not
+  delivered-to-a-live-local-harness: the receiver durably commits the
+  message (persist + enqueue for local delivery or mind adjudication) and
+  replies `ForwardAccepted` carrying the real slot it minted, so a forward
+  that legitimately parks for adjudication is still accepted and the
+  sender stops retrying once the peer has taken custody.
 - The verifier seam (`ForwardAttestationVerifier`) is where milestone 3
   swaps in the real criome client. Milestone 2 ships an offline
   accept-fixed-test-identity implementation so the end-to-end forward runs
-  with no criome daemon.
+  with no criome daemon — but the offline test verifier can never run in
+  production: the daemon selects its verifier from typed configuration, and
+  a node that configures a `criome_socket_path` (intending criome-backed
+  attestation) refuses to start until the milestone-3 criome client exists
+  rather than silently admitting any peer signing with the shared offline
+  test identity. The offline verifier is reachable only when no criome
+  verifier is configured (single-host / offline operation).
 
 Authority direction is unchanged: forwarding is a delivery decision the
 router makes, not an authority order. An inbound forward stamps the

@@ -17,8 +17,9 @@ use kameo::error::Infallible;
 use kameo::message::Context;
 use kameo::reply::DelegatedReply;
 use signal_router::{
-    ForwardMarker, ForwardedMessagePayload, Input as SignalRouterInput, Output as SignalRouterOutput,
-    ReplayNonce, RouterForwardRefusalReason, RouterForwardRequest, TimestampNanos,
+    ForwardMarker, ForwardedMessagePayload, Input as SignalRouterInput,
+    Output as SignalRouterOutput, ReplayNonce, RouterForwardRefusalReason, RouterForwardRequest,
+    TimestampNanos,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -82,9 +83,7 @@ impl RouterPeerDelivery {
         let payload = Self::payload_for(message);
         let nonce = self.next_nonce();
         let issued_at = Self::issued_at();
-        let attestation = self
-            .verifier
-            .attest(&payload, &nonce, issued_at.clone());
+        let attestation = self.verifier.attest(&payload, &nonce, issued_at.clone());
         RouterForwardRequest {
             submission: payload,
             attestation,
@@ -98,12 +97,14 @@ impl RouterPeerDelivery {
         request: RouterForwardRequest,
         address: TailnetAddress,
     ) -> RouterResult<RemoteForwardOutcome> {
-        let socket_address = address.payload().parse::<std::net::SocketAddr>().map_err(
-            |error| Error::RemoteAddressInvalid {
-                address: address.payload().clone(),
-                detail: format!("{error}"),
-            },
-        )?;
+        let socket_address =
+            address
+                .payload()
+                .parse::<std::net::SocketAddr>()
+                .map_err(|error| Error::RemoteAddressInvalid {
+                    address: address.payload().clone(),
+                    detail: format!("{error}"),
+                })?;
         let codec = LengthPrefixedCodec::default();
         let mut stream = TcpStream::connect(socket_address).await?;
         let frame = SignalRouterInput::forward_message(request).encode_signal_frame()?;

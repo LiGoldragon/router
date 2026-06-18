@@ -76,14 +76,14 @@ use crate::harness_registry::{
     HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
     RegisterHarness,
 };
+use crate::observation::{
+    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
+    RouterObservationPlane, RouterObservationPlaneStatus,
+};
 use crate::peer_delivery::{DeliverRemote, RouterPeerDelivery};
 use crate::remote_router::{
     RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute, RemoteRouterRegistry,
     ResolveRemoteRoute,
-};
-use crate::observation::{
-    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
-    RouterObservationPlane, RouterObservationPlaneStatus,
 };
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
@@ -387,13 +387,14 @@ impl TailnetForwardIngress {
             .ask(ApplyForwardedMessage {
                 verified_origin,
                 payload: request.submission,
+                wire_marker: request.forwarded,
             })
             .await
         {
             Ok(outcome) => match outcome.into_result() {
-                Ok(ForwardApplied::Accepted) => {
-                    SignalRouterOutput::forward_accepted(signal_router::MessageSlot::new(0))
-                }
+                Ok(ForwardApplied::Accepted(slot)) => SignalRouterOutput::forward_accepted(
+                    signal_router::MessageSlot::new(slot.into_u64()),
+                ),
                 Ok(ForwardApplied::Refused(reason)) => SignalRouterOutput::forward_refused(reason),
                 Err(_) => SignalRouterOutput::forward_refused(
                     RouterForwardRefusalReason::RecipientUnknown,
@@ -418,9 +419,7 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
             Ok(request) => self.handle_forward(request).await,
             Err(reason) => SignalRouterOutput::forward_refused(reason),
         };
-        let frame = output
-            .encode_signal_frame()
-            .map_err(crate::Error::from)?;
+        let frame = output.encode_signal_frame().map_err(crate::Error::from)?;
         self.codec
             .write_body_async(connection.stream_mut(), &RuntimeFrameBody::new(frame))
             .await?;
@@ -980,6 +979,37 @@ impl RouterNetworkConfiguration {
         Self::new(Some(listen_address), identity, Self::offline_verifier())
     }
 
+    /// The production verifier-selection seam: a daemon launched from typed
+    /// configuration lands here, and the offline test verifier can only be
+    /// reached when no criome verifier is configured. When
+    /// `criome_socket_path` is present the operator intends criome-backed
+    /// attestation, so this MUST dial a real criome client — and because
+    /// that client is milestone 3 (not yet built), it refuses to start
+    /// rather than silently install the offline accept-fixed-test-identity
+    /// verifier (which would admit any peer signing with the shared test
+    /// identity). When `criome_socket_path` is absent the node is
+    /// single-host / offline operation and the shared offline verifier is
+    /// the correct, explicitly-chosen stand-in. The security invariant: the
+    /// offline test verifier can never run when a criome verifier is
+    /// configured.
+    pub fn from_daemon_configuration(
+        listen_address: Option<SocketAddr>,
+        identity: RemoteRouterIdentity,
+        criome_socket_path: Option<&std::path::Path>,
+    ) -> RouterResult<Self> {
+        match criome_socket_path {
+            Some(criome_socket_path) => Err(Error::CriomeVerifierUnavailable {
+                identity: identity.payload().clone(),
+                criome_socket_path: criome_socket_path.to_path_buf(),
+            }),
+            None => Ok(Self::new(
+                listen_address,
+                identity,
+                Self::offline_verifier(),
+            )),
+        }
+    }
+
     pub fn listen_address(&self) -> Option<SocketAddr> {
         self.listen_address
     }
@@ -1118,10 +1148,7 @@ impl RouterRuntime {
     /// pattern (`mirror/src/service.rs` `on_start`): the runtime IS the
     /// actor, so a receive-only node still binds. `RouterEngine` cannot do
     /// this — it has no lifecycle hook and its runtime `OnceCell` is lazy.
-    async fn bind_tailnet_ingress(
-        &mut self,
-        actor_reference: ActorRef<Self>,
-    ) -> RouterResult<()> {
+    async fn bind_tailnet_ingress(&mut self, actor_reference: ActorRef<Self>) -> RouterResult<()> {
         let Some(listen_address) = self.network.listen_address() else {
             return Ok(());
         };
@@ -1247,11 +1274,16 @@ pub struct ApplyMetaRouterPolicy {
 /// An inbound forward arriving on the tailnet TCP ingress, after the
 /// ingress task verified the attestation off-mailbox. `verified_origin` is
 /// the authoritative identity the verifier recovered — never the
-/// wire-claimed field. This is the inbound twin of `ApplySignalMessage`.
+/// wire-claimed field. `wire_marker` is the sender's `ForwardMarker` from
+/// the frame: `Origin` for a first hop, `Forwarded` for an object a peer
+/// has already forwarded once. The handler refuses an already-`Forwarded`
+/// object (loop prevention) before persisting anything. This is the
+/// inbound twin of `ApplySignalMessage`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyForwardedMessage {
     pub verified_origin: RemoteRouterIdentity,
     pub payload: ForwardedMessagePayload,
+    pub wire_marker: ForwardMarker,
 }
 
 /// Read the address the tailnet ingress actually bound (the
@@ -1308,12 +1340,19 @@ impl SignalMessageOutcome {
     }
 }
 
-/// The reply of `ApplyForwardedMessage`: the verified forward was either
-/// accepted (delivered locally or parked for adjudication) or refused with
-/// a typed reason the ingress maps to `Output::ForwardRefused`.
+/// The reply of `ApplyForwardedMessage`. `Accepted` means the receiving
+/// router durably committed the forwarded message (persisted to
+/// `router.sema` and enqueued for local delivery or mind adjudication) and
+/// carries the real slot this router minted for it — the ingress writes
+/// that slot back as `Output::ForwardAccepted(slot)`. Accept is
+/// durable-peer-receipt, not delivered-to-a-live-local-harness: a forward
+/// that legitimately parks for adjudication is still accepted, and the
+/// sender stops retrying once the peer has durably taken custody.
+/// `Refused` carries a typed reason the ingress maps to
+/// `Output::ForwardRefused` (including `AlreadyForwarded` loop refusals).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForwardApplied {
-    Accepted,
+    Accepted(SignalSlot),
     Refused(RouterForwardRefusalReason),
 }
 
@@ -2204,11 +2243,7 @@ impl RouterRoot {
     /// for one outbound TCP forward. Returns `Ok(true)` when the peer
     /// accepted, `Ok(false)` when it refused (park for adjudication),
     /// `Err` on a transport/actor failure (restore pending).
-    async fn forward_to_remote(
-        &self,
-        message: &Message,
-        route: RemoteRoute,
-    ) -> RouterResult<bool> {
+    async fn forward_to_remote(&self, message: &Message, route: RemoteRoute) -> RouterResult<bool> {
         let outcome = self
             .peer_delivery
             .ask(DeliverRemote {
@@ -2227,11 +2262,27 @@ impl RouterRoot {
     /// any further remote resolution, then it runs the SAME local
     /// persist/enqueue/retry path — so a forward targeting a local harness
     /// delivers locally and the channel-auth check runs identically.
+    ///
+    /// The loop guard inspects `wire_marker`: a router only ever emits
+    /// `ForwardMarker::Origin` on a first hop, so an inbound object already
+    /// stamped `ForwardMarker::Forwarded` has been routed across a peer
+    /// once already. Re-forwarding it would risk an A→B→A cycle, so this
+    /// router refuses it with `AlreadyForwarded` BEFORE persisting anything
+    /// — nothing is committed, no slot is minted, and the sender learns the
+    /// hop was rejected. On accept the real minted slot rides back in
+    /// `ForwardApplied::Accepted` so the peer receives a durable receipt
+    /// keyed to this router's own slot, not a placeholder.
     async fn apply_forwarded(
         &mut self,
         verified_origin: RemoteRouterIdentity,
         payload: ForwardedMessagePayload,
+        wire_marker: ForwardMarker,
     ) -> RouterResult<ForwardApplied> {
+        if matches!(wire_marker, ForwardMarker::Forwarded) {
+            return Ok(ForwardApplied::Refused(
+                RouterForwardRefusalReason::AlreadyForwarded,
+            ));
+        }
         let sender = ActorIdentifier::new(payload.from.payload().as_str());
         let recipient = ActorIdentifier::new(payload.to.payload().as_str());
         // The authoritative origin is the verified peer router identity,
@@ -2255,7 +2306,7 @@ impl RouterRoot {
         self.trace
             .record(message.id.clone(), RouterTraceStep::MessageCommitted);
         self.retry_pending().await?;
-        Ok(ForwardApplied::Accepted)
+        Ok(ForwardApplied::Accepted(slot))
     }
 
     async fn deny_adjudication(&mut self, deny: &MindAdjudicationDeny) -> RouterResult<u64> {
@@ -2853,8 +2904,12 @@ impl kameo::message::Message<ApplyForwardedMessage> for RouterRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         ForwardedMessageOutcome::new(
-            self.apply_forwarded(message.verified_origin, message.payload)
-                .await,
+            self.apply_forwarded(
+                message.verified_origin,
+                message.payload,
+                message.wire_marker,
+            )
+            .await,
         )
     }
 }
@@ -3403,7 +3458,10 @@ impl RouterInput {
         Ok(Actor {
             name: Self::actor_identifier_from_bootstrap(actor.name),
             pid: Self::process_identifier_from_bootstrap(actor.process)?,
-            endpoint: actor.endpoint.map(Self::endpoint_from_bootstrap).transpose()?,
+            endpoint: actor
+                .endpoint
+                .map(Self::endpoint_from_bootstrap)
+                .transpose()?,
         })
     }
 
@@ -3607,5 +3665,41 @@ mod receiver_validation_tests {
             "expected granted channel reply after bad connection, got {output:?}"
         );
         let _ = std::fs::remove_file(socket);
+    }
+
+    #[test]
+    fn daemon_configuration_refuses_offline_verifier_when_criome_is_configured() {
+        let identity = RemoteRouterIdentity::new("router-production");
+        let criome_socket_path = std::path::Path::new("/run/criome/router.sock");
+        let selection = RouterNetworkConfiguration::from_daemon_configuration(
+            None,
+            identity,
+            Some(criome_socket_path),
+        );
+        match selection {
+            Err(Error::CriomeVerifierUnavailable {
+                identity,
+                criome_socket_path: refused_path,
+            }) => {
+                assert_eq!(identity, "router-production");
+                assert_eq!(refused_path, criome_socket_path);
+            }
+            other => panic!(
+                "a criome-configured node must refuse the offline test verifier, got {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn daemon_configuration_uses_offline_verifier_only_without_criome() {
+        let identity = RemoteRouterIdentity::new("router-single-host");
+        let network =
+            RouterNetworkConfiguration::from_daemon_configuration(None, identity.clone(), None)
+                .expect("single-host operation accepts the offline verifier");
+        assert_eq!(network.identity(), &identity);
+        assert!(
+            network.listen_address().is_none(),
+            "no tailnet address configured means single-host operation"
+        );
     }
 }

@@ -101,8 +101,9 @@ pub use schema::daemon::{ComponentDaemon, DaemonCommand, DaemonEntry, DaemonErro
 pub use signal_router::{
     ForwardMarker, ForwardedMessagePayload, GrantDirectMessage,
     InstallStructuralChannels as InstallStructuralChannelsBootstrap, RegisterRemoteRouter,
-    RemoteRouterIdentity, RouterBootstrapOperation, RouterForwardAccepted, RouterForwardRefusalReason,
-    RouterForwardRefused, RouterForwardRequest, RouterPeerAttestation, TailnetAddress,
+    RemoteRouterIdentity, RouterBootstrapOperation, RouterForwardAccepted,
+    RouterForwardRefusalReason, RouterForwardRefused, RouterForwardRequest, RouterPeerAttestation,
+    TailnetAddress,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,

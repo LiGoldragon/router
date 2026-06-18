@@ -17,11 +17,6 @@ use triad_runtime::{
     LengthPrefixedCodec,
 };
 
-use std::sync::Arc;
-
-use signal_router::RemoteRouterIdentity;
-
-use crate::forward_attestation::AcceptFixedTestIdentity;
 use crate::router::RouterNetworkConfiguration;
 use crate::{
     ApplyMetaRouterPolicy, ApplyRouterObservation, ApplySignalMessage, Configuration,
@@ -63,19 +58,21 @@ pub enum RouterDaemonError {
 
 impl RouterEngine {
     pub fn from_configuration(configuration: &Configuration) -> RouterResult<Self> {
-        // Milestone 2: the criome verifier is the offline
-        // accept-fixed-test-identity stand-in keyed on the shared cluster
-        // test identity (a sender's attestation must carry an identity the
-        // receiver admits). Milestone 3 swaps this for a criome client over
-        // `configuration.criome_socket_path()` admitting per-router
-        // cluster-root identities.
-        let network = RouterNetworkConfiguration::new(
+        // The verifier is selected from typed configuration, not
+        // hard-coded. `from_daemon_configuration` installs the offline
+        // accept-fixed-test-identity stand-in ONLY when no
+        // `criome_socket_path` is configured (single-host / offline
+        // operation). When the operator configures a criome socket the
+        // node intends criome-backed attestation, so it refuses to start
+        // until the milestone-3 criome client is built rather than
+        // silently admitting any peer that signs with the shared offline
+        // test identity. This keeps the offline test verifier out of any
+        // production node that names a criome verifier.
+        let network = RouterNetworkConfiguration::from_daemon_configuration(
             configuration.tailnet_listen_address(),
             configuration.router_identity().clone(),
-            Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
-                RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
-            ))),
-        );
+            configuration.criome_socket_path(),
+        )?;
         Ok(Self {
             tables: RouterTables::open(configuration.database_path())?,
             bootstrap: configuration
