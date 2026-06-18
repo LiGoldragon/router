@@ -34,7 +34,7 @@ use signal_message::{
 use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
-use signal_persona::origin::{
+use signal_persona::{
     ComponentName as MindComponentName, ConnectionClass as MindConnectionClass,
     MessageOrigin as MindMessageOrigin,
 };
@@ -556,7 +556,7 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
     assert_eq!(outbox.requests.len(), 1);
     assert_eq!(
         outbox.requests[0].origin,
-        MindMessageOrigin::External(MindConnectionClass::Owner)
+        MindMessageOrigin::local_connection(MindConnectionClass::Owner)
     );
     assert_eq!(outbox.requests[0].kind, ChannelMessageKind::MessageDelivery);
     assert_eq!(outbox.requests[0].body_summary.as_str(), "please answer");
@@ -864,7 +864,7 @@ fn router_tables_persist_channel_and_adjudication_record_values() {
     };
     tables
         .insert_channel(
-            &signal_persona::origin::ChannelIdentifier::new("channel-table"),
+            &signal_persona::ChannelIdentifier::new("channel-table"),
             &grant,
         )
         .expect("channel record persists");
@@ -1099,8 +1099,8 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
     let applied = router
         .apply(RouterInput::ApplyMindChannelGrant(ApplyMindChannelGrant {
             grant: MindChannelGrant {
-                source: ChannelEndpoint::Internal(MindComponentName::Router),
-                destination: ChannelEndpoint::Internal(MindComponentName::Harness),
+                source: ChannelEndpoint::Internal(MindComponentName::new("router")),
+                destination: ChannelEndpoint::Internal(MindComponentName::new("harness")),
                 kinds: vec![ChannelMessageKind::MessageDelivery],
                 duration: ChannelDuration::Permanent,
             },

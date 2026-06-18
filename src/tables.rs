@@ -14,7 +14,7 @@ use sema_engine::{
     VersionedStoreName, VersioningPolicy,
 };
 use signal_message::{MessageOrigin, MessageSlot};
-use signal_persona::origin::ChannelIdentifier;
+use signal_persona::ChannelIdentifier;
 
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
@@ -134,7 +134,7 @@ impl RouterTables {
         channel_identifier: &ChannelIdentifier,
         lifetime: ChannelLifetime,
     ) -> RouterResult<bool> {
-        let channel_key = channel_identifier.as_str();
+        let channel_key = channel_identifier.as_ref();
         let Some(mut channel) = self.channel_record(channel_key)? else {
             return Ok(false);
         };
@@ -150,7 +150,7 @@ impl RouterTables {
         channel_identifier: &ChannelIdentifier,
         status: ChannelStatus,
     ) -> RouterResult<bool> {
-        let channel_key = channel_identifier.as_str();
+        let channel_key = channel_identifier.as_ref();
         let Some(mut channel) = self.channel_record(channel_key)? else {
             return Ok(false);
         };
@@ -357,7 +357,7 @@ pub struct StoredChannelRecord {
 impl StoredChannelRecord {
     fn from_grant(channel_identifier: &ChannelIdentifier, grant: &GrantChannel) -> Self {
         Self {
-            id: channel_identifier.as_str().to_string(),
+            id: channel_identifier.as_ref().to_string(),
             from: grant.from.as_str().to_string(),
             to: grant.to.as_str().to_string(),
             kind: grant.kind,

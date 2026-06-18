@@ -44,7 +44,7 @@ use signal_mind::{
     ChannelEndpoint as MindChannelEndpoint, ChannelMessageKind as MindChannelMessageKind,
     TextBody as MindTextBody,
 };
-use signal_persona::origin::{
+use signal_persona::{
     ChannelIdentifier as OriginChannelIdentifier, ComponentName as OriginComponentName,
     ConnectionClass as OriginConnectionClass,
 };
@@ -1648,7 +1648,7 @@ impl RouterRoot {
                     .map_err(|error| Error::ActorCall(error.to_string()))?
                     .into_result()?;
                 Ok(RouterOutput::ChannelGranted(ChannelGranted {
-                    channel: channel.as_str().to_string(),
+                    channel: channel.as_ref().to_string(),
                 }))
             }
             RouterInput::RetractChannel(input) => {
@@ -1751,7 +1751,7 @@ impl RouterRoot {
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
         Ok(MetaOutput::channel_granted(MetaGrantedChannel::new(
-            meta_signal_router::ChannelIdentifier::new(identifier.as_str().to_string()),
+            meta_signal_router::ChannelIdentifier::new(identifier.as_ref().to_string()),
         )))
     }
 
@@ -3247,46 +3247,33 @@ impl ApplyMindChannelGrant {
 
     fn endpoint_actor_identifier(&self, endpoint: &MindChannelEndpoint) -> ActorIdentifier {
         match endpoint {
-            MindChannelEndpoint::Internal(component) => self.component_actor_identifier(*component),
+            MindChannelEndpoint::Internal(component) => self.component_actor_identifier(component),
             MindChannelEndpoint::External(connection) => {
                 self.connection_actor_identifier(connection)
             }
         }
     }
 
-    fn component_actor_identifier(&self, component: OriginComponentName) -> ActorIdentifier {
-        match component {
-            OriginComponentName::Mind => ActorIdentifier::new("mind"),
-            OriginComponentName::Message => ActorIdentifier::new("message"),
-            OriginComponentName::Router => ActorIdentifier::new("router"),
-            OriginComponentName::Terminal => ActorIdentifier::new("terminal"),
-            OriginComponentName::Harness => ActorIdentifier::new("harness"),
-            OriginComponentName::System => ActorIdentifier::new("system"),
-            OriginComponentName::Introspect => ActorIdentifier::new("introspect"),
-            OriginComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
-            OriginComponentName::Spirit => ActorIdentifier::new("spirit"),
-        }
+    fn component_actor_identifier(&self, component: &OriginComponentName) -> ActorIdentifier {
+        ActorIdentifier::new(component.as_ref())
     }
 
     fn connection_actor_identifier(&self, connection: &OriginConnectionClass) -> ActorIdentifier {
         match connection {
             OriginConnectionClass::Owner => ActorIdentifier::new("owner"),
             OriginConnectionClass::NonOwnerUser(user) => {
-                ActorIdentifier::new(format!("non-owner-user-{}", user.as_u32()))
+                ActorIdentifier::new(format!("non-owner-user-{}", user.payload()))
             }
             OriginConnectionClass::System(principal) => {
-                ActorIdentifier::new(format!("system-{}", principal.as_str()))
+                ActorIdentifier::new(format!("system-{}", principal.as_ref()))
             }
-            OriginConnectionClass::OtherPersona {
-                engine_identifier,
-                host,
-            } => ActorIdentifier::new(format!(
+            OriginConnectionClass::OtherPersona(origin) => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
-                engine_identifier.as_str(),
-                host.as_str()
+                origin.engine_identifier.as_ref(),
+                origin.host.as_ref()
             )),
             OriginConnectionClass::Network(peer) => {
-                ActorIdentifier::new(format!("network-{}", peer.as_str()))
+                ActorIdentifier::new(format!("network-{}", peer.as_ref()))
             }
         }
     }

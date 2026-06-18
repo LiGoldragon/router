@@ -648,7 +648,7 @@ dependencies = [
 [[package]]
 name = "signal-harness"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#b2dcba72b33047957a3b0594d5fcee94fb7e6ebd"
+source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#64642c046d8f5a8b8751dfb627b477c4af54811d"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -672,7 +672,7 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#42cbf6e6cefcfcb03e748a864eeb5424688090c3"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#e97c1419ba0c8854c54d58546000c13a19b9dfd5"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -694,11 +694,12 @@ dependencies = [
 
 [[package]]
 name = "signal-persona"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#5953c8fc98b81e06034ebffbf8bc92d216de4777"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#8c427aadafc90c6c73d364665162f0d896076f7c"
 dependencies = [
  "nota-next",
  "rkyv",
+ "schema-rust-next",
  "signal-frame",
 ]
 

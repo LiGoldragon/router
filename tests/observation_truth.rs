@@ -36,7 +36,7 @@ use signal_message::{
     MessageRecipient, MessageSubmission, Output as SignalOutput, StampedMessageSubmission,
     TimestampNanos as SignalTimestampNanos,
 };
-use signal_persona::origin::ChannelIdentifier as OriginChannelIdentifier;
+use signal_persona::ChannelIdentifier as OriginChannelIdentifier;
 use signal_router::{
     ChannelIdentifier as SignalChannelIdentifier, EngineIdentifier, Frame as SignalRouterFrame,
     FrameBody as SignalRouterFrameBody, Input as SignalRouterInput, MessageSlot,
@@ -779,7 +779,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
         assert!(
             channels_persisted
                 .iter()
-                .any(|record| record.id == channel_identifier.as_str()),
+                .any(|record| record.id == channel_identifier.as_ref()),
             "channel persisted before first-handle drop"
         );
         // Scope ends: `tables_first` drops; the store flock releases.
@@ -796,7 +796,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     assert!(
         restored_channels
             .iter()
-            .any(|record| record.id == channel_identifier.as_str()),
+            .any(|record| record.id == channel_identifier.as_ref()),
         "prior-daemon channel survives the SEMA file reopen"
     );
 
@@ -806,7 +806,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
             engine: engine_identifier(),
-            channel: signal_channel_identifier(channel_identifier.as_str()),
+            channel: signal_channel_identifier(channel_identifier.as_ref()),
         }))
         .await
         .expect("observation plane answers post-restart channel state");
@@ -816,7 +816,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     };
     assert_eq!(
         state.channel,
-        signal_channel_identifier(channel_identifier.as_str())
+        signal_channel_identifier(channel_identifier.as_ref())
     );
     assert_eq!(
         state.status,

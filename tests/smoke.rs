@@ -445,7 +445,7 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
 
     send_supervision_request(
         &mut stream,
-        SupervisionRequest::Announce(Presence {
+        SupervisionRequest::announce(Presence {
             expected_component: SupervisionComponentName::new("router"),
             expected_kind: ComponentKind::Router,
             engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
@@ -457,13 +457,13 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
     assert!(matches!(
         identity,
         SupervisionReply::Identified(identity)
-            if identity.name.as_str() == "router"
-                && identity.kind == ComponentKind::Router
+            if identity.payload().name.as_ref() == "router"
+                && identity.payload().kind == ComponentKind::Router
     ));
 
     send_supervision_request(
         &mut stream,
-        SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(
+        SupervisionRequest::query(SupervisionQuery::ReadinessStatus(
             SupervisionComponentName::new("router"),
         )),
     );
@@ -474,7 +474,7 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
 
     send_supervision_request(
         &mut stream,
-        SupervisionRequest::Query(SupervisionQuery::HealthStatus(
+        SupervisionRequest::query(SupervisionQuery::HealthStatus(
             SupervisionComponentName::new("router"),
         )),
     );
@@ -482,7 +482,7 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
     assert!(matches!(
         health,
         SupervisionReply::HealthReport(report)
-            if report.health == ComponentHealth::Running
+            if *report.payload().payload() == ComponentHealth::Running
     ));
 }
 

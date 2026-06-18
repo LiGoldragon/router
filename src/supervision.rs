@@ -10,7 +10,7 @@ use kameo::message::{Context, Message};
 use signal_frame::{ExchangeIdentifier, NonEmpty, Reply, SubReply};
 use signal_persona::{
     ComponentHealth, ComponentHealthReport, ComponentIdentity, ComponentKind, ComponentName,
-    ComponentReady, EngineManagementProtocolVersion, Presence, StopAcknowledgement,
+    ComponentReady, EngineManagementProtocolVersion, StopAcknowledgement,
 };
 use signal_persona::{
     Frame as SupervisionFrame, FrameBody, Operation as SupervisionRequest,
@@ -111,28 +111,31 @@ impl SupervisionPhase {
     fn reply(&mut self, request: SupervisionRequest) -> SupervisionReply {
         self.request_count = self.request_count.saturating_add(1);
         match request {
-            SupervisionRequest::Announce(Presence { .. }) => {
-                SupervisionReply::Identified(ComponentIdentity {
-                    name: self.profile.name.clone(),
-                    kind: self.profile.kind,
-                    engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
-                    last_fatal_startup_error: None,
-                })
+            SupervisionRequest::Announce(_) => {
+                SupervisionReply::identified(ComponentIdentity::new(
+                    self.profile.name.clone(),
+                    self.profile.kind,
+                    EngineManagementProtocolVersion::new(1),
+                    None,
+                ))
             }
-            SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(_)) => {
-                SupervisionReply::Ready(ComponentReady {
-                    component_started_at: None,
-                })
+            SupervisionRequest::Query(query)
+                if matches!(query.payload(), SupervisionQuery::ReadinessStatus(_)) =>
+            {
+                SupervisionReply::ready(ComponentReady::from_started_at(None))
             }
-            SupervisionRequest::Query(SupervisionQuery::HealthStatus(_)) => {
-                SupervisionReply::HealthReport(ComponentHealthReport {
-                    health: self.profile.health,
-                })
+            SupervisionRequest::Query(query)
+                if matches!(query.payload(), SupervisionQuery::HealthStatus(_)) =>
+            {
+                SupervisionReply::health_report(ComponentHealthReport::new(self.profile.health))
             }
-            SupervisionRequest::Stop(_) => {
-                SupervisionReply::StopAcknowledged(StopAcknowledgement {
-                    drain_completed_at: None,
-                })
+            SupervisionRequest::Stop(_) => SupervisionReply::stop_acknowledged(
+                StopAcknowledgement::from_drain_completed_at(None),
+            ),
+            SupervisionRequest::Query(_) => {
+                SupervisionReply::unimplemented(signal_persona::RequestUnimplemented::new(
+                    signal_persona::UnimplementedReason::NotInPrototypeScope,
+                ))
             }
         }
     }

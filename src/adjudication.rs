@@ -6,12 +6,11 @@ use signal_mind::{
     AdjudicationRequest as MindAdjudicationRequest, AdjudicationRequestIdentifier, ChannelEndpoint,
     ChannelMessageKind, TextBody,
 };
-use signal_persona::origin::{
+use signal_persona::{
     ComponentInstanceName as MindComponentInstanceName, ComponentName as MindComponentName,
-    ConnectionClass as MindConnectionClass, EngineIdentifier as MindEngineIdentifier,
-    HostName as MindHostName,
+    ComponentPrincipal as MindComponentPrincipal, ConnectionClass as MindConnectionClass,
     InternalComponentInstanceOrigin as MindInternalComponentInstanceOrigin,
-    MessageOrigin as MindMessageOrigin, NetworkPeer as MindNetworkPeer,
+    MessageOrigin as MindMessageOrigin, OtherPersonaEngine as MindOtherPersonaEngine,
     SystemPrincipal as MindSystemPrincipal, UnixUserIdentifier as MindUnixUserIdentifier,
 };
 
@@ -40,7 +39,7 @@ impl MindAdjudicationOutbox {
         let request = MindAdjudicationRequest {
             request: AdjudicationRequestIdentifier::new(request.message.id.as_str()),
             origin: MindOrigin::new(&request.origin).to_mind_origin(),
-            destination: ChannelEndpoint::Internal(MindComponentName::Harness),
+            destination: ChannelEndpoint::Internal(MindComponentName::new("harness")),
             kind: ChannelMessageKind::MessageDelivery,
             body_summary: TextBody::new(request.message.body),
         };
@@ -93,33 +92,36 @@ impl<'origin> MindOrigin<'origin> {
     fn to_mind_origin(&self) -> MindMessageOrigin {
         match self.origin {
             MessageOrigin::Internal(component) => {
-                MindMessageOrigin::Internal(self.to_mind_component(*component))
+                MindMessageOrigin::internal(self.to_mind_component_principal(*component))
             }
             MessageOrigin::InternalComponentInstance(origin) => {
-                MindMessageOrigin::InternalComponentInstance(
-                    MindInternalComponentInstanceOrigin::new(
-                        self.to_mind_component(origin.component()),
-                        MindComponentInstanceName::new(origin.instance().as_str()),
-                    ),
+                MindMessageOrigin::internal_component_instance(
+                    MindInternalComponentInstanceOrigin {
+                        component: self.to_mind_component_principal(origin.component()),
+                        instance: MindComponentInstanceName::new(origin.instance().as_str()),
+                    },
                 )
             }
             MessageOrigin::External(connection) => {
-                MindMessageOrigin::External(self.to_mind_connection(connection))
+                MindMessageOrigin::local_connection(self.to_mind_connection(connection))
             }
         }
     }
 
-    fn to_mind_component(&self, component: signal_message::ComponentName) -> MindComponentName {
+    fn to_mind_component_principal(
+        &self,
+        component: signal_message::ComponentName,
+    ) -> MindComponentPrincipal {
         match component {
-            signal_message::ComponentName::Mind => MindComponentName::Mind,
-            signal_message::ComponentName::Message => MindComponentName::Message,
-            signal_message::ComponentName::Router => MindComponentName::Router,
-            signal_message::ComponentName::Terminal => MindComponentName::Terminal,
-            signal_message::ComponentName::Harness => MindComponentName::Harness,
-            signal_message::ComponentName::System => MindComponentName::System,
-            signal_message::ComponentName::Introspect => MindComponentName::Introspect,
-            signal_message::ComponentName::Orchestrate => MindComponentName::Orchestrate,
-            signal_message::ComponentName::Spirit => MindComponentName::Spirit,
+            signal_message::ComponentName::Mind => MindComponentPrincipal::Mind,
+            signal_message::ComponentName::Message => MindComponentPrincipal::Message,
+            signal_message::ComponentName::Router => MindComponentPrincipal::Router,
+            signal_message::ComponentName::Terminal => MindComponentPrincipal::Terminal,
+            signal_message::ComponentName::Harness => MindComponentPrincipal::Harness,
+            signal_message::ComponentName::System => MindComponentPrincipal::System,
+            signal_message::ComponentName::Introspect => MindComponentPrincipal::Introspect,
+            signal_message::ComponentName::Orchestrate => MindComponentPrincipal::Orchestrate,
+            signal_message::ComponentName::Spirit => MindComponentPrincipal::Spirit,
         }
     }
 
@@ -130,19 +132,23 @@ impl<'origin> MindOrigin<'origin> {
         match connection {
             signal_message::ConnectionClass::Owner => MindConnectionClass::Owner,
             signal_message::ConnectionClass::NonOwnerUser(user) => {
-                MindConnectionClass::NonOwnerUser(MindUnixUserIdentifier::new(user.as_u32()))
+                MindConnectionClass::NonOwnerUser(MindUnixUserIdentifier::new(u64::from(
+                    user.as_u32(),
+                )))
             }
             signal_message::ConnectionClass::System(principal) => {
                 MindConnectionClass::System(MindSystemPrincipal::new(principal.as_str()))
             }
             signal_message::ConnectionClass::OtherPersona(origin) => {
-                MindConnectionClass::OtherPersona {
-                    engine_identifier: MindEngineIdentifier::new(origin.engine_identifier.as_str()),
-                    host: MindHostName::new(origin.host.as_str()),
-                }
+                MindConnectionClass::other_persona(MindOtherPersonaEngine {
+                    engine_identifier: signal_persona::EngineIdentifier::new(
+                        origin.engine_identifier.as_str(),
+                    ),
+                    host: signal_persona::HostName::new(origin.host.as_str()),
+                })
             }
             signal_message::ConnectionClass::Network(peer) => {
-                MindConnectionClass::Network(MindNetworkPeer::new(peer.as_str()))
+                MindConnectionClass::network(peer.as_str().to_owned())
             }
         }
     }
