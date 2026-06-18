@@ -15,6 +15,8 @@ pub mod forward_attestation;
 pub mod forward_probe;
 pub mod harness_delivery;
 pub mod harness_registry;
+#[cfg(feature = "nota-text")]
+pub mod harness_witness;
 pub mod message;
 pub mod meta;
 pub mod observation;
@@ -56,22 +58,22 @@ pub use client::{RouterCommand, RouterCommandEnvironment};
 pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
 pub use config::{Configuration, ConfigurationError};
 pub use daemon::{RouterDaemonError, RouterEngine, RouterProcessDaemon};
+pub use delivery::{DeliveryDecision, PendingDelivery};
 #[cfg(feature = "nota-text")]
-pub use deploy_encode::{
-    DeployEncodeError, RouterBootstrapEncoder, RouterConfigurationEncoder,
-};
+pub use deploy_encode::{DeployEncodeError, RouterBootstrapEncoder, RouterConfigurationEncoder};
+pub use error::{Error, RouterResult};
+pub use forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
 #[cfg(feature = "nota-text")]
 pub use forward_probe::{
     ForwardProbeError, ForwardProbeReply, RouterForwardProbe, RouterForwardProbeRequest,
 };
-pub use delivery::{DeliveryDecision, PendingDelivery};
-pub use error::{Error, RouterResult};
-pub use forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
 pub use harness_delivery::{DeliverHarness, HarnessDelivery, HarnessDeliveryOutcome};
 pub use harness_registry::{
     HarnessDeliveryTarget, HarnessRegistration, HarnessRegistry, ReadHarnessDeliveryTarget,
     ReadHarnessRegistryStatus,
 };
+#[cfg(feature = "nota-text")]
+pub use harness_witness::{HarnessWitnessError, RouterHarnessWitness, WitnessedDelivery};
 pub use kameo::actor::ActorRef;
 pub use message::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Message, MessageBody,

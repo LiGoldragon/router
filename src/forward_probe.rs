@@ -102,14 +102,14 @@ impl ProbeAtom {
 
 impl RouterForwardProbeRequest {
     async fn send(&self) -> Result<SignalRouterOutput, ForwardProbeError> {
-        let address =
-            self.peer_address
-                .as_str()
-                .parse::<SocketAddr>()
-                .map_err(|error| ForwardProbeError::PeerAddress {
-                    address: self.peer_address.as_str().to_owned(),
-                    detail: error.to_string(),
-                })?;
+        let address = self
+            .peer_address
+            .as_str()
+            .parse::<SocketAddr>()
+            .map_err(|error| ForwardProbeError::PeerAddress {
+                address: self.peer_address.as_str().to_owned(),
+                detail: error.to_string(),
+            })?;
         let request = self.forward_request();
         let codec = LengthPrefixedCodec::default();
         let mut stream = TcpStream::connect(address).await?;

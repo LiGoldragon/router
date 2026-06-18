@@ -13,9 +13,15 @@
 //!      sends a real `signal-router::ForwardMessage` frame to the receiver's
 //!      ingress and reads the typed reply.
 //!
-//! The three load-bearing assertions:
+//! The load-bearing assertions:
 //!   - a happy `Origin` forward is accepted with a REAL minted slot (`!= 0`),
 //!     the durable peer receipt;
+//!   - that forward is actually DELIVERED to the receiving actor: the
+//!     receiver homes `prometheus-responder` on a `HarnessSocket` endpoint
+//!     bound by this test, and the forwarded message arrives there — the same
+//!     delivery witness the in-process loopback test
+//!     (`tests/end_to_end_remote_forward.rs`) uses, now across an OS process
+//!     boundary, so the test proves delivery and not merely receipt;
 //!   - a second daemon registers the receiver as a remote router via a
 //!     bootstrap document carrying `RegisterRemoteRouter` (the deploy path),
 //!     and its tailnet ingress comes up bound to its own address;
@@ -26,11 +32,19 @@
 //! `criome_socket_path`, so the offline fixed-identity verifier is selected
 //! and admits the probe's offline-identity attestation).
 
+use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use signal_frame::{NonEmpty, Reply, SubReply};
+use signal_harness::{
+    DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
+};
 
 struct NodeFixture {
     directory: PathBuf,
@@ -41,6 +55,7 @@ struct NodeFixture {
     bootstrap_nota: PathBuf,
     bootstrap_rkyv: PathBuf,
     configuration_rkyv: PathBuf,
+    witness_socket: PathBuf,
     identity: String,
     tailnet_port: u16,
 }
@@ -51,8 +66,10 @@ impl NodeFixture {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is after Unix epoch")
             .as_nanos();
-        let directory =
-            std::env::temp_dir().join(format!("router-two-process-{name}-{}-{now}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!(
+            "router-two-process-{name}-{}-{now}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&directory).expect("create node fixture directory");
         Self {
             router_socket: directory.join("router.sock"),
@@ -62,6 +79,7 @@ impl NodeFixture {
             bootstrap_nota: directory.join("router-bootstrap.nota"),
             bootstrap_rkyv: directory.join("router-bootstrap.rkyv"),
             configuration_rkyv: directory.join("router-config.rkyv"),
+            witness_socket: directory.join("responder-witness.sock"),
             identity: identity.to_string(),
             tailnet_port: free_loopback_port(),
             directory,
@@ -70,6 +88,10 @@ impl NodeFixture {
 
     fn tailnet_address(&self) -> String {
         format!("127.0.0.1:{}", self.tailnet_port)
+    }
+
+    fn witness_socket_path(&self) -> String {
+        self.witness_socket.display().to_string()
     }
 
     /// Author the bootstrap NOTA-lines document and seal it to rkyv through the
@@ -142,19 +164,114 @@ impl Drop for DaemonProcess {
     }
 }
 
+/// The actor-harness delivery witness, the cross-process twin of the
+/// in-process `HarnessWitness` in `tests/end_to_end_remote_forward.rs`: the
+/// test process binds the `EndpointKind::HarnessSocket` Unix socket the
+/// receiving daemon's `HarnessDelivery` connects to, accepts one
+/// `signal-harness` `MessageDelivery`, reports it to the test thread, and
+/// replies `DeliveryCompleted` so the daemon's delivery path closes. Proving
+/// the witness receives the delivery proves the forward was DELIVERED to the
+/// receiving actor, not merely accepted with a minted slot.
+struct HarnessWitness {
+    received: Receiver<WitnessedDelivery>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WitnessedDelivery {
+    harness: String,
+    sender: String,
+    body: String,
+}
+
+impl HarnessWitness {
+    fn bind(path: &Path) -> Self {
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+        let listener = UnixListener::bind(path).expect("harness witness socket binds");
+        let (sender, received) = channel();
+        // Accept deliveries in a loop: each `Origin` forward the receiver
+        // accepts is also delivered to this socket, so the witness must serve
+        // every connection the daemon's delivery path opens, not just the
+        // first. The loop ends when the daemon shuts down and the listener
+        // errors, which the test ignores.
+        thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                let frame = read_harness_frame(&mut stream);
+                let HarnessFrameBody::Request { exchange, request } = frame.into_body() else {
+                    panic!("expected harness request frame");
+                };
+                let HarnessRequest::MessageDelivery(delivery) = request.payloads().head().clone()
+                else {
+                    panic!("expected message delivery request");
+                };
+                sender
+                    .send(WitnessedDelivery {
+                        harness: delivery.harness.as_str().to_string(),
+                        sender: delivery.sender.as_str().to_string(),
+                        body: delivery.body.as_str().to_string(),
+                    })
+                    .expect("harness witness reports delivery");
+                let reply = HarnessFrame::new(HarnessFrameBody::Reply {
+                    exchange,
+                    reply: Reply::committed(NonEmpty::single(SubReply::Ok(
+                        HarnessEvent::DeliveryCompleted(DeliveryCompleted {
+                            harness: HarnessName::new(delivery.harness.as_str()),
+                            message_slot: delivery.message_slot,
+                        }),
+                    ))),
+                });
+                stream
+                    .write_all(
+                        reply
+                            .encode_length_prefixed()
+                            .expect("harness witness reply encodes")
+                            .as_slice(),
+                    )
+                    .expect("harness witness writes reply");
+                stream.flush().expect("harness witness flushes reply");
+            }
+        });
+        Self { received }
+    }
+
+    fn received(&self) -> WitnessedDelivery {
+        self.received
+            .recv_timeout(Duration::from_secs(5))
+            .expect("harness witness receives delivery")
+    }
+}
+
+fn read_harness_frame(stream: &mut impl Read) -> HarnessFrame {
+    let mut prefix = [0_u8; 4];
+    stream
+        .read_exact(&mut prefix)
+        .expect("harness witness reads frame prefix");
+    let length = u32::from_be_bytes(prefix) as usize;
+    let mut bytes = Vec::with_capacity(4 + length);
+    bytes.extend_from_slice(&prefix);
+    bytes.resize(4 + length, 0);
+    stream
+        .read_exact(&mut bytes[4..])
+        .expect("harness witness reads frame body");
+    HarnessFrame::decode_length_prefixed(bytes.as_slice()).expect("harness frame decodes")
+}
+
 #[test]
 fn two_router_daemon_processes_forward_over_loopback_with_real_minted_slot_and_loop_guard() {
     // The RECEIVER (prometheus): a tailnet ingress + a bootstrap registering a
-    // local actor `prometheus-responder` and a channel grant for the
-    // probe-stamped sender `message`. The actor is registered with no endpoint
-    // (the probe asserts the ingress accept/refusal, the durable receipt and
-    // the loop guard — the receive path up to delivery policy), so this test is
-    // hermetic without a separate witness daemon.
+    // local actor `prometheus-responder` HOMED ON A REAL `HarnessSocket`
+    // endpoint and a channel grant for the probe-stamped sender `message`. The
+    // endpoint is a Unix socket bound by this test process (the witness), so a
+    // forward the daemon accepts is then DELIVERED to that actor harness — the
+    // test proves delivery, not just the minted-slot receipt.
     let receiver = NodeFixture::new("prometheus", "prometheus-router");
-    receiver.encode_bootstrap(
-        "(RegisterActor ((prometheus-responder 7 None) None))\n\
+    let witness = HarnessWitness::bind(&receiver.witness_socket);
+    receiver.encode_bootstrap(&format!(
+        "(RegisterActor ((prometheus-responder 7 (Some (HarnessSocket {witness} None))) None))\n\
          (GrantDirectMessage (message prometheus-responder))\n",
-    );
+        witness = receiver.witness_socket_path(),
+    ));
     receiver.encode_configuration(true);
     let _receiver_daemon = receiver.spawn_daemon();
 
@@ -184,6 +301,16 @@ fn two_router_daemon_processes_forward_over_loopback_with_real_minted_slot_and_l
         "receiver should return a real minted slot, got {accept_reply:?}"
     );
 
+    // (3) The forward was DELIVERED, not merely accepted: the receiving
+    // daemon resolved `prometheus-responder`'s `HarnessSocket` endpoint and
+    // delivered the message to the witness this test bound. The sender is
+    // `message` — the probe stamps the forward's `from`, and the receiver's
+    // channel grant `(message prometheus-responder)` authorizes it.
+    let delivered = witness.received();
+    assert_eq!(delivered.harness, "prometheus-responder");
+    assert_eq!(delivered.sender, "message");
+    assert_eq!(delivered.body, "relay across the network");
+
     // A distinct nonce, still Origin, still accepted — the receiver keeps
     // minting durable receipts for fresh forwards.
     let second_reply = run_probe(&format!(
@@ -191,7 +318,10 @@ fn two_router_daemon_processes_forward_over_loopback_with_real_minted_slot_and_l
         address = receiver.tailnet_address(),
     ));
     let second_slot = parse_accepted_slot(&second_reply);
-    assert_ne!(second_slot, 0, "second forward slot should be real: {second_reply:?}");
+    assert_ne!(
+        second_slot, 0,
+        "second forward slot should be real: {second_reply:?}"
+    );
 
     // (3) A `Forwarded`-marked frame — an object the wire claims was already
     // forwarded once — is refused with `AlreadyForwarded` by the loop guard,

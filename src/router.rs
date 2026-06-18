@@ -90,7 +90,7 @@ use crate::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
     RouterResult, RouterTables, ThreadIdentifier,
 };
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream as TokioTcpStream;
 use triad_runtime::{
     AcceptedConnection, AsyncConnectionRuntime, FrameBody as RuntimeFrameBody, LengthPrefixedCodec,
@@ -369,6 +369,45 @@ impl TailnetForwardIngress {
         }
     }
 
+    /// Read one inbound forward frame, distinguishing a clean connection
+    /// close at the frame boundary from a genuine framing error.
+    ///
+    /// A peer that opens the ingress and closes it without sending a frame —
+    /// the `nc -z` readiness probe, or a client that finished a previous
+    /// exchange and hung up — produces an end-of-file on the FIRST byte of
+    /// the length prefix, with nothing buffered. That is a normal close, not
+    /// an error, so it must not reach the error log. A peer that sends part
+    /// of a frame and then disappears (a truncated length prefix or a short
+    /// body) is a real mid-frame framing error and is surfaced as such.
+    async fn read_forward_frame(
+        &self,
+        stream: &mut TokioTcpStream,
+    ) -> std::result::Result<IngressFrameRead, RouterDaemonError> {
+        let mut length_bytes = [0_u8; LENGTH_PREFIX_BYTE_COUNT];
+        let mut filled = 0;
+        while filled < LENGTH_PREFIX_BYTE_COUNT {
+            let read = stream.read(&mut length_bytes[filled..]).await?;
+            if read == 0 {
+                if filled == 0 {
+                    // Clean close at the frame boundary: no bytes pending.
+                    return Ok(IngressFrameRead::CleanClose);
+                }
+                // A length prefix that started but never finished is a
+                // genuine truncation, not a clean close.
+                return Err(RouterDaemonError::Frame(triad_runtime::FrameError::Io(
+                    std::io::Error::from(std::io::ErrorKind::UnexpectedEof),
+                )));
+            }
+            filled += read;
+        }
+        let length = u32::from_be_bytes(length_bytes) as usize;
+        let mut body = vec![0_u8; length];
+        // A short body after a complete length prefix is a real framing
+        // error: read_exact surfaces the mid-frame EOF.
+        stream.read_exact(&mut body).await?;
+        Ok(IngressFrameRead::Frame(RuntimeFrameBody::new(body)))
+    }
+
     /// The off-mailbox verification + application step. Returns the typed
     /// `Output` reply to write back: the verifier recovers the
     /// authoritative origin from the attestation (against the payload it
@@ -407,6 +446,22 @@ impl TailnetForwardIngress {
     }
 }
 
+/// The four-byte big-endian length prefix the tailnet ingress frames carry,
+/// mirroring `triad_runtime::LengthPrefixedCodec`'s prefix width. Read out
+/// explicitly here so the ingress can tell a clean boundary close from a
+/// truncated frame, which the codec's `read_body_async` collapses into one
+/// `UnexpectedEof`.
+const LENGTH_PREFIX_BYTE_COUNT: usize = 4;
+
+/// The outcome of reading one inbound frame from a tailnet ingress
+/// connection: either a complete frame body, or a clean close at the frame
+/// boundary (no bytes pending) that is normal and must not be logged.
+#[derive(Debug)]
+enum IngressFrameRead {
+    Frame(RuntimeFrameBody),
+    CleanClose,
+}
+
 impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
     type Error = RouterDaemonError;
 
@@ -414,7 +469,13 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
         &self,
         mut connection: AcceptedConnection<TokioTcpStream>,
     ) -> std::result::Result<(), Self::Error> {
-        let body = self.codec.read_body_async(connection.stream_mut()).await?;
+        let body = match self.read_forward_frame(connection.stream_mut()).await? {
+            IngressFrameRead::Frame(body) => body,
+            // A clean close at the frame boundary (readiness probe, a peer
+            // that hung up after a completed exchange) is normal — return
+            // without writing a reply or logging an error.
+            IngressFrameRead::CleanClose => return Ok(()),
+        };
         let output = match Self::decode_forward_request(body.bytes()) {
             Ok(request) => self.handle_forward(request).await,
             Err(reason) => SignalRouterOutput::forward_refused(reason),
