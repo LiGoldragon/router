@@ -97,6 +97,22 @@ impl RouterEngine {
             .await
     }
 
+    /// Bind the runtime — and with it the tailnet TCP ingress — eagerly at
+    /// daemon startup whenever a `tailnet_listen_address` is configured.
+    ///
+    /// A receive-capable node must be listening on its tailnet ingress the
+    /// moment the daemon reports ready, not lazily on the first Unix-socket
+    /// connection: a peer router forwards to this node's ingress directly, and
+    /// it would otherwise race a never-arriving local poke. A single-host node
+    /// (no tailnet address) keeps the lazy path — its runtime spins up on its
+    /// first working/meta connection as before.
+    async fn ensure_started(&self) -> Result<(), RouterDaemonError> {
+        if self.network.listen_address().is_some() {
+            self.runtime().await?;
+        }
+        Ok(())
+    }
+
     async fn handle_working_connection(
         &self,
         mut connection: AcceptedConnection,
@@ -185,6 +201,18 @@ impl ComponentDaemon for RouterProcessDaemon {
 
     fn build_runtime(configuration: &Self::Configuration) -> Result<Self::Engine, Self::Error> {
         Ok(RouterEngine::from_configuration(configuration)?)
+    }
+
+    /// The lifecycle start hook the emitted daemon calls once before its
+    /// listeners serve. A networked (tailnet-listening) node binds its TCP
+    /// ingress here so it is reachable the instant the daemon reports ready.
+    /// The hook is synchronous but runs inside the daemon's multi-threaded
+    /// tokio runtime, so it drives the async runtime bring-up to completion on
+    /// the current handle before returning.
+    fn start(engine: &Self::Engine) -> Result<(), Self::Error> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(engine.ensure_started())
+        })
     }
 
     async fn handle_working_connection(

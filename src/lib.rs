@@ -7,8 +7,12 @@ pub mod command;
 pub mod config;
 pub mod daemon;
 pub mod delivery;
+#[cfg(feature = "nota-text")]
+pub mod deploy_encode;
 pub mod error;
 pub mod forward_attestation;
+#[cfg(feature = "nota-text")]
+pub mod forward_probe;
 pub mod harness_delivery;
 pub mod harness_registry;
 pub mod message;
@@ -52,6 +56,14 @@ pub use client::{RouterCommand, RouterCommandEnvironment};
 pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
 pub use config::{Configuration, ConfigurationError};
 pub use daemon::{RouterDaemonError, RouterEngine, RouterProcessDaemon};
+#[cfg(feature = "nota-text")]
+pub use deploy_encode::{
+    DeployEncodeError, RouterBootstrapEncoder, RouterConfigurationEncoder,
+};
+#[cfg(feature = "nota-text")]
+pub use forward_probe::{
+    ForwardProbeError, ForwardProbeReply, RouterForwardProbe, RouterForwardProbeRequest,
+};
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, RouterResult};
 pub use forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};

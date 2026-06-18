@@ -34,11 +34,8 @@
           craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
           schemaFilter =
             path: type:
-            (type == "regular" || type == "directory")
-            && (builtins.match ".*/schema(/.*)?" path != null);
-          sourceFilter =
-            path: type:
-            (craneLib.filterCargoSources path type) || (schemaFilter path type);
+            (type == "regular" || type == "directory") && (builtins.match ".*/schema(/.*)?" path != null);
+          sourceFilter = path: type: (craneLib.filterCargoSources path type) || (schemaFilter path type);
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
             filter = sourceFilter;
@@ -131,14 +128,10 @@
               cargoTestExtraArgs = "--features nota-text --test process_boundary meta_router_cli_reaches_policy_socket_and_prints_typed_grant -- --exact";
             }
           );
-          router-runtime-cannot-depend-on-message =
-            context.sourceConstraintCheck "router-runtime-cannot-depend-on-message" ./scripts/router-runtime-cannot-depend-on-message;
-          router-runtime-cannot-depend-on-terminal-crates =
-            context.sourceConstraintCheck "router-runtime-cannot-depend-on-terminal-crates" ./scripts/router-runtime-cannot-depend-on-terminal-crates;
-          router-runtime-cannot-poll =
-            context.sourceConstraintCheck "router-runtime-cannot-poll" ./scripts/router-runtime-cannot-poll;
-          router-runtime-cannot-reference-retired-terminal-brand =
-            context.sourceConstraintCheck "router-runtime-cannot-reference-retired-terminal-brand" ./scripts/router-runtime-cannot-reference-retired-terminal-brand;
+          router-runtime-cannot-depend-on-message = context.sourceConstraintCheck "router-runtime-cannot-depend-on-message" ./scripts/router-runtime-cannot-depend-on-message;
+          router-runtime-cannot-depend-on-terminal-crates = context.sourceConstraintCheck "router-runtime-cannot-depend-on-terminal-crates" ./scripts/router-runtime-cannot-depend-on-terminal-crates;
+          router-runtime-cannot-poll = context.sourceConstraintCheck "router-runtime-cannot-poll" ./scripts/router-runtime-cannot-poll;
+          router-runtime-cannot-reference-retired-terminal-brand = context.sourceConstraintCheck "router-runtime-cannot-reference-retired-terminal-brand" ./scripts/router-runtime-cannot-reference-retired-terminal-brand;
           router-daemon-accepts-signal-message-only = context.craneLib.cargoTest (
             context.commonArgs
             // {
@@ -293,13 +286,15 @@
               cargoTestExtraArgs = "--test observation_truth router_channel_state_query_reads_router_tables -- --exact";
             }
           );
-          router-channel-state-query-without-tables-reports-router-store-unavailable = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test observation_truth router_channel_state_query_without_tables_reports_router_store_unavailable -- --exact";
-            }
-          );
+          router-channel-state-query-without-tables-reports-router-store-unavailable =
+            context.craneLib.cargoTest
+              (
+                context.commonArgs
+                // {
+                  inherit (context) cargoArtifacts;
+                  cargoTestExtraArgs = "--test observation_truth router_channel_state_query_without_tables_reports_router_store_unavailable -- --exact";
+                }
+              );
           router-observation-path-cannot-bypass-router-root-facts = context.craneLib.cargoTest (
             context.commonArgs
             // {
@@ -321,8 +316,29 @@
               cargoTestExtraArgs = "--test end_to_end_remote_forward message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_locally -- --exact";
             }
           );
+          # Rung L1 prerequisite, no KVM: two real `router-daemon` OS processes
+          # over loopback TCP exercising the deploy NOTA->rkyv encoders + the
+          # forward probe (the same machinery the two-kernel nixosTest wires).
+          router-two-process-transport-artifacts = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features nota-text --test two_process_transport_artifacts -- --exact";
+            }
+          );
+          # Rung L1 (report 136): the router cross-host transport across TWO
+          # REAL NixOS guests over REAL VM networking. Needs /dev/kvm; the
+          # driver builds and evaluates everywhere, and runs under a KVM host.
+          router-two-kernel-cross-host-transport = import ./nix/tests/two-kernel-transport.nix {
+            inherit (context) pkgs;
+            daemonPackage = self.packages.${system}.default;
+            encoderPackage = self.packages.${system}.text;
+            messageRouterModule = self.nixosModules.messageRouter;
+          };
         }
       );
+
+      nixosModules.messageRouter = import ./nix/modules/message-router.nix;
 
       apps = forSystems (system: {
         default = {
