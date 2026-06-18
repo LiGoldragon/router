@@ -13,7 +13,10 @@ use signal_harness::{
     HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest, MessageBody,
     MessageDelivery, MessageSender, MessageSlot,
 };
-use signal_router::RoutedContractObject;
+use signal_router::{
+    EndpointKind as SignalRouterEndpointKind, EndpointTransport as SignalRouterEndpointTransport,
+    ObjectAvailable, Output as SignalRouterOutput, RoutedContractObject,
+};
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 use crate::{Actor, EndpointKind, Error, Message, RouterResult};
@@ -136,13 +139,39 @@ impl HarnessDelivery {
         }
         for object in routed_objects {
             let octets = Self::object_payload_octets(object)?;
-            let mut stream = UnixStream::connect(Path::new(path))?;
-            let codec = LengthPrefixedCodec::default();
-            codec.write_body(&mut stream, &FrameBody::new(octets))?;
-            stream.flush()?;
-            let _reply = codec.read_body(&mut stream)?;
+            Self::write_component_socket_body(path, octets)?;
         }
         Ok(true)
+    }
+
+    /// The generalized component-socket writer: connect the endpoint's Unix
+    /// socket, write one `LengthPrefixedCodec` `FrameBody` of the given octets,
+    /// and read the component's reply body. The routed-object delivery and the
+    /// attendance fan-out (`Output::ObjectAvailable`) share this verbatim —
+    /// only the body bytes differ.
+    fn write_component_socket_body(path: &str, octets: Vec<u8>) -> RouterResult<bool> {
+        let mut stream = UnixStream::connect(Path::new(path))?;
+        let codec = LengthPrefixedCodec::default();
+        codec.write_body(&mut stream, &FrameBody::new(octets))?;
+        stream.flush()?;
+        let _reply = codec.read_body(&mut stream)?;
+        Ok(true)
+    }
+
+    /// Push one reference (`Output::ObjectAvailable`) to an attender's
+    /// ComponentSocket. The body is the rkyv-encoded signal-router `Output` the
+    /// attender's ComponentSocket reader decodes — the same length-prefixed
+    /// shape `write_component_socket_body` writes for routed objects. Carries
+    /// the REFERENCE octets, never the object payload (m0p2).
+    fn push_object_available(
+        endpoint: &SignalRouterEndpointTransport,
+        push: &ObjectAvailable,
+    ) -> RouterResult<bool> {
+        if endpoint.kind != SignalRouterEndpointKind::ComponentSocket {
+            return Ok(false);
+        }
+        let body = SignalRouterOutput::ObjectAvailable(push.clone()).encode_signal_frame()?;
+        Self::write_component_socket_body(endpoint.target.as_str(), body)
     }
 
     fn object_payload_octets(object: &RoutedContractObject) -> RouterResult<Vec<u8>> {
@@ -224,6 +253,44 @@ impl kameo::message::Message<DeliverHarness> for HarnessDelivery {
                     message.message_slot,
                     &message.routed_objects,
                 )
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))
+            .and_then(|result| result);
+            HarnessDeliveryOutcome::from_result(result)
+        })
+    }
+}
+
+/// The attendance fan-out push: one `Output::ObjectAvailable` reference written
+/// to an attender's ComponentSocket. Reuses the existing component-socket writer
+/// the routed-object delivery uses; only the body bytes change (the rkyv
+/// `Output` instead of routed-object octets).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliverComponentReference {
+    pub endpoint: SignalRouterEndpointTransport,
+    pub push: ObjectAvailable,
+}
+
+impl DeliverComponentReference {
+    pub fn new(endpoint: SignalRouterEndpointTransport, push: ObjectAvailable) -> Self {
+        Self { endpoint, push }
+    }
+}
+
+impl kameo::message::Message<DeliverComponentReference> for HarnessDelivery {
+    type Reply = DelegatedReply<HarnessDeliveryOutcome>;
+
+    async fn handle(
+        &mut self,
+        message: DeliverComponentReference,
+        context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.attempted_delivery_count = self.attempted_delivery_count.saturating_add(1);
+        self.delegated_delivery_count = self.delegated_delivery_count.saturating_add(1);
+        context.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                HarnessDelivery::push_object_available(&message.endpoint, &message.push)
             })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))

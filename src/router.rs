@@ -80,8 +80,8 @@ use crate::harness_registry::{
     RegisterHarness,
 };
 use crate::observation::{
-    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
-    RouterObservationPlane, RouterObservationPlaneStatus,
+    ApplyRouterObservation, FanOutAdmittedObject, FanOutOutcome, ReadRouterObservationPlaneStatus,
+    RouterObservationOutcome, RouterObservationPlane, RouterObservationPlaneStatus,
 };
 use crate::peer_delivery::{DeliverRemote, RouterPeerDelivery};
 use crate::remote_router::{
@@ -1102,6 +1102,8 @@ impl RouterRuntime {
         root.wait_for_startup().await;
         let observation = RouterObservationPlane::spawn(RouterObservationPlane::new(
             root.clone(),
+            registry.clone(),
+            delivery.clone(),
             self.tables.clone(),
         ));
         observation.wait_for_startup().await;
@@ -1460,6 +1462,25 @@ impl kameo::message::Message<ApplyRouterObservation> for RouterRuntime {
     }
 }
 
+impl kameo::message::Message<FanOutAdmittedObject> for RouterRuntime {
+    type Reply = FanOutOutcome;
+
+    async fn handle(
+        &mut self,
+        message: FanOutAdmittedObject,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.applied_input_count = self.applied_input_count.saturating_add(1);
+        match self.observation() {
+            Ok(observation) => match observation.ask(message).await {
+                Ok(outcome) => outcome,
+                Err(error) => FanOutOutcome::failed(Error::ActorCall(error.to_string())),
+            },
+            Err(error) => FanOutOutcome::failed(error),
+        }
+    }
+}
+
 impl kameo::message::Message<ApplyForwardedMessage> for RouterRuntime {
     type Reply = ForwardedMessageOutcome;
 
@@ -1543,12 +1564,18 @@ impl kameo::message::Message<ReadRouterObservationPlaneStatus> for RouterRuntime
                         summary_query_count: 0,
                         message_trace_query_count: 0,
                         channel_state_query_count: 0,
+                        attendance_open_count: 0,
+                        attendance_close_count: 0,
+                        object_available_push_count: 0,
                     })
             }
             Err(_) => RouterObservationPlaneStatus {
                 summary_query_count: 0,
                 message_trace_query_count: 0,
                 channel_state_query_count: 0,
+                attendance_open_count: 0,
+                attendance_close_count: 0,
+                object_available_push_count: 0,
             },
         }
     }

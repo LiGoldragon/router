@@ -813,6 +813,7 @@ fn router_tables_register_engine_families_and_advance_commit_sequence() {
         table_names,
         [
             "adjudication_pending",
+            "attendance",
             "channels",
             "delivery_attempts",
             "delivery_results",

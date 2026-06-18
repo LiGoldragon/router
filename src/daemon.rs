@@ -69,6 +69,15 @@ impl RouterEngine {
         // receiver admits). Milestone 3 swaps this for a criome client over
         // `configuration.criome_socket_path()` admitting per-router
         // cluster-root identities.
+        //
+        // The same criome-client seam carries the attendance fan-out ingress:
+        // the router subscribes to ALL `AuthorizedObjectUpdate`s (router-sole —
+        // criome does no matching), and for each admitted object dispatches a
+        // `FanOutAdmittedObject { reference }` to the observation plane, which
+        // matches it against open attendances and pushes `ObjectAvailable` to
+        // each. Until that client lands, `FanOutAdmittedObject` is the direct
+        // entry point the tests exercise; the match-and-push step itself is
+        // complete and durable.
         let network = RouterNetworkConfiguration::new(
             configuration.tailnet_listen_address(),
             configuration.router_identity().clone(),

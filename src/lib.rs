@@ -55,7 +55,9 @@ pub use daemon::{RouterDaemonError, RouterEngine, RouterProcessDaemon};
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, RouterResult};
 pub use forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
-pub use harness_delivery::{DeliverHarness, HarnessDelivery, HarnessDeliveryOutcome};
+pub use harness_delivery::{
+    DeliverComponentReference, DeliverHarness, HarnessDelivery, HarnessDeliveryOutcome,
+};
 pub use harness_registry::{
     HarnessDeliveryTarget, HarnessRegistration, HarnessRegistry, ReadHarnessDeliveryTarget,
     ReadHarnessRegistryStatus,
@@ -69,8 +71,8 @@ pub use meta::{MetaRouterClient, MetaRouterEndpoint};
 #[cfg(feature = "nota-text")]
 pub use meta::{MetaRouterCommand, MetaRouterCommandEnvironment};
 pub use observation::{
-    ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
-    RouterObservationPlane, RouterObservationPlaneStatus,
+    ApplyRouterObservation, FanOutAdmittedObject, FanOutOutcome, ReadRouterObservationPlaneStatus,
+    RouterObservationOutcome, RouterObservationPlane, RouterObservationPlaneStatus,
 };
 pub use peer_delivery::{
     DeliverRemote, ReadRouterPeerDeliveryStatus, RemoteDeliveryOutcome, RemoteForwardOutcome,
@@ -109,6 +111,6 @@ pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 pub use tables::{
-    RouterTables, StoredAdjudicationRequest, StoredChannelRecord, StoredDeliveryAttempt,
-    StoredDeliveryResult, StoredMessageRecord,
+    RouterTables, StoredAdjudicationRequest, StoredAttendanceRecord, StoredChannelRecord,
+    StoredDeliveryAttempt, StoredDeliveryResult, StoredMessageRecord,
 };

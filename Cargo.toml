@@ -32,6 +32,7 @@ path = "src/bin/router_write_configuration.rs"
 required-features = ["nota-text"]
 
 [dependencies]
+blake3                = "1"
 kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
 nota-next             = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
@@ -42,14 +43,22 @@ signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git
 signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
+# Feature branch pins signal-router to the COMPAT branch: that branch carries
+# ONLY the additive Attend/Withdraw surface on top of the schema commit router
+# already builds against (e36e773), so router compiles without absorbing the
+# unrelated signal-router field-label migration the operator owns. The canonical
+# additions live on signal-router branch attendance-fanout-139 (based on
+# signal-router/main); operator rebases this onto router/main once router/main
+# integrates the latest signal-router contract, then flips both deps to "main".
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "attendance-fanout-139-compat", default-features = false }
+signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "attendance-fanout-139", default-features = false }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 
 [features]
 default = []
-nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
+nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text", "signal-standard/nota-text"]
 
 [build-dependencies]
 schema-rust-next = { git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }

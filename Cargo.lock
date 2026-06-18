@@ -489,6 +489,7 @@ dependencies = [
 name = "router"
 version = "0.4.1"
 dependencies = [
+ "blake3",
  "kameo",
  "meta-signal-router",
  "nota-next",
@@ -502,6 +503,7 @@ dependencies = [
  "signal-mirror",
  "signal-persona",
  "signal-router",
+ "signal-standard",
  "thiserror",
  "tokio",
  "triad-runtime",
@@ -706,12 +708,13 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#e36e773d165d0a996208b7702d14416c559539c6"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=attendance-fanout-139-compat#cfbf6438ba8e87158fe8c7b8429379ae670f637c"
 dependencies = [
  "nota-next",
  "rkyv",
  "schema-rust-next",
  "signal-frame",
+ "signal-standard",
  "thiserror",
 ]
 
@@ -721,6 +724,17 @@ version = "0.2.0"
 source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#bdd7fe369952cb51e4476f201a3419ae5b35d444"
 dependencies = [
  "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "signal-standard"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-standard.git?branch=attendance-fanout-139#8befd44ec3545278ee8748efa9a3955fb1ce7a73"
+dependencies = [
+ "nota-next",
+ "rkyv",
+ "schema-rust-next",
  "thiserror",
 ]
 
