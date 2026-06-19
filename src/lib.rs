@@ -1,5 +1,6 @@
 pub mod adjudication;
 pub mod authorized_object;
+pub mod authorized_object_projection;
 pub mod channel;
 #[cfg(feature = "nota-text")]
 pub mod cli_argument;
@@ -42,6 +43,7 @@ pub use authorized_object::{
     AuthorizedObjectFanoutStatus, AuthorizedObjectPublication, PublishAuthorizedObjectReference,
     ReadAuthorizedObjectFanoutStatus, WithdrawAuthorizedObjects,
 };
+pub use authorized_object_projection::StandardReference;
 pub use channel::{
     AdjudicationRequest, ChannelAdjudicationClearOutcome, ChannelAuthority,
     ChannelAuthoritySnapshot, ChannelCheckOutcome, ChannelClock, ChannelClockSnapshot,

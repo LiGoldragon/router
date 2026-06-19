@@ -1,6 +1,6 @@
 use router::{
     ActorIdentifier, AttendAuthorizedObjects, PublishAuthorizedObjectReference,
-    ReadAuthorizedObjectFanoutStatus, RouterRuntime, WithdrawAuthorizedObjects,
+    ReadAuthorizedObjectFanoutStatus, RouterRuntime, StandardReference, WithdrawAuthorizedObjects,
 };
 use signal_standard::{
     AuthorizedObjectInterest, AuthorizedObjectKind, AuthorizedObjectReference,
@@ -169,74 +169,4 @@ async fn criome_reference_projects_to_router_reference_only_pulse() {
         .await
         .expect("router runtime stops gracefully");
     router.wait_for_shutdown().await;
-}
-
-struct StandardReference {
-    inner: AuthorizedObjectReference,
-}
-
-impl StandardReference {
-    fn into_inner(self) -> AuthorizedObjectReference {
-        self.inner
-    }
-}
-
-impl From<signal_criome::AuthorizedObjectReference> for StandardReference {
-    fn from(reference: signal_criome::AuthorizedObjectReference) -> Self {
-        Self {
-            inner: AuthorizedObjectReference::new(
-                StandardComponentKind::from(reference.component).into_inner(),
-                ObjectDigest::new(reference.digest.as_str()),
-                StandardAuthorizedObjectKind::from(reference.kind).into_inner(),
-            ),
-        }
-    }
-}
-
-struct StandardComponentKind {
-    inner: signal_standard::ComponentKind,
-}
-
-impl StandardComponentKind {
-    fn into_inner(self) -> signal_standard::ComponentKind {
-        self.inner
-    }
-}
-
-impl From<signal_criome::ComponentKind> for StandardComponentKind {
-    fn from(component: signal_criome::ComponentKind) -> Self {
-        let inner = match component {
-            signal_criome::ComponentKind::Spirit => signal_standard::ComponentKind::Spirit,
-            signal_criome::ComponentKind::Criome => signal_standard::ComponentKind::Criome,
-            signal_criome::ComponentKind::Router => signal_standard::ComponentKind::Router,
-            signal_criome::ComponentKind::Mirror => signal_standard::ComponentKind::Mirror,
-            signal_criome::ComponentKind::Lojix => signal_standard::ComponentKind::Lojix,
-            signal_criome::ComponentKind::Persona => signal_standard::ComponentKind::Persona,
-            signal_criome::ComponentKind::Agent => signal_standard::ComponentKind::Agent,
-        };
-        Self { inner }
-    }
-}
-
-struct StandardAuthorizedObjectKind {
-    inner: AuthorizedObjectKind,
-}
-
-impl StandardAuthorizedObjectKind {
-    fn into_inner(self) -> AuthorizedObjectKind {
-        self.inner
-    }
-}
-
-impl From<signal_criome::AuthorizedObjectKind> for StandardAuthorizedObjectKind {
-    fn from(kind: signal_criome::AuthorizedObjectKind) -> Self {
-        let inner = match kind {
-            signal_criome::AuthorizedObjectKind::Operation => AuthorizedObjectKind::Operation,
-            signal_criome::AuthorizedObjectKind::Contract => AuthorizedObjectKind::Contract,
-            signal_criome::AuthorizedObjectKind::Agreement => AuthorizedObjectKind::Agreement,
-            signal_criome::AuthorizedObjectKind::Time => AuthorizedObjectKind::Time,
-            signal_criome::AuthorizedObjectKind::Head => AuthorizedObjectKind::Head,
-        };
-        Self { inner }
-    }
 }
