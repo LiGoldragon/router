@@ -335,6 +335,18 @@
             encoderPackage = self.packages.${system}.text;
             messageRouterModule = self.nixosModules.messageRouter;
           };
+          # Rung L2 (report 136): the L1 cross-host transport, but the two
+          # routers forward over a REAL YGGDRASIL MESH between the two guests —
+          # routed static mesh peers, the receiver ingress bound on its
+          # deterministic 200::/7 ygg address, the forward dialed over ygg0.
+          # Needs /dev/kvm; the driver builds and evaluates everywhere, and runs
+          # under a KVM host. Keeps the L1 eth1-bridge check intact.
+          router-two-kernel-yggdrasil-transport = import ./nix/tests/two-kernel-transport-yggdrasil.nix {
+            inherit (context) pkgs;
+            daemonPackage = self.packages.${system}.default;
+            encoderPackage = self.packages.${system}.text;
+            messageRouterModule = self.nixosModules.messageRouter;
+          };
         }
       );
 
