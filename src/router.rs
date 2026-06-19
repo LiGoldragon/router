@@ -63,6 +63,12 @@ use crate::adjudication::{
     ClearMindAdjudication, MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot,
     ReadMindAdjudicationOutbox, RecordMindAdjudication,
 };
+use crate::authorized_object::{
+    AttendAuthorizedObjects, AuthorizedObjectAttendanceSnapshot,
+    AuthorizedObjectAttendanceWithdrawn, AuthorizedObjectFanout, AuthorizedObjectFanoutStatus,
+    AuthorizedObjectPublication, PublishAuthorizedObjectReference, ReadAuthorizedObjectFanoutStatus,
+    WithdrawAuthorizedObjects,
+};
 use crate::channel::{
     ChannelAuthority, ChannelDecision, ChannelEpochSeconds, ChannelLifetime,
     ChannelPersistenceSnapshot, CheckChannel, ClearAdjudicationRequest, EngineStructuralChannels,
@@ -1014,6 +1020,7 @@ pub struct RouterRuntime {
     observation: Option<ActorRef<RouterObservationPlane>>,
     remote_routers: Option<ActorRef<RemoteRouterRegistry>>,
     peer_delivery: Option<ActorRef<RouterPeerDelivery>>,
+    authorized_objects: Option<ActorRef<AuthorizedObjectFanout>>,
     tables: Option<RouterTables>,
     network: RouterNetworkConfiguration,
     admission_window: ForwardAdmissionWindow,
@@ -1062,6 +1069,7 @@ impl RouterRuntime {
             observation: None,
             remote_routers: None,
             peer_delivery: None,
+            authorized_objects: None,
             tables,
             network,
             admission_window: ForwardAdmissionWindow::live_default(),
@@ -1090,6 +1098,8 @@ impl RouterRuntime {
         let peer_delivery =
             RouterPeerDelivery::spawn(RouterPeerDelivery::new(self.network.verifier()));
         peer_delivery.wait_for_startup().await;
+        let authorized_objects = AuthorizedObjectFanout::spawn(AuthorizedObjectFanout::new());
+        authorized_objects.wait_for_startup().await;
         let root = RouterRoot::spawn(RouterRoot::new(
             registry.clone(),
             delivery.clone(),
@@ -1113,7 +1123,8 @@ impl RouterRuntime {
         self.observation = Some(observation);
         self.remote_routers = Some(remote_routers);
         self.peer_delivery = Some(peer_delivery);
-        self.started_child_count = 8;
+        self.authorized_objects = Some(authorized_objects);
+        self.started_child_count = 9;
     }
 
     /// Eagerly bind the tailnet TCP ingress around this runtime's own
@@ -1190,9 +1201,21 @@ impl RouterRuntime {
             })
     }
 
+    fn authorized_objects(&self) -> RouterResult<&ActorRef<AuthorizedObjectFanout>> {
+        self.authorized_objects
+            .as_ref()
+            .ok_or(Error::RuntimeChildNotStarted {
+                child: "AuthorizedObjectFanout",
+            })
+    }
+
     async fn stop_children(&mut self) {
         if let Some(task) = self.tailnet_listener_task.take() {
             task.abort();
+        }
+        if let Some(authorized_objects) = self.authorized_objects.take() {
+            let _ = authorized_objects.stop_gracefully().await;
+            authorized_objects.wait_for_shutdown().await;
         }
         if let Some(peer_delivery) = self.peer_delivery.take() {
             let _ = peer_delivery.stop_gracefully().await;
@@ -1549,6 +1572,79 @@ impl kameo::message::Message<ReadRouterObservationPlaneStatus> for RouterRuntime
                 summary_query_count: 0,
                 message_trace_query_count: 0,
                 channel_state_query_count: 0,
+            },
+        }
+    }
+}
+
+impl kameo::message::Message<AttendAuthorizedObjects> for RouterRuntime {
+    type Reply = RouterResult<AuthorizedObjectAttendanceSnapshot>;
+
+    async fn handle(
+        &mut self,
+        message: AttendAuthorizedObjects,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.authorized_objects()?
+            .ask(message)
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))
+    }
+}
+
+impl kameo::message::Message<WithdrawAuthorizedObjects> for RouterRuntime {
+    type Reply = RouterResult<AuthorizedObjectAttendanceWithdrawn>;
+
+    async fn handle(
+        &mut self,
+        message: WithdrawAuthorizedObjects,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.authorized_objects()?
+            .ask(message)
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))
+    }
+}
+
+impl kameo::message::Message<PublishAuthorizedObjectReference> for RouterRuntime {
+    type Reply = RouterResult<AuthorizedObjectPublication>;
+
+    async fn handle(
+        &mut self,
+        message: PublishAuthorizedObjectReference,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.authorized_objects()?
+            .ask(message)
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))
+    }
+}
+
+impl kameo::message::Message<ReadAuthorizedObjectFanoutStatus> for RouterRuntime {
+    type Reply = AuthorizedObjectFanoutStatus;
+
+    async fn handle(
+        &mut self,
+        message: ReadAuthorizedObjectFanoutStatus,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self.authorized_objects() {
+            Ok(authorized_objects) => {
+                authorized_objects
+                    .ask(message)
+                    .await
+                    .unwrap_or(AuthorizedObjectFanoutStatus {
+                        subscription_count: 0,
+                        update_count: 0,
+                        delivery_count: 0,
+                    })
+            }
+            Err(_) => AuthorizedObjectFanoutStatus {
+                subscription_count: 0,
+                update_count: 0,
+                delivery_count: 0,
             },
         }
     }

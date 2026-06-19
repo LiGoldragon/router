@@ -1,4 +1,5 @@
 pub mod adjudication;
+pub mod authorized_object;
 pub mod channel;
 #[cfg(feature = "nota-text")]
 pub mod cli_argument;
@@ -34,6 +35,12 @@ pub mod schema {
 pub use adjudication::{
     MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot, MindAdjudicationReceipt,
     ReadMindAdjudicationOutbox, RecordMindAdjudication,
+};
+pub use authorized_object::{
+    AttendAuthorizedObjects, AuthorizedObjectAttendanceSnapshot, AuthorizedObjectAttendanceToken,
+    AuthorizedObjectAttendanceWithdrawn, AuthorizedObjectDelivery, AuthorizedObjectFanout,
+    AuthorizedObjectFanoutStatus, AuthorizedObjectPublication, PublishAuthorizedObjectReference,
+    ReadAuthorizedObjectFanoutStatus, WithdrawAuthorizedObjects,
 };
 pub use channel::{
     AdjudicationRequest, ChannelAdjudicationClearOutcome, ChannelAuthority,
