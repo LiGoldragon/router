@@ -32,7 +32,7 @@ path = "src/bin/router_write_configuration.rs"
 required-features = ["nota-text"]
 
 [dependencies]
-kameo                 = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
+kameo                 = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
 nota-next             = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
@@ -63,3 +63,6 @@ signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", bran
 unsafe_code = "forbid"
 unused = { level = "warn", priority = -1 }
 dead_code = "warn"
+
+[patch.crates-io]
+kameo = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main" }
