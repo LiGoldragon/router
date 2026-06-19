@@ -10,8 +10,10 @@ use signal_standard::{
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authorized_object_fanout_delivers_reference_only_updates_to_matching_subscribers() {
     let router = RouterRuntime::start().await;
-    let mentci_interest = AuthorizedObjectInterest::Component(signal_standard::ComponentKind::Criome);
-    let mirror_interest = AuthorizedObjectInterest::Component(signal_standard::ComponentKind::Mirror);
+    let mentci_interest =
+        AuthorizedObjectInterest::Component(signal_standard::ComponentKind::Criome);
+    let mirror_interest =
+        AuthorizedObjectInterest::Component(signal_standard::ComponentKind::Mirror);
 
     let mentci = router
         .ask(AttendAuthorizedObjects {
@@ -127,20 +129,20 @@ async fn criome_reference_projects_to_router_reference_only_pulse() {
     let router = RouterRuntime::start().await;
     let subscriber = router
         .ask(AttendAuthorizedObjects {
-            subscriber: ActorIdentifier::new("mentci-cli"),
+            subscriber: ActorIdentifier::new("spirit-replica"),
             interest: AuthorizedObjectInterest::ComponentObject(ComponentObjectInterest::new(
-                signal_standard::ComponentKind::Criome,
-                AuthorizedObjectKind::Contract,
+                signal_standard::ComponentKind::Spirit,
+                AuthorizedObjectKind::Head,
             )),
         })
         .await
-        .expect("router actor accepts mentci attendance");
+        .expect("router actor accepts spirit attendance");
     assert!(subscriber.references.is_empty());
 
     let criome_reference = signal_criome::AuthorizedObjectReference {
-        component: signal_criome::ComponentKind::Criome,
-        digest: signal_criome::ObjectDigest::new("criome-contract-digest"),
-        kind: signal_criome::AuthorizedObjectKind::Contract,
+        component: signal_criome::ComponentKind::Spirit,
+        digest: signal_criome::ObjectDigest::new("spirit-head-digest"),
+        kind: signal_criome::AuthorizedObjectKind::Head,
     };
     let publication = router
         .ask(PublishAuthorizedObjectReference {
@@ -152,15 +154,15 @@ async fn criome_reference_projects_to_router_reference_only_pulse() {
     assert_eq!(publication.deliveries.len(), 1);
     assert_eq!(
         publication.deliveries[0].subscriber,
-        ActorIdentifier::new("mentci-cli")
+        ActorIdentifier::new("spirit-replica")
     );
     assert_eq!(
         publication.deliveries[0].reference.digest.as_str(),
-        "criome-contract-digest"
+        "spirit-head-digest"
     );
     assert_eq!(
         publication.deliveries[0].reference.kind,
-        AuthorizedObjectKind::Contract
+        AuthorizedObjectKind::Head
     );
     router
         .stop_gracefully()
@@ -233,6 +235,7 @@ impl From<signal_criome::AuthorizedObjectKind> for StandardAuthorizedObjectKind 
             signal_criome::AuthorizedObjectKind::Contract => AuthorizedObjectKind::Contract,
             signal_criome::AuthorizedObjectKind::Agreement => AuthorizedObjectKind::Agreement,
             signal_criome::AuthorizedObjectKind::Time => AuthorizedObjectKind::Time,
+            signal_criome::AuthorizedObjectKind::Head => AuthorizedObjectKind::Head,
         };
         Self { inner }
     }

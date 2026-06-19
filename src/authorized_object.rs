@@ -78,7 +78,10 @@ impl AuthorizedObjectFanout {
         }
     }
 
-    fn attend(&mut self, attendance: AttendAuthorizedObjects) -> AuthorizedObjectAttendanceSnapshot {
+    fn attend(
+        &mut self,
+        attendance: AttendAuthorizedObjects,
+    ) -> AuthorizedObjectAttendanceSnapshot {
         let token = AuthorizedObjectAttendanceToken {
             subscriber: attendance.subscriber,
             interest: attendance.interest,

@@ -66,8 +66,8 @@ use crate::adjudication::{
 use crate::authorized_object::{
     AttendAuthorizedObjects, AuthorizedObjectAttendanceSnapshot,
     AuthorizedObjectAttendanceWithdrawn, AuthorizedObjectFanout, AuthorizedObjectFanoutStatus,
-    AuthorizedObjectPublication, PublishAuthorizedObjectReference, ReadAuthorizedObjectFanoutStatus,
-    WithdrawAuthorizedObjects,
+    AuthorizedObjectPublication, PublishAuthorizedObjectReference,
+    ReadAuthorizedObjectFanoutStatus, WithdrawAuthorizedObjects,
 };
 use crate::channel::{
     ChannelAuthority, ChannelDecision, ChannelEpochSeconds, ChannelLifetime,
