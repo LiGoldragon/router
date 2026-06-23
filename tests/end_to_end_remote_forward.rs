@@ -268,11 +268,11 @@ fn direct_forward_request_with_objects(
     let attestation =
         router::ForwardAttestationVerifier::attest(&verifier, &payload, &nonce, issued_at.clone());
     signal_router::RouterForwardRequest {
-        submission: payload,
-        attestation,
-        forwarded: signal_router::ForwardMarker::Origin,
-        nonce,
-        issued_at,
+        submission: payload.into(),
+        attestation: attestation.into(),
+        forwarded: signal_router::ForwardMarker::Origin.into(),
+        nonce: nonce.into(),
+        issued_at: issued_at.into(),
     }
 }
 
@@ -410,13 +410,13 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
                 operator.clone(),
                 SignalMessageOrigin::External(SignalConnectionClass::Owner),
                 SignalInput::SubmitStamped(signal_message::StampedMessageSubmission {
-                    submission: MessageSubmission {
-                        recipient: MessageRecipient::new(target.as_str().to_string()),
-                        kind: MessageKind::Send,
-                        body: MessageBody::new("relay across the tailnet".to_string()),
+                    message_submission: MessageSubmission {
+                        message_recipient: MessageRecipient::new(target.as_str().to_string()),
+                        message_kind: MessageKind::Send,
+                        message_body: MessageBody::new("relay across the tailnet".to_string()),
                     },
-                    origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                    stamped_at: SignalTimestampNanos::new(1),
+                    message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                    stamped_at: SignalTimestampNanos::new(1).into(),
                 }),
             ),
         })
@@ -463,7 +463,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     let trace_reply = router_a
         .ask(router::ApplyRouterObservation {
             request: SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
-                engine: signal_router::EngineIdentifier::new("router-a"),
+                engine: signal_router::EngineIdentifier::new("router-a").into(),
                 message_slot: MessageSlot::new(submitted_slot),
             }),
         })
@@ -474,7 +474,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     match trace_reply {
         SignalRouterOutput::MessageTrace(trace) => {
             assert_eq!(
-                trace.status,
+                trace.delivery_status.into_payload(),
                 signal_router::RouterDeliveryStatus::ForwardedRemote,
                 "router A observation should report ForwardedRemote"
             );
@@ -595,7 +595,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
         matches!(
             second_replay_reply,
             SignalRouterOutput::ForwardRefused(ref reason)
-                if *reason.payload() == RouterForwardRefusalReason::ReplayDetected
+                if *reason.payload() == RouterForwardRefusalReason::ReplayDetected.into()
         ),
         "second same-nonce forward should be refused as replay, got {second_replay_reply:?}"
     );

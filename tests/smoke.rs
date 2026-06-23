@@ -115,14 +115,14 @@ fn router_output_encodes_delivery_changed() {
 fn router_bootstrap_constructs_direct_message_channel_grant() {
     let operation =
         RouterBootstrapOperation::GrantDirectMessage(signal_router::GrantDirectMessage {
-            from: signal_router::ActorIdentifier::new("owner"),
-            to: signal_router::ActorIdentifier::new("responder"),
+            source_actor: signal_router::ActorIdentifier::new("owner").into(),
+            destination_actor: signal_router::ActorIdentifier::new("responder").into(),
         });
 
     assert!(matches!(
         operation,
         RouterBootstrapOperation::GrantDirectMessage(grant)
-            if grant.from.payload() == "owner" && grant.to.payload() == "responder"
+            if grant.source_actor.payload().payload() == "owner" && grant.destination_actor.payload().payload() == "responder"
     ));
 }
 
@@ -130,7 +130,7 @@ fn router_bootstrap_constructs_direct_message_channel_grant() {
 fn router_bootstrap_constructs_registered_pty_endpoint() {
     let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
         signal_router::Actor::new(
-            signal_router::ActorIdentifier::new("responder"),
+            signal_router::ActorIdentifier::new("responder").into(),
             42,
             Some(signal_router::EndpointTransport::new(
                 signal_router::EndpointKind::PtySocket,
@@ -145,7 +145,7 @@ fn router_bootstrap_constructs_registered_pty_endpoint() {
         operation,
         RouterBootstrapOperation::RegisterActor(registration) if {
             let actor = &registration.actor;
-            actor.name.payload() == "responder" && actor.process == 42 && actor.endpoint().is_some()
+            actor.name.payload().payload() == "responder" && actor.process.payload() == &42 && actor.endpoint().is_some()
         }
     ));
 }
@@ -154,7 +154,7 @@ fn router_bootstrap_constructs_registered_pty_endpoint() {
 fn router_bootstrap_constructs_registered_harness_socket_endpoint() {
     let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
         signal_router::Actor::new(
-            signal_router::ActorIdentifier::new("responder"),
+            signal_router::ActorIdentifier::new("responder").into(),
             42,
             Some(signal_router::EndpointTransport::new(
                 signal_router::EndpointKind::HarnessSocket,
@@ -169,7 +169,7 @@ fn router_bootstrap_constructs_registered_harness_socket_endpoint() {
         operation,
         RouterBootstrapOperation::RegisterActor(registration) if {
             let actor = &registration.actor;
-            actor.name.payload() == "responder" && actor.process == 42 && actor.endpoint().is_some()
+            actor.name.payload().payload() == "responder" && actor.process.payload() == &42 && actor.endpoint().is_some()
         }
     ));
 }
@@ -236,8 +236,8 @@ fn router_bootstrap_loads_binary_document() {
     let bootstrap_path = fixture.directory.join("router-bootstrap.rkyv");
     let document = RouterBootstrapDocument::from_operations(vec![
         RouterBootstrapOperation::GrantDirectMessage(signal_router::GrantDirectMessage {
-            from: signal_router::ActorIdentifier::new("owner"),
-            to: signal_router::ActorIdentifier::new("responder"),
+            source_actor: signal_router::ActorIdentifier::new("owner").into(),
+            destination_actor: signal_router::ActorIdentifier::new("responder").into(),
         }),
     ]);
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&document).expect("encode bootstrap archive");
@@ -307,13 +307,13 @@ fn constraint_router_daemon_applies_meta_socket_mode() {
 fn router_connection_decodes_signal_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
     let request = SignalInput::SubmitStamped(StampedMessageSubmission {
-        submission: MessageSubmission {
-            recipient: MessageRecipient::new("responder".to_string()),
-            kind: MessageKind::Send,
-            body: SignalMessageBody::new("socket frame".to_string()),
+        message_submission: MessageSubmission {
+            message_recipient: MessageRecipient::new("responder".to_string()),
+            message_kind: MessageKind::Send,
+            message_body: SignalMessageBody::new("socket frame".to_string()),
         },
-        origin: SignalMessageOrigin::Internal(ComponentName::Message),
-        stamped_at: SignalTimestampNanos::new(1),
+        message_origin: SignalMessageOrigin::Internal(ComponentName::Message),
+        stamped_at: SignalTimestampNanos::new(1).into(),
     });
     let frame = Frame::new(FrameBody::Request {
         exchange: test_exchange(),
@@ -341,10 +341,10 @@ fn router_connection_decodes_signal_message_frame() {
     assert!(matches!(
         input.request(),
         SignalInput::SubmitStamped(stamped)
-            if stamped.submission.recipient.as_str() == "responder"
-                && stamped.submission.kind == MessageKind::Send
-                && stamped.submission.body.as_str() == "socket frame"
-                && stamped.origin == SignalMessageOrigin::Internal(ComponentName::Message)
+            if stamped.message_submission.message_recipient.payload().as_str() == "responder"
+                && stamped.message_submission.message_kind == MessageKind::Send
+                && stamped.message_submission.message_body.payload().as_str() == "socket frame"
+                && stamped.message_origin == SignalMessageOrigin::Internal(ComponentName::Message)
     ));
 }
 
@@ -393,13 +393,13 @@ fn router_meta_connection_decodes_and_replies_meta_signal_frame() {
 fn router_meta_connection_rejects_working_signal_message_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
     let request = SignalInput::SubmitStamped(StampedMessageSubmission {
-        submission: MessageSubmission {
-            recipient: MessageRecipient::new("responder".to_string()),
-            kind: MessageKind::Send,
-            body: SignalMessageBody::new("wrong socket".to_string()),
+        message_submission: MessageSubmission {
+            message_recipient: MessageRecipient::new("responder".to_string()),
+            message_kind: MessageKind::Send,
+            message_body: SignalMessageBody::new("wrong socket".to_string()),
         },
-        origin: SignalMessageOrigin::Internal(ComponentName::Message),
-        stamped_at: SignalTimestampNanos::new(1),
+        message_origin: SignalMessageOrigin::Internal(ComponentName::Message),
+        stamped_at: SignalTimestampNanos::new(1).into(),
     });
     let frame = Frame::new(FrameBody::Request {
         exchange: test_exchange(),
@@ -446,8 +446,8 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
     send_supervision_request(
         &mut stream,
         SupervisionRequest::announce(Presence {
-            expected_component: SupervisionComponentName::new("router"),
-            expected_kind: ComponentKind::Router,
+            expected_component: SupervisionComponentName::new("router").into(),
+            expected_kind: ComponentKind::Router.into(),
             engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
         }),
     );
@@ -457,8 +457,8 @@ fn constraint_router_daemon_answers_component_supervision_relation() {
     assert!(matches!(
         identity,
         SupervisionReply::Identified(identity)
-            if identity.payload().name.as_ref() == "router"
-                && identity.payload().kind == ComponentKind::Router
+            if identity.payload().component_name.payload() == "router"
+                && identity.payload().component_kind == ComponentKind::Router
     ));
 
     send_supervision_request(

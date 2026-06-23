@@ -39,19 +39,19 @@ relation. Origin is provenance, not an auth proof.
 
 Router now carries the schema-derived triad substrate in-tree:
 `schema/signal.schema`, `schema/nexus.schema`, and `schema/sema.schema`
-generate checked-in modules under `src/schema/` through `schema-rust-next`.
+generate checked-in modules under `src/schema/` through `schema-rust`.
 Those generated nouns make the intended internal feature surface visible:
 message ingress and router observations at Signal, accept/deliver/adjudicate
 decisions at Nexus, and accepted-message/channel/delivery/adjudication storage
 operations at SEMA. The active `router-daemon` binary now uses the
-schema-rust-next emitted async task-backed process shell: one working listener,
+schema-rust emitted async task-backed process shell: one working listener,
 one meta listener, binary rkyv configuration only, and socket modes applied
 by the shared runtime. Router keeps one component hook for relation-specific
 working-frame decode because the working socket intentionally accepts both
 schema-derived `signal-message` ingress and schema-derived `signal-router`
 observations. `signal-message` and `signal-router` are now published
 generated contract crates, not `signal_channel!` macro surfaces; future public
-signal/meta-signal dependencies should follow that schema-next/schema-rust-next
+signal/meta-signal dependencies should follow that schema/schema-rust
 contract shape. The emitted daemon owns listener mechanics; router owns only
 that transitional relation adapter, the thin client codecs, and the
 actor-runtime behavior behind them.

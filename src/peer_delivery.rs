@@ -86,11 +86,11 @@ impl RouterPeerDelivery {
         let issued_at = Self::issued_at();
         let attestation = self.verifier.attest(&payload, &nonce, issued_at.clone());
         RouterForwardRequest {
-            submission: payload,
-            attestation,
-            forwarded: ForwardMarker::Origin,
-            nonce,
-            issued_at,
+            submission: payload.into(),
+            attestation: attestation.into(),
+            forwarded: ForwardMarker::Origin.into(),
+            nonce: nonce.into(),
+            issued_at: issued_at.into(),
         }
     }
 
@@ -134,7 +134,9 @@ impl RemoteForwardOutcome {
     fn from_output(output: SignalRouterOutput) -> Self {
         match output {
             SignalRouterOutput::ForwardAccepted(_) => Self::Accepted,
-            SignalRouterOutput::ForwardRefused(refused) => Self::Refused(refused.into_payload()),
+            SignalRouterOutput::ForwardRefused(refused) => {
+                Self::Refused(refused.into_payload().into_payload())
+            }
             other => Self::UnexpectedReply(format!("{other:?}")),
         }
     }

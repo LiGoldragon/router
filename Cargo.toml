@@ -34,7 +34,7 @@ required-features = ["nota-text"]
 [dependencies]
 kameo                 = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
-nota-next             = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
+nota             = { package = "nota", git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
@@ -54,7 +54,7 @@ default = []
 nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 
 [build-dependencies]
-schema-rust-next = { git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
 [dev-dependencies]
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }

@@ -13,7 +13,7 @@ use meta_signal_router::{
     Output as MetaOutput,
 };
 #[cfg(feature = "nota-text")]
-use nota_next::NotaEncode;
+use nota::NotaEncode;
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
@@ -24,7 +24,9 @@ use signal_message::{
     StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
 };
 #[cfg(feature = "nota-text")]
-use signal_router::{Input as RouterObservationInput, RouterSummaryQuery};
+use signal_router::{
+    Engine, EngineIdentifier, Input as RouterObservationInput, RouterSummaryQuery,
+};
 use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterDaemonConfiguration};
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
@@ -137,13 +139,13 @@ fn generated_daemon_answers_working_signal_message_frame() {
     let output = working_signal_exchange(
         &fixture.socket_path,
         SignalInput::SubmitStamped(StampedMessageSubmission {
-            submission: MessageSubmission {
-                recipient: MessageRecipient::new("designer".to_string()),
-                kind: MessageKind::Send,
-                body: MessageBody::new("hello through emitted router daemon".to_string()),
+            message_submission: MessageSubmission {
+                message_recipient: MessageRecipient::new("designer".to_string()),
+                message_kind: MessageKind::Send,
+                message_body: MessageBody::new("hello through emitted router daemon".to_string()),
             },
-            origin: SignalMessageOrigin::Internal(ComponentName::Message),
-            stamped_at: SignalTimestampNanos::new(1),
+            message_origin: SignalMessageOrigin::Internal(ComponentName::Message),
+            stamped_at: SignalTimestampNanos::new(1).into(),
         }),
     );
 
@@ -187,9 +189,9 @@ fn generated_daemon_answers_meta_signal_frame_on_meta_socket() {
 fn router_cli_reaches_working_observation_socket_and_prints_typed_summary() {
     let fixture = DaemonFixture::new("router-cli");
     let _daemon = fixture.spawn_daemon();
-    let request = RouterObservationInput::Summary(RouterSummaryQuery::new(
-        "process-boundary".to_string().into(),
-    ))
+    let request = RouterObservationInput::Summary(RouterSummaryQuery::new(Engine::new(
+        EngineIdentifier::new("process-boundary"),
+    )))
     .to_nota();
 
     let output = Command::new(env!("CARGO_BIN_EXE_router"))

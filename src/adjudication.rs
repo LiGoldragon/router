@@ -97,8 +97,11 @@ impl<'origin> MindOrigin<'origin> {
             MessageOrigin::InternalComponentInstance(origin) => {
                 MindMessageOrigin::internal_component_instance(
                     MindInternalComponentInstanceOrigin {
-                        component: self.to_mind_component_principal(origin.component()),
-                        instance: MindComponentInstanceName::new(origin.instance().as_str()),
+                        component_principal: self
+                            .to_mind_component_principal(origin.component_name),
+                        component_instance_name: MindComponentInstanceName::new(
+                            origin.component_instance_name.payload().as_str(),
+                        ),
                     },
                 )
             }
@@ -137,18 +140,18 @@ impl<'origin> MindOrigin<'origin> {
                 )))
             }
             signal_message::ConnectionClass::System(principal) => {
-                MindConnectionClass::System(MindSystemPrincipal::new(principal.as_str()))
+                MindConnectionClass::System(MindSystemPrincipal::new(principal.payload()))
             }
             signal_message::ConnectionClass::OtherPersona(origin) => {
                 MindConnectionClass::other_persona(MindOtherPersonaEngine {
                     engine_identifier: signal_persona::EngineIdentifier::new(
-                        origin.engine_identifier.as_str(),
+                        origin.engine_identifier.payload(),
                     ),
-                    host: signal_persona::HostName::new(origin.host.as_str()),
+                    host: signal_persona::HostName::new(origin.host.payload().payload()).into(),
                 })
             }
             signal_message::ConnectionClass::Network(peer) => {
-                MindConnectionClass::network(peer.as_str().to_owned())
+                MindConnectionClass::network(peer.payload().to_owned())
             }
         }
     }

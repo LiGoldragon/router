@@ -185,15 +185,18 @@ async fn meta_grant_installs_channel_visible_to_working_observation() {
 
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
-            engine: engine_identifier(),
-            channel: signal_channel_identifier(channel.into_payload()),
+            engine: engine_identifier().into(),
+            channel: signal_channel_identifier(channel.into_payload()).into(),
         }))
         .await
         .expect("working observation reads channel created by meta grant");
     let SignalRouterOutput::ChannelState(state) = reply else {
         panic!("expected channel state reply, got {reply:?}");
     };
-    assert_eq!(state.status, RouterChannelStatus::Installed);
+    assert_eq!(
+        state.channel_status.into_payload(),
+        RouterChannelStatus::Installed
+    );
 
     router.stop().await;
 }
@@ -232,15 +235,18 @@ async fn meta_revoke_disables_channel_visible_to_working_observation() {
 
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
-            engine: engine_identifier(),
-            channel: signal_channel_identifier(channel.into_payload()),
+            engine: engine_identifier().into(),
+            channel: signal_channel_identifier(channel.into_payload()).into(),
         }))
         .await
         .expect("working observation reads channel disabled by meta revoke");
     let SignalRouterOutput::ChannelState(state) = reply else {
         panic!("expected channel state reply, got {reply:?}");
     };
-    assert_eq!(state.status, RouterChannelStatus::Disabled);
+    assert_eq!(
+        state.channel_status.into_payload(),
+        RouterChannelStatus::Disabled
+    );
 
     router.stop().await;
 }
@@ -365,7 +371,7 @@ async fn meta_deny_clears_pending_adjudication_from_runtime_and_tables() {
 async fn router_daemon_connection_routes_router_frame_to_observation_plane() {
     let router = ObservationFixture::start().await;
     let (mut client, server) = UnixStream::pair().expect("socket pair");
-    let request = SignalRouterInput::Summary(RouterSummaryQuery::new(engine_identifier()));
+    let request = SignalRouterInput::Summary(RouterSummaryQuery::new(engine_identifier().into()));
     let frame = SignalRouterFrame::new(SignalRouterFrameBody::Request {
         exchange: router_exchange(),
         request: request.clone().into_request(),
@@ -404,11 +410,11 @@ async fn router_daemon_connection_routes_router_frame_to_observation_plane() {
         SignalRouterFrameBody::Reply { reply, .. } => match reply {
             Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
                 SubReply::Ok(SignalRouterOutput::Summary(summary)) => {
-                    assert_eq!(summary.engine, engine_identifier());
-                    assert_eq!(summary.accepted_messages, 0);
-                    assert_eq!(summary.routed_messages, 0);
-                    assert_eq!(summary.deferred_messages, 0);
-                    assert_eq!(summary.failed_messages, 0);
+                    assert_eq!(summary.engine, engine_identifier().into());
+                    assert_eq!(summary.accepted_messages, 0.into());
+                    assert_eq!(summary.routed_messages, 0.into());
+                    assert_eq!(summary.deferred_messages, 0.into());
+                    assert_eq!(summary.failed_messages, 0.into());
                 }
                 other => panic!("expected router summary subreply, got {other:?}"),
             },
@@ -446,7 +452,7 @@ async fn router_daemon_answers_router_summary_query() {
 
     let reply = router
         .observe(SignalRouterInput::Summary(RouterSummaryQuery::new(
-            engine_identifier(),
+            engine_identifier().into(),
         )))
         .await
         .expect("observation plane answers summary");
@@ -454,11 +460,11 @@ async fn router_daemon_answers_router_summary_query() {
     let SignalRouterOutput::Summary(summary) = reply else {
         panic!("expected SignalRouterOutput::Summary, got {reply:?}");
     };
-    assert_eq!(summary.engine, engine_identifier());
-    assert_eq!(summary.accepted_messages, 0);
-    assert_eq!(summary.routed_messages, 0);
-    assert_eq!(summary.deferred_messages, 0);
-    assert_eq!(summary.failed_messages, 0);
+    assert_eq!(summary.engine, engine_identifier().into());
+    assert_eq!(summary.accepted_messages, 0.into());
+    assert_eq!(summary.routed_messages, 0.into());
+    assert_eq!(summary.deferred_messages, 0.into());
+    assert_eq!(summary.failed_messages, 0.into());
 
     let status = router.observation_plane_status().await;
     assert_eq!(status.summary_query_count, 1);
@@ -484,13 +490,13 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder".to_string()),
-                    kind: MessageKind::Send,
-                    body: SignalMessageBody::new("first".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: SignalMessageBody::new("first".to_string()),
                 },
-                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1),
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
             }),
         ))
         .await
@@ -499,13 +505,13 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder".to_string()),
-                    kind: MessageKind::Send,
-                    body: SignalMessageBody::new("second".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: SignalMessageBody::new("second".to_string()),
                 },
-                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(2),
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(2).into(),
             }),
         ))
         .await
@@ -513,7 +519,7 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
 
     let reply = router
         .observe(SignalRouterInput::Summary(RouterSummaryQuery::new(
-            engine_identifier(),
+            engine_identifier().into(),
         )))
         .await
         .expect("observation plane answers summary");
@@ -521,10 +527,10 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
     let SignalRouterOutput::Summary(summary) = reply else {
         panic!("expected SignalRouterOutput::Summary, got {reply:?}");
     };
-    assert_eq!(summary.accepted_messages, 2);
-    assert_eq!(summary.deferred_messages, 2);
-    assert_eq!(summary.routed_messages, 0);
-    assert_eq!(summary.failed_messages, 0);
+    assert_eq!(summary.accepted_messages, 2.into());
+    assert_eq!(summary.deferred_messages, 2.into());
+    assert_eq!(summary.routed_messages, 0.into());
+    assert_eq!(summary.failed_messages, 0.into());
 
     router.stop().await;
 }
@@ -547,13 +553,13 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder".to_string()),
-                    kind: MessageKind::Send,
-                    body: SignalMessageBody::new("trace me".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: SignalMessageBody::new("trace me".to_string()),
                 },
-                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1),
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
             }),
         ))
         .await
@@ -561,7 +567,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
 
     let reply = router
         .observe(SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
-            engine: engine_identifier(),
+            engine: engine_identifier().into(),
             message_slot: message_slot(1),
         }))
         .await
@@ -571,11 +577,14 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
         panic!("expected SignalRouterOutput::MessageTrace, got {reply:?}");
     };
     assert_eq!(trace.message_slot, message_slot(1));
-    assert_eq!(trace.status, RouterDeliveryStatus::Deferred);
+    assert_eq!(
+        trace.delivery_status.into_payload(),
+        RouterDeliveryStatus::Deferred
+    );
 
     let missing_reply = router
         .observe(SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
-            engine: engine_identifier(),
+            engine: engine_identifier().into(),
             message_slot: message_slot(99),
         }))
         .await
@@ -614,8 +623,8 @@ async fn router_channel_state_query_reads_router_tables() {
 
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
-            engine: engine_identifier(),
-            channel: signal_channel_identifier(installed_id.clone()),
+            engine: engine_identifier().into(),
+            channel: signal_channel_identifier(installed_id.clone()).into(),
         }))
         .await
         .expect("observation plane answers channel state");
@@ -623,20 +632,29 @@ async fn router_channel_state_query_reads_router_tables() {
     let SignalRouterOutput::ChannelState(state) = reply else {
         panic!("expected SignalRouterOutput::ChannelState, got {reply:?}");
     };
-    assert_eq!(state.channel, signal_channel_identifier(installed_id));
-    assert_eq!(state.status, RouterChannelStatus::Installed);
+    assert_eq!(
+        state.channel,
+        signal_channel_identifier(installed_id).into()
+    );
+    assert_eq!(
+        state.channel_status.into_payload(),
+        RouterChannelStatus::Installed
+    );
 
     let missing_reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
-            engine: engine_identifier(),
-            channel: signal_channel_identifier("channel-does-not-exist"),
+            engine: engine_identifier().into(),
+            channel: signal_channel_identifier("channel-does-not-exist").into(),
         }))
         .await
         .expect("observation plane answers missing channel");
     let SignalRouterOutput::ChannelState(missing) = missing_reply else {
         panic!("expected SignalRouterOutput::ChannelState, got {missing_reply:?}");
     };
-    assert_eq!(missing.status, RouterChannelStatus::Missing);
+    assert_eq!(
+        missing.channel_status.into_payload(),
+        RouterChannelStatus::Missing
+    );
 
     router.stop().await;
 }
@@ -647,8 +665,8 @@ async fn router_channel_state_query_without_tables_reports_router_store_unavaila
 
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
-            engine: engine_identifier(),
-            channel: signal_channel_identifier("any-channel"),
+            engine: engine_identifier().into(),
+            channel: signal_channel_identifier("any-channel").into(),
         }))
         .await
         .expect("observation plane answers without tables");
@@ -656,9 +674,12 @@ async fn router_channel_state_query_without_tables_reports_router_store_unavaila
     let SignalRouterOutput::Unimplemented(unimplemented) = reply else {
         panic!("expected SignalRouterOutput::Unimplemented, got {reply:?}");
     };
-    assert_eq!(unimplemented.scope, RouterObservationScope::ChannelState);
     assert_eq!(
-        unimplemented.reason,
+        unimplemented.observation_scope.into_payload(),
+        RouterObservationScope::ChannelState
+    );
+    assert_eq!(
+        unimplemented.observation_reason.into_payload(),
         RouterObservationUnimplementedReason::RouterStoreUnavailable
     );
 
@@ -692,13 +713,13 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder".to_string()),
-                    kind: MessageKind::Send,
-                    body: SignalMessageBody::new("witness".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: SignalMessageBody::new("witness".to_string()),
                 },
-                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1),
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
             }),
         ))
         .await
@@ -706,21 +727,21 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 
     let SignalRouterOutput::Summary(summary) = router
         .observe(SignalRouterInput::Summary(RouterSummaryQuery::new(
-            engine_identifier(),
+            engine_identifier().into(),
         )))
         .await
         .expect("summary query passes")
     else {
         panic!("expected summary reply");
     };
-    assert_eq!(summary.accepted_messages, 1);
+    assert_eq!(summary.accepted_messages, 1.into());
 
     let after_summary = router.observation_plane_status().await;
     assert_eq!(after_summary.summary_query_count, 1);
 
     let _ = router
         .observe(SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
-            engine: engine_identifier(),
+            engine: engine_identifier().into(),
             message_slot: message_slot(1),
         }))
         .await
@@ -779,7 +800,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
         assert!(
             channels_persisted
                 .iter()
-                .any(|record| record.id == channel_identifier.as_ref()),
+                .any(|record| record.id == *channel_identifier.payload()),
             "channel persisted before first-handle drop"
         );
         // Scope ends: `tables_first` drops; the store flock releases.
@@ -796,7 +817,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     assert!(
         restored_channels
             .iter()
-            .any(|record| record.id == channel_identifier.as_ref()),
+            .any(|record| record.id == *channel_identifier.payload()),
         "prior-daemon channel survives the SEMA file reopen"
     );
 
@@ -805,8 +826,8 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     let router = ObservationFixture::start_with_tables(tables_second).await;
     let reply = router
         .observe(SignalRouterInput::ChannelState(RouterChannelStateQuery {
-            engine: engine_identifier(),
-            channel: signal_channel_identifier(channel_identifier.as_ref()),
+            engine: engine_identifier().into(),
+            channel: signal_channel_identifier(channel_identifier.payload()).into(),
         }))
         .await
         .expect("observation plane answers post-restart channel state");
@@ -816,10 +837,10 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
     };
     assert_eq!(
         state.channel,
-        signal_channel_identifier(channel_identifier.as_ref())
+        signal_channel_identifier(channel_identifier.payload()).into()
     );
     assert_eq!(
-        state.status,
+        state.channel_status.into_payload(),
         RouterChannelStatus::Installed,
         "post-restart observation plane reads typed Installed status"
     );

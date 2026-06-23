@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 
 #[cfg(feature = "nota-text")]
-use nota_next::{NotaEncode, NotaSource};
+use nota::{NotaEncode, NotaSource};
 use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply};
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,

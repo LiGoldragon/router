@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
-use nota_next::{NotaDecode, NotaEncode};
+use nota::{NotaDecode, NotaEncode};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_persona::ChannelIdentifier;
 

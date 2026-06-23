@@ -8,7 +8,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     #[error("nota: {0}")]
-    Nota(#[from] nota_next::NotaDecodeError),
+    Nota(#[from] nota::NotaDecodeError),
 
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_frame::FrameError),

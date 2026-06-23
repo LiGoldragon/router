@@ -4,7 +4,7 @@ use kameo::message::Context;
 use signal_router::{Input as SignalRouterInput, Output as SignalRouterOutput};
 use signal_router::{
     RouterChannelState, RouterChannelStateQuery, RouterChannelStatus, RouterDeliveryStatus,
-    RouterMessageTrace, RouterMessageTraceMissing, RouterMessageTraceQuery,
+    RouterMessageTrace, RouterMessageTraceMissing, RouterMessageTraceQuery, RouterObservationScope,
     RouterObservationUnimplemented, RouterObservationUnimplementedReason, RouterSummary,
     RouterSummaryQuery,
 };
@@ -56,10 +56,10 @@ impl RouterObservationPlane {
         let facts = self.observation_facts().await?;
         let summary = RouterSummary {
             engine: query.into_payload(),
-            accepted_messages: facts.accepted_messages,
-            routed_messages: facts.delivered_messages,
-            deferred_messages: facts.pending_messages,
-            failed_messages: facts.failed_messages,
+            accepted_messages: facts.accepted_messages.into(),
+            routed_messages: facts.delivered_messages.into(),
+            deferred_messages: facts.pending_messages.into(),
+            failed_messages: facts.failed_messages.into(),
         };
         Ok(SignalRouterOutput::Summary(summary))
     }
@@ -75,7 +75,7 @@ impl RouterObservationPlane {
                 Some(status) => SignalRouterOutput::MessageTrace(RouterMessageTrace {
                     engine: query.engine,
                     message_slot: query.message_slot,
-                    status,
+                    delivery_status: status.into(),
                 }),
                 None => SignalRouterOutput::MessageTraceMissing(RouterMessageTraceMissing {
                     engine: query.engine,
@@ -93,17 +93,18 @@ impl RouterObservationPlane {
         let Some(tables) = &self.tables else {
             return Ok(SignalRouterOutput::Unimplemented(
                 RouterObservationUnimplemented {
-                    scope: signal_router::RouterObservationScope::ChannelState,
-                    reason: RouterObservationUnimplementedReason::RouterStoreUnavailable,
+                    observation_scope: RouterObservationScope::ChannelState.into(),
+                    observation_reason:
+                        RouterObservationUnimplementedReason::RouterStoreUnavailable.into(),
                 },
             ));
         };
         let channels = tables.channel_records()?;
-        let status = Self::channel_status_for(&channels, query.channel.payload());
+        let status = Self::channel_status_for(&channels, query.channel.payload().payload());
         let state = RouterChannelState {
             engine: query.engine,
             channel: query.channel,
-            status,
+            channel_status: status.into(),
         };
         Ok(SignalRouterOutput::ChannelState(state))
     }

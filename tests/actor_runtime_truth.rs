@@ -537,13 +537,13 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
             operator,
             SignalMessageOrigin::External(SignalConnectionClass::Owner),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new(responder.as_str().to_string()),
-                    kind: MessageKind::Send,
-                    body: MessageBody::new("please answer".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new(responder.as_str().to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: MessageBody::new("please answer".to_string()),
                 },
-                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1),
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
             }),
         ))
         .await
@@ -1288,13 +1288,13 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder".to_string()),
-                    kind: MessageKind::Send,
-                    body: MessageBody::new("hello".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: MessageBody::new("hello".to_string()),
                 },
-                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1),
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
             }),
         ))
         .await
@@ -1328,13 +1328,13 @@ async fn router_root_persists_accepted_signal_message_before_delivery_attempt() 
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder".to_string()),
-                    kind: MessageKind::Send,
-                    body: MessageBody::new("durable router message".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: MessageBody::new("durable router message".to_string()),
                 },
-                origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1),
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
             }),
         ))
         .await
@@ -1374,21 +1374,21 @@ async fn stamped_component_instance_origin_becomes_message_sender_actor() {
     let router = RouterFixture::start_with_tables(tables).await;
     let origin =
         SignalMessageOrigin::InternalComponentInstance(SignalInternalComponentInstanceOrigin {
-            component: SignalComponentName::Harness,
-            instance: SignalComponentInstanceName::new("initiator".to_string()),
+            component_name: SignalComponentName::Harness,
+            component_instance_name: SignalComponentInstanceName::new("initiator".to_string()),
         });
 
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::message(),
             SignalInput::SubmitStamped(StampedMessageSubmission {
-                submission: MessageSubmission {
-                    recipient: MessageRecipient::new("responder".to_string()),
-                    kind: MessageKind::Send,
-                    body: MessageBody::new("from component instance".to_string()),
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: MessageBody::new("from component instance".to_string()),
                 },
-                origin: origin.clone(),
-                stamped_at: SignalTimestampNanos::new(1),
+                message_origin: origin.clone(),
+                stamped_at: SignalTimestampNanos::new(1).into(),
             }),
         ))
         .await
@@ -1414,9 +1414,9 @@ async fn unstamped_message_submission_is_not_router_ingress_payload() {
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::message(),
             SignalInput::Submit(MessageSubmission {
-                recipient: MessageRecipient::new("responder".to_string()),
-                kind: MessageKind::Send,
-                body: MessageBody::new("hello".to_string()),
+                message_recipient: MessageRecipient::new("responder".to_string()),
+                message_kind: MessageKind::Send,
+                message_body: MessageBody::new("hello".to_string()),
             }),
         ))
         .await
@@ -1425,9 +1425,12 @@ async fn unstamped_message_submission_is_not_router_ingress_payload() {
     let SignalOutput::MessageRequestUnimplemented(unimplemented) = reply else {
         panic!("expected unimplemented signal message reply");
     };
-    assert_eq!(unimplemented.operation, MessageOperationKind::Submit);
     assert_eq!(
-        unimplemented.reason,
+        unimplemented.message_operation_kind,
+        MessageOperationKind::Submit
+    );
+    assert_eq!(
+        unimplemented.message_unimplemented_reason,
         MessageUnimplementedReason::NotInPrototypeScope
     );
 

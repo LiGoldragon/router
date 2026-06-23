@@ -51,9 +51,9 @@ impl Configuration {
             })
             .transpose()?;
         Ok(Self {
-            socket_path: PathBuf::from(raw.router_socket_path.payload()),
-            meta_socket_path: PathBuf::from(raw.meta_router_socket_path.payload()),
-            database_path: PathBuf::from(raw.store_path.payload()),
+            socket_path: PathBuf::from(raw.router_socket_path.payload().payload()),
+            meta_socket_path: PathBuf::from(raw.meta_router_socket_path.payload().payload()),
+            database_path: PathBuf::from(raw.store_path.payload().payload()),
             bootstrap_path: raw
                 .bootstrap_path()
                 .map(|path| PathBuf::from(path.payload())),
@@ -97,7 +97,7 @@ impl Configuration {
     /// This router's own stable identity, carried into outbound
     /// attestations as the signer and admitted by peers' registries.
     pub fn router_identity(&self) -> &RemoteRouterIdentity {
-        &self.raw.router_identity
+        self.raw.router_identity.payload()
     }
 
     /// The local criome daemon's socket the receiving ingress would ask to
@@ -108,11 +108,11 @@ impl Configuration {
     }
 
     fn router_socket_mode(&self) -> RuntimeSocketMode {
-        RuntimeSocketMode::new(*self.raw.router_socket_mode.payload() as u32)
+        RuntimeSocketMode::new(*self.raw.router_socket_mode.payload().payload() as u32)
     }
 
     fn meta_router_socket_mode(&self) -> RuntimeSocketMode {
-        RuntimeSocketMode::new(*self.raw.meta_router_socket_mode.payload() as u32)
+        RuntimeSocketMode::new(*self.raw.meta_router_socket_mode.payload().payload() as u32)
     }
 }
 

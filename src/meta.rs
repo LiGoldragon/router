@@ -6,7 +6,7 @@ use std::io::Write;
 
 use meta_signal_router::{Input as MetaRouterInput, Output as MetaRouterOutput};
 #[cfg(feature = "nota-text")]
-use nota_next::{NotaEncode, NotaSource};
+use nota::{NotaEncode, NotaSource};
 #[cfg(feature = "nota-text")]
 use triad_runtime::ComponentCommand;
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};

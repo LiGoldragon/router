@@ -76,9 +76,9 @@ impl AcceptFixedTestIdentity {
     /// receiver's content-binding check.
     fn content_digest(payload: &ForwardedMessagePayload) -> String {
         let mut hash = ContentDigest::new();
-        hash.feed_str(payload.from.payload());
-        hash.feed_str(payload.to.payload());
-        hash.feed_str(&payload.body);
+        hash.feed_str(payload.source_actor.payload().payload());
+        hash.feed_str(payload.destination_actor.payload().payload());
+        hash.feed_str(payload.body.payload());
         for attachment in payload.attachments() {
             hash.feed_str(attachment);
         }
@@ -104,13 +104,13 @@ impl ForwardAttestationVerifier for AcceptFixedTestIdentity {
         issued_at: TimestampNanos,
     ) -> RouterPeerAttestation {
         RouterPeerAttestation {
-            signer: self.identity.clone(),
-            scheme: SignatureScheme::Bls12_381MinPk,
-            public_key: format!("offline-test-key-{}", self.identity.payload()),
-            signature: format!("offline-test-signature-{}", self.identity.payload()),
-            content_digest: Self::content_digest(payload),
-            issued_at,
-            nonce: nonce.clone(),
+            signer: self.identity.clone().into(),
+            scheme: SignatureScheme::Bls12_381MinPk.into(),
+            public_key: format!("offline-test-key-{}", self.identity.payload()).into(),
+            signature: format!("offline-test-signature-{}", self.identity.payload()).into(),
+            content_digest: Self::content_digest(payload).into(),
+            issued_at: issued_at.into(),
+            nonce: nonce.clone().into(),
         }
     }
 
@@ -119,13 +119,13 @@ impl ForwardAttestationVerifier for AcceptFixedTestIdentity {
         attestation: &RouterPeerAttestation,
         payload: &ForwardedMessagePayload,
     ) -> Result<RemoteRouterIdentity, RouterForwardRefusalReason> {
-        if attestation.signer != self.identity {
+        if attestation.signer.payload() != &self.identity {
             return Err(RouterForwardRefusalReason::AttestationInvalid);
         }
-        if attestation.content_digest != Self::content_digest(payload) {
+        if attestation.content_digest.payload() != &Self::content_digest(payload) {
             return Err(RouterForwardRefusalReason::AttestationInvalid);
         }
-        Ok(attestation.signer.clone())
+        Ok(attestation.signer.payload().clone())
     }
 }
 
@@ -164,13 +164,13 @@ impl ForwardAdmissionWindow {
         request: &RouterForwardRequest,
         now: ForwardAdmissionInstant,
     ) -> Result<(), RouterForwardRefusalReason> {
-        if request.attestation.nonce != request.nonce
-            || request.attestation.issued_at != request.issued_at
+        if request.attestation.payload().nonce != request.nonce
+            || request.attestation.payload().issued_at != request.issued_at
         {
             return Err(RouterForwardRefusalReason::AttestationInvalid);
         }
-        self.reject_clock_skew(&request.issued_at, now)?;
-        let key = ForwardAdmissionKey::new(verified_origin, &request.nonce);
+        self.reject_clock_skew(request.issued_at.payload(), now)?;
+        let key = ForwardAdmissionKey::new(verified_origin, request.nonce.payload());
         if self.seen.contains(&key) {
             return Err(RouterForwardRefusalReason::ReplayDetected);
         }
@@ -309,13 +309,14 @@ mod tests {
             let nonce = ReplayNonce::new(nonce);
             let issued_at = TimestampNanos::new(issued_at);
             RouterForwardRequest {
-                submission: self.payload.clone(),
+                submission: self.payload.clone().into(),
                 attestation: self
                     .verifier
-                    .attest(&self.payload, &nonce, issued_at.clone()),
-                forwarded: signal_router::ForwardMarker::Origin,
-                nonce,
-                issued_at,
+                    .attest(&self.payload, &nonce, issued_at.clone())
+                    .into(),
+                forwarded: signal_router::ForwardMarker::Origin.into(),
+                nonce: nonce.into(),
+                issued_at: issued_at.into(),
             }
         }
     }
@@ -355,7 +356,9 @@ mod tests {
         let fixture = ForwardAdmissionFixture::new();
         let mut window = ForwardAdmissionWindow::new(10, 8);
         let mut request = fixture.request("outer-nonce", 100);
-        request.attestation.nonce = ReplayNonce::new("inner-nonce");
+        let mut attestation = request.attestation.into_payload();
+        attestation.nonce = ReplayNonce::new("inner-nonce").into();
+        request.attestation = attestation.into();
 
         assert_eq!(
             window.admit(
