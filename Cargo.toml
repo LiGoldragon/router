@@ -75,6 +75,12 @@ schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/s
 criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "criome-auth-integration", default-features = false }
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "criome-auth-integration", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
+# The real mirror engine, behind a co-resident ComponentSocket, so the durable
+# mirror-landing witness drives a genuine versioned sema-engine store (its head
+# is the witnessed claim, not the router's ForwardAccepted reply). Pinned to the
+# signal-frame 0.3.0 alignment branch so the ComponentSocket wire is shared.
+mirror = { git = "https://github.com/LiGoldragon/mirror.git", branch = "criome-auth-witness" }
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

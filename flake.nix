@@ -140,6 +140,16 @@
               cargoTestExtraArgs = "--test criome_forward_attestation router_refuses_forwards_without_a_valid_criome_attestation -- --exact";
             }
           );
+          # L5: a criome-verified forward carrying a signal-mirror Append is
+          # relayed to a co-resident mirror's ComponentSocket and DURABLY LANDS
+          # (the real mirror engine's head advances to the appended record).
+          router-criome-forward-lands-in-mirror = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_an_append_in_the_co_resident_mirror -- --exact";
+            }
+          );
           router-generated-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
             context.commonArgs
             // {
