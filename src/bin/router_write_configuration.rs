@@ -5,7 +5,9 @@ use std::{
 
 use nota::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use router::RouterDaemonConfigurationFile;
-use signal_router::{OwnerIdentity, RemoteRouterIdentity, RouterDaemonConfiguration};
+use signal_router::{
+    OwnerIdentity, RemoteRouterIdentity, RouterDaemonConfiguration, TailnetAddress,
+};
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
 
@@ -24,6 +26,17 @@ struct ConfigurationWriterInput {
     text: String,
 }
 
+/// The deploy-time projection of a networked router daemon configuration.
+///
+/// Every optional is carried as an explicit NOTA `(Some <value>)` / `None`
+/// rather than presence-by-arity, so the request has one fixed shape with no
+/// positional ambiguity. The socket modes are not on the wire — the daemon
+/// owns its `0o600` socket discipline, so they stay fixed here.
+///
+/// `(ConfigurationWriteRequest <router-socket> <meta-socket> <supervision-socket>
+///   <store> <bootstrap: None | (Some path)> <owner-uid>
+///   <listen: None | (Some address)> <router-identity>
+///   <criome-socket: None | (Some path)> <output>)`
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ConfigurationWriteRequest {
     router_socket_path: ConfigurationWriterPath,
@@ -32,11 +45,24 @@ struct ConfigurationWriteRequest {
     store_path: ConfigurationWriterPath,
     bootstrap_path: Option<ConfigurationWriterPath>,
     owner_user_identifier: u64,
+    tailnet_listen_address: Option<ConfigurationWriterAddress>,
+    router_identity: ConfigurationWriterIdentity,
+    criome_socket_path: Option<ConfigurationWriterPath>,
     output_path: ConfigurationWriterPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
 struct ConfigurationWriterPath(String);
+
+/// A router-to-router TCP listen address (`TailnetAddress` on the wire, e.g.
+/// `0.0.0.0:7440`). Distinct from a path so the request reads as English.
+#[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
+struct ConfigurationWriterAddress(String);
+
+/// This router's stable `RemoteRouterIdentity` — the signer carried into
+/// outbound attestations and admitted by peers' registries.
+#[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
+struct ConfigurationWriterIdentity(String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ConfigurationWriteOutput {
@@ -108,13 +134,15 @@ impl ConfigurationWriteRequest {
                 .as_ref()
                 .map(|path| path.as_str().to_owned().into()),
             owner_identity: OwnerIdentity::UnixUser(self.owner_user_identifier.into()),
-            // Single-host defaults: no networked router tier from this
-            // bootstrap helper yet. A networked deployment writes these
-            // through the deploy/bootstrap tooling (milestone 4); the
-            // identity is the router-local placeholder until then.
-            tailnet_listen_address: None,
-            router_identity: RemoteRouterIdentity::new("router-local"),
-            criome_socket_path: None,
+            tailnet_listen_address: self
+                .tailnet_listen_address
+                .as_ref()
+                .map(|address| TailnetAddress::new(address.as_str().to_owned())),
+            router_identity: RemoteRouterIdentity::new(self.router_identity.as_str().to_owned()),
+            criome_socket_path: self
+                .criome_socket_path
+                .as_ref()
+                .map(|path| path.as_str().to_owned().into()),
         })
     }
 }
@@ -124,10 +152,11 @@ impl NotaDecode for ConfigurationWriteRequest {
         let body = NotaBlock::new(block)
             .expect_body(Delimiter::Parenthesis, "ConfigurationWriteRequest")?;
         let objects = body.root_objects();
-        if objects.len() != 7 && objects.len() != 8 {
+        const EXPECTED: usize = 11;
+        if objects.len() != EXPECTED {
             return Err(NotaDecodeError::ExpectedRootCount {
                 type_name: "ConfigurationWriteRequest",
-                expected: 7,
+                expected: EXPECTED,
                 found: objects.len(),
             });
         }
@@ -145,27 +174,20 @@ impl NotaDecode for ConfigurationWriteRequest {
                 });
             }
         }
-        match objects.len() {
-            7 => Ok(Self {
-                router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
-                meta_router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[2])?,
-                supervision_socket_path: ConfigurationWriterPath::from_nota_block(&objects[3])?,
-                store_path: ConfigurationWriterPath::from_nota_block(&objects[4])?,
-                bootstrap_path: None,
-                owner_user_identifier: u64::from_nota_block(&objects[5])?,
-                output_path: ConfigurationWriterPath::from_nota_block(&objects[6])?,
-            }),
-            8 => Ok(Self {
-                router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
-                meta_router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[2])?,
-                supervision_socket_path: ConfigurationWriterPath::from_nota_block(&objects[3])?,
-                store_path: ConfigurationWriterPath::from_nota_block(&objects[4])?,
-                bootstrap_path: Some(ConfigurationWriterPath::from_nota_block(&objects[5])?),
-                owner_user_identifier: u64::from_nota_block(&objects[6])?,
-                output_path: ConfigurationWriterPath::from_nota_block(&objects[7])?,
-            }),
-            _ => unreachable!("root count validated above"),
-        }
+        Ok(Self {
+            router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
+            meta_router_socket_path: ConfigurationWriterPath::from_nota_block(&objects[2])?,
+            supervision_socket_path: ConfigurationWriterPath::from_nota_block(&objects[3])?,
+            store_path: ConfigurationWriterPath::from_nota_block(&objects[4])?,
+            bootstrap_path: Option::<ConfigurationWriterPath>::from_nota_block(&objects[5])?,
+            owner_user_identifier: u64::from_nota_block(&objects[6])?,
+            tailnet_listen_address: Option::<ConfigurationWriterAddress>::from_nota_block(
+                &objects[7],
+            )?,
+            router_identity: ConfigurationWriterIdentity::from_nota_block(&objects[8])?,
+            criome_socket_path: Option::<ConfigurationWriterPath>::from_nota_block(&objects[9])?,
+            output_path: ConfigurationWriterPath::from_nota_block(&objects[10])?,
+        })
     }
 }
 
@@ -182,6 +204,18 @@ impl ConfigurationWriterPath {
 
     fn as_path(&self) -> &Path {
         Path::new(self.0.as_str())
+    }
+}
+
+impl ConfigurationWriterAddress {
+    fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl ConfigurationWriterIdentity {
+    fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }
 
