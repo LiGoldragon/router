@@ -562,7 +562,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#b3d9826a04d09d13007c72dfbb47fff90540d7d4"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#dea9b555d76a37f099db2477ead1c758a7517f37"
 dependencies = [
  "blake3",
  "nota",
@@ -574,7 +574,7 @@ dependencies = [
 [[package]]
 name = "schema-cc"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#b3d9826a04d09d13007c72dfbb47fff90540d7d4"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#dea9b555d76a37f099db2477ead1c758a7517f37"
 dependencies = [
  "nota",
  "prettyplease",
@@ -587,14 +587,16 @@ dependencies = [
 [[package]]
 name = "schema-rust"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#06eec0d13e84184f2d721e53b9619a049023a4a3"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#abd31f48197c7e4db1da4b04a1c75cafd7276d3a"
 dependencies = [
+ "nota",
  "prettyplease",
  "proc-macro2",
  "quote",
  "schema",
  "syn",
  "thiserror",
+ "triad-runtime",
 ]
 
 [[package]]
@@ -693,8 +695,8 @@ dependencies = [
 
 [[package]]
 name = "signal-harness"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#0d06d4ae2a0ba8b1c8fb42f3cd21cd7d1bb309fb"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=main#0727beb7e537472697463443d4323469e04137d4"
 dependencies = [
  "nota",
  "rkyv",
