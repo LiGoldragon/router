@@ -671,8 +671,8 @@ dependencies = [
 
 [[package]]
 name = "signal-frame"
-version = "0.2.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#d0dd5c0b66a90c1af72d45920e31c2b3049437f9"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#b78c80775c7fb7f80dee7ea3a8a30cc14dfac442"
 dependencies = [
  "nota",
  "paste",
@@ -684,7 +684,7 @@ dependencies = [
 [[package]]
 name = "signal-frame-macros"
 version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#d0dd5c0b66a90c1af72d45920e31c2b3049437f9"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#b78c80775c7fb7f80dee7ea3a8a30cc14dfac442"
 dependencies = [
  "proc-macro2",
  "quote",
