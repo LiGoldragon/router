@@ -113,6 +113,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "criome"
+version = "0.4.2"
+source = "git+https://github.com/LiGoldragon/criome.git?branch=main#6b6683da14600441338c2b1db206facf6f5d97d8"
+dependencies = [
+ "blake3",
+ "blst",
+ "kameo",
+ "meta-signal-criome",
+ "rkyv",
+ "sema-engine",
+ "signal-criome",
+ "signal-frame",
+ "thiserror",
+ "tokio",
+ "triad-runtime",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -323,6 +341,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
+name = "meta-signal-criome"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=main#4814625aa23dcb0e3cee19580914ccc1a3b4aadc"
+dependencies = [
+ "rkyv",
+ "schema-rust",
+ "signal-criome",
+ "signal-frame",
+ "thiserror",
+]
+
+[[package]]
 name = "meta-signal-router"
 version = "0.2.0"
 source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#5c0f6ee830cf032cb041cb22c6574de8cc35de34"
@@ -520,6 +550,7 @@ dependencies = [
 name = "router"
 version = "0.4.1"
 dependencies = [
+ "criome",
  "kameo",
  "meta-signal-router",
  "nota",
@@ -562,7 +593,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#b3d9826a04d09d13007c72dfbb47fff90540d7d4"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#dea9b555d76a37f099db2477ead1c758a7517f37"
 dependencies = [
  "blake3",
  "nota",
@@ -574,7 +605,7 @@ dependencies = [
 [[package]]
 name = "schema-cc"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#b3d9826a04d09d13007c72dfbb47fff90540d7d4"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#dea9b555d76a37f099db2477ead1c758a7517f37"
 dependencies = [
  "nota",
  "prettyplease",
@@ -587,14 +618,16 @@ dependencies = [
 [[package]]
 name = "schema-rust"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#06eec0d13e84184f2d721e53b9619a049023a4a3"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#abd31f48197c7e4db1da4b04a1c75cafd7276d3a"
 dependencies = [
+ "nota",
  "prettyplease",
  "proc-macro2",
  "quote",
  "schema",
  "syn",
  "thiserror",
+ "triad-runtime",
 ]
 
 [[package]]
@@ -658,8 +691,8 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-criome"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=main#182036acc4e763b9ef6c763082f6c277785f86b3"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=main#478d6cca0d31b670fc7aabf54994ebffa41527c4"
 dependencies = [
  "blake3",
  "blst",
@@ -671,8 +704,8 @@ dependencies = [
 
 [[package]]
 name = "signal-frame"
-version = "0.2.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#d0dd5c0b66a90c1af72d45920e31c2b3049437f9"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#b78c80775c7fb7f80dee7ea3a8a30cc14dfac442"
 dependencies = [
  "nota",
  "paste",
@@ -684,7 +717,7 @@ dependencies = [
 [[package]]
 name = "signal-frame-macros"
 version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#d0dd5c0b66a90c1af72d45920e31c2b3049437f9"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#b78c80775c7fb7f80dee7ea3a8a30cc14dfac442"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -752,7 +785,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#277bd153a7141f92e7bd83f7525568d9e137e595"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=criome-forward-attestation#d212ea8a0a3b3cf76c872d4f7cf3e5735d9e920d"
 dependencies = [
  "nota",
  "rkyv",

@@ -42,7 +42,7 @@ signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git
 signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "criome-forward-attestation", default-features = false }
 signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "main", default-features = false }
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
 thiserror             = "2"
@@ -57,6 +57,8 @@ nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
 [dev-dependencies]
+criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "main", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
 
 [lints.rust]

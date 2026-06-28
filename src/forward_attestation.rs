@@ -109,8 +109,12 @@ impl ForwardAttestationVerifier for AcceptFixedTestIdentity {
             public_key: format!("offline-test-key-{}", self.identity.payload()).into(),
             signature: format!("offline-test-signature-{}", self.identity.payload()).into(),
             content_digest: Self::content_digest(payload).into(),
-            issued_at: issued_at.into(),
+            issued_at: issued_at.clone().into(),
             nonce: nonce.clone().into(),
+            // The offline stand-in signs and verifies itself, so the criome
+            // attestation stamp it reconstructs is simply the same forward
+            // timestamp; the criome verifier carries criome's real server stamp.
+            attestation_issued_at: issued_at.into(),
         }
     }
 

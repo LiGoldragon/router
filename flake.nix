@@ -114,6 +114,20 @@
               inherit (context) cargoArtifacts;
             }
           );
+          router-accepts-only-real-criome-attestation = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_attestation router_accepts_forward_under_real_criome_bls_attestation -- --exact";
+            }
+          );
+          router-refuses-forward-without-criome-credential = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_attestation router_refuses_forwards_without_a_valid_criome_attestation -- --exact";
+            }
+          );
           router-generated-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
             context.commonArgs
             // {
