@@ -99,6 +99,18 @@
               meta.mainProgram = "router";
             }
           );
+          # The two-VM criome-auth witness build: the nota-text bins PLUS the
+          # router-forward-witness sender (the `witness` feature also enables
+          # nota-text). Used by the CriomOS-test-cluster criome-auth witness.
+          witness = context.craneLib.buildPackage (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoExtraArgs = "--features witness";
+              pname = "router-witness";
+              meta.mainProgram = "router-daemon";
+            }
+          );
         }
       );
 

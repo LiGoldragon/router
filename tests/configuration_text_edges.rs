@@ -15,8 +15,9 @@ use std::process::Command;
 
 use router::{Configuration, RouterBootstrap};
 use signal_router::{
-    Actor, ActorIdentifier, Address, Identity, RegisterActor, RegisterRemoteRouter,
-    RemoteRouterIdentity, RouterBootstrapOperation, TailnetAddress,
+    Actor, ActorIdentifier, Address, EndpointKind, EndpointTransport, GrantDirectMessage, Identity,
+    RegisterActor, RegisterRemoteRouter, RemoteRouterIdentity, RouterBootstrapOperation,
+    TailnetAddress,
 };
 
 fn state_directory(name: &str) -> PathBuf {
@@ -76,7 +77,10 @@ fn router_bootstrap_carries_hardwired_peers_and_actor_homes() {
         "(BootstrapWriteRequest \
          {output} \
          [ (router-b 192.168.1.20:7440) ] \
-         [ (mirror 0 (Some router-b)) (owner 0 None) ])",
+         [ (mirror 0 (Some router-b) None) \
+           (mirror 0 None (Some (ComponentSocket /run/mirror/working.sock))) \
+           (owner 0 None None) ] \
+         [ (owner mirror) ])",
         output = output.display(),
     );
 
@@ -100,9 +104,25 @@ fn router_bootstrap_carries_hardwired_peers_and_actor_homes() {
             Some(RemoteRouterIdentity::new("router-b")),
         )),
         RouterBootstrapOperation::RegisterActor(RegisterActor::new(
+            Actor::new(
+                ActorIdentifier::new("mirror"),
+                0,
+                Some(EndpointTransport::new(
+                    EndpointKind::ComponentSocket,
+                    "/run/mirror/working.sock".to_string(),
+                    None,
+                )),
+            ),
+            None,
+        )),
+        RouterBootstrapOperation::RegisterActor(RegisterActor::new(
             Actor::new(ActorIdentifier::new("owner"), 0, None),
             None,
         )),
+        RouterBootstrapOperation::GrantDirectMessage(GrantDirectMessage {
+            source_actor: ActorIdentifier::new("owner").into(),
+            destination_actor: ActorIdentifier::new("mirror").into(),
+        }),
     ];
     assert_eq!(operations, expected);
 }

@@ -5,8 +5,9 @@ use std::{
 
 use nota::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use signal_router::{
-    Actor, ActorIdentifier, Address, Identity, RegisterActor, RegisterRemoteRouter,
-    RemoteRouterIdentity, RouterBootstrapDocument, RouterBootstrapOperation, TailnetAddress,
+    Actor, ActorIdentifier, Address, EndpointKind, EndpointTransport, GrantDirectMessage, Identity,
+    RegisterActor, RegisterRemoteRouter, RemoteRouterIdentity, RouterBootstrapDocument,
+    RouterBootstrapOperation, TailnetAddress,
 };
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
@@ -35,12 +36,27 @@ struct BootstrapWriterInput {
 ///
 /// `(BootstrapWriteRequest <output>
 ///   [ (<identity> <address>) ... ]
-///   [ (<actor> <process> <home: None | (Some identity)>) ... ])`
+///   [ (<actor> <process> <home: None | (Some identity)>
+///      <endpoint: None | (Some (ComponentSocket <target>))>) ... ]
+///   [ (<source-actor> <destination-actor>) ... ])`
+///
+/// The fifth list is the direct-message channel grants: each authorizes a
+/// verified inbound forward from `<source-actor>` to be DELIVERED to the
+/// locally-homed `<destination-actor>` (without a grant the forward parks for
+/// adjudication and never reaches the actor's component daemon).
+///
+/// The fourth actor-home field is the local delivery endpoint: a recipient
+/// homed locally (`home = None`) on a node that must deliver to a co-resident
+/// component daemon (e.g. a mirror) carries
+/// `(Some (ComponentSocket <component-working-socket>))` so the router relays a
+/// verified inbound forward's `RoutedContractObject` octets to that socket.
+/// `None` keeps the prior behaviour (no local endpoint; routing/home only).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BootstrapWriteRequest {
     output_path: BootstrapWriterPath,
     remote_peers: Vec<RemotePeer>,
     actor_homes: Vec<ActorHome>,
+    direct_message_grants: Vec<DirectMessageGrant>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
@@ -53,13 +69,56 @@ struct RemotePeer {
     address: String,
 }
 
-/// One hardwired actor home: the recipient actor, its process slot, and the
-/// peer it lives behind (`None` ⇒ local delivery via the harness registry).
+/// One hardwired actor home: the recipient actor, its process slot, the peer it
+/// lives behind (`None` ⇒ local delivery via the harness registry), and the
+/// optional local delivery endpoint a co-resident router uses to hand a verified
+/// forward's routed objects to the actor's component daemon.
 #[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
 struct ActorHome {
     actor: String,
     process: u64,
     home: Option<String>,
+    endpoint: Option<ActorEndpoint>,
+}
+
+/// The local delivery endpoint kinds a bootstrap may register for an actor. For
+/// the criome-auth witness only `ComponentSocket` (a co-resident component
+/// daemon's Unix working socket, e.g. the mirror) is needed.
+#[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
+enum ActorEndpoint {
+    ComponentSocket(String),
+}
+
+impl ActorEndpoint {
+    fn into_transport(self) -> EndpointTransport {
+        match self {
+            Self::ComponentSocket(target) => {
+                EndpointTransport::new(EndpointKind::ComponentSocket, target, None)
+            }
+        }
+    }
+}
+
+/// One hardwired direct-message channel grant: the source actor authorized to
+/// reach the destination actor. A verified inbound forward is only DELIVERED to
+/// a local actor when such a channel grant exists (else it parks for
+/// adjudication); the deployable bootstrap is the only authoring path, since the
+/// daemon exposes no working/meta surface that can grant a channel between
+/// arbitrary actor names (the meta grant vocabulary names only fixed components
+/// and connection classes).
+#[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
+struct DirectMessageGrant {
+    source: String,
+    destination: String,
+}
+
+impl DirectMessageGrant {
+    fn into_operation(self) -> RouterBootstrapOperation {
+        RouterBootstrapOperation::GrantDirectMessage(GrantDirectMessage {
+            source_actor: ActorIdentifier::new(self.source).into(),
+            destination_actor: ActorIdentifier::new(self.destination).into(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,10 +200,16 @@ impl BootstrapWriteRequest {
                 Actor::new(
                     ActorIdentifier::new(actor_home.actor.clone()),
                     actor_home.process,
-                    None,
+                    actor_home
+                        .endpoint
+                        .clone()
+                        .map(ActorEndpoint::into_transport),
                 ),
                 actor_home.home.clone().map(RemoteRouterIdentity::new),
             )));
+        }
+        for grant in &self.direct_message_grants {
+            operations.push(grant.clone().into_operation());
         }
         operations
     }
@@ -155,7 +220,7 @@ impl NotaDecode for BootstrapWriteRequest {
         let body =
             NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "BootstrapWriteRequest")?;
         let objects = body.root_objects();
-        const EXPECTED: usize = 4;
+        const EXPECTED: usize = 5;
         if objects.len() != EXPECTED {
             return Err(NotaDecodeError::ExpectedRootCount {
                 type_name: "BootstrapWriteRequest",
@@ -181,6 +246,7 @@ impl NotaDecode for BootstrapWriteRequest {
             output_path: BootstrapWriterPath::from_nota_block(&objects[1])?,
             remote_peers: Vec::<RemotePeer>::from_nota_block(&objects[2])?,
             actor_homes: Vec::<ActorHome>::from_nota_block(&objects[3])?,
+            direct_message_grants: Vec::<DirectMessageGrant>::from_nota_block(&objects[4])?,
         })
     }
 }
