@@ -339,6 +339,20 @@
               cargoTestExtraArgs = "--test end_to_end_remote_forward message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_locally -- --exact";
             }
           );
+          router-write-configuration-carries-network-fields = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features nota-text --test configuration_text_edges router_configuration_carries_listen_identity_and_criome_socket -- --exact";
+            }
+          );
+          router-write-bootstrap-carries-hardwired-peers = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features nota-text --test configuration_text_edges router_bootstrap_carries_hardwired_peers_and_actor_homes -- --exact";
+            }
+          );
         }
       );
 

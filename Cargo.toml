@@ -31,6 +31,11 @@ name = "router-write-configuration"
 path = "src/bin/router_write_configuration.rs"
 required-features = ["nota-text"]
 
+[[bin]]
+name = "router-write-bootstrap"
+path = "src/bin/router_write_bootstrap.rs"
+required-features = ["nota-text"]
+
 [dependencies]
 kameo                 = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
@@ -44,7 +49,7 @@ signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
 signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "criome-forward-attestation", default-features = false }
 signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "main", default-features = false }
-signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "criome-auth-integration", default-features = false }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
@@ -57,8 +62,8 @@ nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
 [dev-dependencies]
-criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "main", default-features = false }
-signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
+criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "criome-auth-integration", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "criome-auth-integration", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
 
 [lints.rust]

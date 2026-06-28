@@ -24,11 +24,17 @@
 //!    receiver's re-derived digest no longer matches what criome signed and
 //!    verification fails. The mapping is therefore non-degenerate: it cannot pass
 //!    regardless of content.
-//! 2. **Every other criome preimage field is a fixed convention or a carried
-//!    field.** Content purpose, schema version, audit purpose/audience/policy and
-//!    the criome signer identity (`Host("criome")`, matching criome's own
-//!    hardcoded `criome_identity`) are constants reproduced identically on both
-//!    sides. The audit nonce is the forward nonce; the BLS public key and
+//! 2. **The criome signer identity is the node identity, derived from the
+//!    router identity on both sides.** Each node signs as its own `Host(<node>)`
+//!    identity (criome's configured `node_identity`, equal to this node's
+//!    `router_identity`). The sender derives the `SignRequest` gate identity from
+//!    its own `router_identity`; the receiver derives the reconstructed
+//!    `Attestation.signer` from the wire-carried origin router identity (which is
+//!    bound into the digest, so it is cryptographically vouched, not merely
+//!    wire-claimed). No new wire field is needed: distinct identities flow as the
+//!    origin already on the wire. Content purpose, schema version, and audit
+//!    purpose/audience/policy are fixed constants reproduced identically on both
+//!    sides; the audit nonce is the forward nonce; the BLS public key and
 //!    signature ride the wire attestation.
 //! 3. **criome server-stamps its own `issued_at`.** That timestamp is in the
 //!    signed preimage but differs from the router's forward `issued_at` (which
@@ -72,12 +78,6 @@ pub struct CriomeForwardAttestation {
 }
 
 impl CriomeForwardAttestation {
-    /// The criome signer identity convention. criome signs every attestation as
-    /// its own hardcoded `criome_identity` (`Host("criome")`); both the signing
-    /// `SignRequest.signer` gate and the receiver's reconstruction must name the
-    /// same identity, and it must be a registered Active identity in the signing
-    /// criome (which self-registers `Host("criome")` at startup).
-    const CRIOME_SIGNER: &'static str = "criome";
     /// Fixed content `schema_version` so signer and verifier build the identical
     /// criome preimage. Names the forwarded-object schema this digest covers.
     const SCHEMA_VERSION: &'static str = "signal-router/RoutedContractObject";
@@ -93,10 +93,17 @@ impl CriomeForwardAttestation {
         }
     }
 
-    /// The criome identity criome attests as, used both as the `SignRequest`
-    /// gate identity and as the reconstructed `Attestation.signer`.
-    fn criome_signer_identity(&self) -> Identity {
-        Identity::host(Self::CRIOME_SIGNER.to_string())
+    /// The criome signer identity of a node, derived from that node's router
+    /// identity. Each node signs as its own `Host(<node>)` identity, so a node
+    /// is one party in both the routing fabric and criome's registry. This is
+    /// used identically on both sides: the sender derives it from its own
+    /// `router_identity` (the `SignRequest` gate, which the co-resident criome
+    /// self-registers Active because its configured `node_identity` is the same
+    /// node), and the receiver derives it from the wire-carried origin router
+    /// identity (the reconstructed `Attestation.signer`), so the receiver's
+    /// criome resolves the registered key for exactly the node that signed.
+    fn criome_signer_identity(node: &RemoteRouterIdentity) -> Identity {
+        Identity::host(node.payload().to_string())
     }
 
     /// The criome content reference over a derived digest, with the fixed
@@ -142,7 +149,7 @@ impl CriomeForwardAttestation {
         let digest = ForwardContentPreimage::for_forward(&self.router_identity, payload).digest();
         let sign_request = SignRequest::new(
             self.content_reference(digest.clone()),
-            self.criome_signer_identity(),
+            Self::criome_signer_identity(&self.router_identity),
             self.audit_context(nonce),
             None,
         );
@@ -197,7 +204,7 @@ impl CriomeForwardAttestation {
         );
         Ok(Attestation::new(
             self.content_reference(signed_digest),
-            self.criome_signer_identity(),
+            Self::criome_signer_identity(attestation.signer.payload()),
             envelope,
             criome_issued_at,
             None,

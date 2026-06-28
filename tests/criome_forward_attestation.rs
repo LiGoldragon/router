@@ -31,6 +31,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use criome::daemon::CriomeDaemon;
 use criome::tables::StoreLocation;
 use kameo::actor::ActorRef;
+use signal_criome::Identity;
 use router::{
     Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, ChannelLifetime,
     CriomeForwardAttestation, EndpointKind, EndpointTransport, ForwardAttestationVerifier,
@@ -56,13 +57,16 @@ use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 /// A real criome daemon serving on a private Unix socket, on its own thread.
 /// Each fixture has its own store directory, hence its own master key — two
-/// fixtures are two independent trust roots.
+/// fixtures are two independent trust roots. The daemon signs as `node_identity`
+/// (a distinct per-node `Host(...)`), which it self-registers Active at startup,
+/// so the co-resident router's gate identity (derived from the same node name)
+/// resolves and the receiver reconstructs the exact signer.
 struct CriomeFixture {
     socket: PathBuf,
 }
 
 impl CriomeFixture {
-    fn start(name: &str) -> Self {
+    fn start(name: &str, node_identity: &str) -> Self {
         let base = std::env::temp_dir().join(format!(
             "router-criome-{name}-{}-{}",
             std::process::id(),
@@ -71,7 +75,8 @@ impl CriomeFixture {
         std::fs::create_dir_all(&base).expect("criome fixture directory");
         let socket = base.join("criome.sock");
         let store = StoreLocation::new(base.join("criome.sema"));
-        let daemon = CriomeDaemon::new(socket.clone(), store);
+        let daemon = CriomeDaemon::new(socket.clone(), store)
+            .with_node_identity(Identity::host(node_identity.to_string()));
         thread::spawn(move || {
             daemon.run().expect("criome daemon serves forever");
         });
@@ -296,7 +301,10 @@ async fn send_forward(address: SocketAddr, request: RouterForwardRequest) -> Sig
 /// router B, both over the same co-resident criome daemon.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn router_accepts_forward_under_real_criome_bls_attestation() {
-    let criome = CriomeFixture::start("accept");
+    // The criome signs as the sending node's identity (router-a), which it
+    // self-registers Active, so router A's gate identity (derived from its own
+    // router_identity) resolves and router B reconstructs the same signer.
+    let criome = CriomeFixture::start("accept", "router-a");
     let operator = ActorIdentifier::new("operator");
     let owner = ActorIdentifier::new("owner");
     let target = ActorIdentifier::new("responder");
@@ -430,8 +438,12 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
 /// refusals are real criome verification failures, not a blanket refusal.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn router_refuses_forwards_without_a_valid_criome_attestation() {
-    let criome = CriomeFixture::start("verify-trust");
-    let foreign_criome = CriomeFixture::start("verify-foreign");
+    // Both criomes sign as the same sending node identity (router-a) — the
+    // trusted one is the criome router B holds the key for; the foreign one has
+    // an independent key. So the only difference between a trusted and a foreign
+    // forward is which criome key signed it, as before.
+    let criome = CriomeFixture::start("verify-trust", "router-a");
+    let foreign_criome = CriomeFixture::start("verify-foreign", "router-a");
 
     let router_b = RouterRuntime::start_networked(
         None,

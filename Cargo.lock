@@ -114,8 +114,8 @@ dependencies = [
 
 [[package]]
 name = "criome"
-version = "0.4.2"
-source = "git+https://github.com/LiGoldragon/criome.git?branch=main#6b6683da14600441338c2b1db206facf6f5d97d8"
+version = "0.4.3"
+source = "git+https://github.com/LiGoldragon/criome.git?branch=criome-auth-integration#4dc374f261db5d8d2bb62cb614f42a8592bca86f"
 dependencies = [
  "blake3",
  "blst",
@@ -343,7 +343,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 [[package]]
 name = "meta-signal-criome"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=main#4814625aa23dcb0e3cee19580914ccc1a3b4aadc"
+source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=criome-auth-integration#4e5f1af39a4be5b292a312ef2955521787c0247f"
 dependencies = [
  "rkyv",
  "schema-rust",
@@ -642,8 +642,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.6.2"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#73eea24b294a2bdcac470111afc387e7ce06608e"
+version = "0.6.3"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#98ba507b9807d35d9d081529f3e52d1262c40b2e"
 dependencies = [
  "blake3",
  "rkyv",
@@ -691,8 +691,8 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-criome"
-version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=main#478d6cca0d31b670fc7aabf54994ebffa41527c4"
+version = "0.6.0"
+source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=criome-auth-integration#5976b2870e0231742dc1a8bf4db17fd98f8f6b61"
 dependencies = [
  "blake3",
  "blst",
@@ -797,7 +797,7 @@ dependencies = [
 [[package]]
 name = "signal-sema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#bdd7fe369952cb51e4476f201a3419ae5b35d444"
+source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#e11901358bab47e710e3d15414141183a13c2ad6"
 dependencies = [
  "rkyv",
  "thiserror",
