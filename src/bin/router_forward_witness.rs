@@ -27,7 +27,17 @@
 //!   MIRROR_STORE         the signal-mirror store the Append targets (default "spirit")
 //!   HEAD_DIGEST_HEX      64 hex chars: the 32-byte head digest to land
 //!   FORWARD_NONCE        the forward replay nonce
-//!   PAYLOAD_TEXT         optional entry payload bytes (default: the digest hex)
+//!   ENTRY_BODY_PATH      optional file of the REAL entry body octets to forward
+//!                        (the rkyv VersionedCommitLogEntry `meta-spirit
+//!                        "(ObserveHeadObject)"` surfaces, hex-decoded to a file);
+//!                        takes precedence over PAYLOAD_TEXT
+//!   PAYLOAD_TEXT         optional inline entry payload bytes (default: the digest hex)
+//!
+//! When ENTRY_BODY_PATH points at the real `ObserveHeadObject` body, the
+//! forwarded `Append` carries the genuine record body the mirror re-hashes back
+//! to HEAD_DIGEST_HEX (both come from the same Spirit head entry), instead of a
+//! stand-in. The criome attestation binds the FULL routed-object octets, so
+//! swapping the body keeps the signature binding and only strengthens the gate.
 //!
 //! It prints the decoded reply as NOTA (`(ForwardAccepted ...)` /
 //! `(ForwardRefused (AttestationInvalid))`) and exits 0; the caller reads the
@@ -45,7 +55,7 @@ use signal_mirror::{
 use signal_router::{
     ActorIdentifier, ContractName, ContractOperation, ContractPayloadSize, ForwardMarker,
     ForwardedMessagePayload, Input as RouterInput, NotaEncode, Output as RouterOutput,
-    RemoteRouterIdentity, ReplayNonce, RouterForwardRequest, RoutedContractObject, TimestampNanos,
+    RemoteRouterIdentity, ReplayNonce, RoutedContractObject, RouterForwardRequest, TimestampNanos,
 };
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
@@ -75,8 +85,6 @@ struct ForwardWitness {
 impl ForwardWitness {
     fn from_environment() -> Result<Self, ForwardWitnessError> {
         let head_hex = Self::required("HEAD_DIGEST_HEX")?;
-        let payload_text =
-            std::env::var("PAYLOAD_TEXT").unwrap_or_else(|_| head_hex.clone());
         Ok(Self {
             criome_socket: PathBuf::from(Self::required("CRIOME_SOCKET")?),
             peer_address: Self::required("ROUTER_PEER_ADDRESS")?,
@@ -89,7 +97,9 @@ impl ForwardWitness {
             ),
             head: EntryDigest::new(FixedBytes::new(Self::decode_digest(&head_hex)?)),
             nonce: ReplayNonce::new(Self::required("FORWARD_NONCE")?),
-            payload: PayloadBytes::new(Bytes::new(payload_text.into_bytes())),
+            payload: PayloadBytes::new(Bytes::new(
+                EntryBodySource::from_environment().into_octets(&head_hex)?,
+            )),
         })
     }
 
@@ -210,6 +220,48 @@ impl ForwardWitness {
     }
 }
 
+/// Where the forwarded `Append`'s entry body octets come from — a closed choice
+/// resolved once from the environment, then lowered to octets. `ForwardedBodyFile`
+/// is the REAL-body path: the file holds the exact octets `meta-spirit
+/// "(ObserveHeadObject)"` surfaced (the rkyv `VersionedCommitLogEntry` the mirror
+/// re-derives back to `head`), so the witness forwards the genuine
+/// content-addressed record body. The other two are the legacy stand-ins. The
+/// carried `head` digest comes independently from `HEAD_DIGEST_HEX`
+/// (`ObserveHead`); both derive from the same Spirit head entry, so body and
+/// head stay consistent by construction.
+enum EntryBodySource {
+    ForwardedBodyFile(PathBuf),
+    InlineText(String),
+    HeadDigestHex,
+}
+
+impl EntryBodySource {
+    /// `ENTRY_BODY_PATH` (the real body) wins, then the legacy inline
+    /// `PAYLOAD_TEXT`, then the head hex itself as the default body.
+    fn from_environment() -> Self {
+        if let Some(path) = std::env::var_os("ENTRY_BODY_PATH") {
+            Self::ForwardedBodyFile(PathBuf::from(path))
+        } else if let Ok(text) = std::env::var("PAYLOAD_TEXT") {
+            Self::InlineText(text)
+        } else {
+            Self::HeadDigestHex
+        }
+    }
+
+    fn into_octets(self, head_hex: &str) -> Result<Vec<u8>, ForwardWitnessError> {
+        match self {
+            Self::ForwardedBodyFile(path) => {
+                std::fs::read(&path).map_err(|error| ForwardWitnessError::ReadEntryBody {
+                    path,
+                    detail: error.to_string(),
+                })
+            }
+            Self::InlineText(text) => Ok(text.into_bytes()),
+            Self::HeadDigestHex => Ok(head_hex.as_bytes().to_vec()),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 enum ForwardWitnessError {
     #[error("required environment variable {name} is unset")]
@@ -220,6 +272,9 @@ enum ForwardWitnessError {
 
     #[error("HEAD_DIGEST_HEX is not valid hex")]
     DigestNotHex,
+
+    #[error("read ENTRY_BODY_PATH {}: {detail}", path.display())]
+    ReadEntryBody { path: PathBuf, detail: String },
 
     #[error("encode forward frame: {0}")]
     Encode(String),
@@ -239,8 +294,59 @@ impl ForwardWitnessError {
         match self {
             Self::MissingEnvironment { .. }
             | Self::DigestLength { .. }
-            | Self::DigestNotHex => 2,
+            | Self::DigestNotHex
+            | Self::ReadEntryBody { .. } => 2,
             _ => 1,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EntryBodySource, ForwardWitnessError};
+    use std::io::Write;
+
+    const HEAD_HEX: &str = "326640ace33a02dac238e313cd91bcbd9a5a3dc75759fef49a3476e7fe35b85a";
+
+    /// The REAL path: ENTRY_BODY_PATH octets are forwarded byte-for-byte,
+    /// binary-safe — the rkyv `VersionedCommitLogEntry` body is binary, not text.
+    #[test]
+    fn forwarded_body_file_octets_are_read_verbatim() {
+        let real_body: Vec<u8> = vec![0x00, 0x01, 0xff, 0xfe, b'r', b'k', b'y', b'v', 0x80];
+        let mut file = tempfile::NamedTempFile::new().expect("temp body file");
+        file.write_all(&real_body).expect("write body");
+        file.flush().expect("flush body");
+
+        let octets = EntryBodySource::ForwardedBodyFile(file.path().to_path_buf())
+            .into_octets(HEAD_HEX)
+            .expect("read the entry body file");
+        assert_eq!(
+            octets, real_body,
+            "the forwarded Append carries the exact ENTRY_BODY_PATH octets"
+        );
+    }
+
+    #[test]
+    fn missing_body_file_is_a_typed_read_error() {
+        let error = EntryBodySource::ForwardedBodyFile("/nonexistent/entry.body".into())
+            .into_octets(HEAD_HEX)
+            .expect_err("a missing body file must fail closed");
+        assert!(matches!(error, ForwardWitnessError::ReadEntryBody { .. }));
+    }
+
+    #[test]
+    fn inline_text_and_head_hex_remain_the_legacy_stand_ins() {
+        assert_eq!(
+            EntryBodySource::InlineText("criome-verified durable append".to_owned())
+                .into_octets(HEAD_HEX)
+                .expect("inline text body"),
+            b"criome-verified durable append".to_vec()
+        );
+        assert_eq!(
+            EntryBodySource::HeadDigestHex
+                .into_octets(HEAD_HEX)
+                .expect("default head-hex body"),
+            HEAD_HEX.as_bytes().to_vec()
+        );
     }
 }

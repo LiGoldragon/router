@@ -161,6 +161,17 @@
               cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_the_real_record_body_which_rehashes_to_the_head -- --exact";
             }
           );
+          # The witness sender forwards the REAL record body: ENTRY_BODY_PATH
+          # octets (the rkyv VersionedCommitLogEntry meta-spirit "(ObserveHeadObject)"
+          # surfaces) become the Append payload byte-for-byte, binary-safe, instead
+          # of a stand-in; the carried head digest stays HEAD_DIGEST_HEX.
+          router-forward-witness-reads-entry-body = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features witness --bin router-forward-witness";
+            }
+          );
           router-generated-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
             context.commonArgs
             // {
