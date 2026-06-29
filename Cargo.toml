@@ -31,6 +31,16 @@ name = "router-write-configuration"
 path = "src/bin/router_write_configuration.rs"
 required-features = ["nota-text"]
 
+[[bin]]
+name = "router-write-bootstrap"
+path = "src/bin/router_write_bootstrap.rs"
+required-features = ["nota-text"]
+
+[[bin]]
+name = "router-forward-witness"
+path = "src/bin/router_forward_witness.rs"
+required-features = ["witness"]
+
 [dependencies]
 kameo                 = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
@@ -45,6 +55,7 @@ signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", br
 signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
 signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "main", default-features = false }
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
+signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main", optional = true }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
@@ -52,12 +63,24 @@ triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.gi
 [features]
 default = []
 nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
+# The two-VM criome-auth witness sender bin (router-forward-witness). Pulls in
+# signal-mirror so the bin can build the forwarded Append payload, and nota-text
+# so the typed router reply renders as NOTA on stdout.
+witness = ["dep:signal-mirror", "nota-text"]
 
 [build-dependencies]
 schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
 [dev-dependencies]
+criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "main", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
+# The real mirror engine, behind a co-resident ComponentSocket, so the durable
+# mirror-landing witness drives a genuine versioned sema-engine store (its head
+# is the witnessed claim, not the router's ForwardAccepted reply). Pinned to the
+# signal-frame 0.3.0 alignment branch so the ComponentSocket wire is shared.
+mirror = { git = "https://github.com/LiGoldragon/mirror.git", branch = "main" }
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

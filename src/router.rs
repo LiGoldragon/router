@@ -75,6 +75,7 @@ use crate::channel::{
     ExtendChannel, GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus,
     ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier, UseChannel,
 };
+use crate::criome_attestation::CriomeForwardAttestation;
 use crate::daemon::RouterDaemonError;
 use crate::forward_attestation::{
     AcceptFixedTestIdentity, ForwardAdmissionInstant, ForwardAdmissionWindow,
@@ -988,6 +989,23 @@ impl RouterNetworkConfiguration {
     /// with the shared test identity and B admits it, with no criome daemon.
     pub fn offline_listening(listen_address: SocketAddr, identity: RemoteRouterIdentity) -> Self {
         Self::new(Some(listen_address), identity, Self::offline_verifier())
+    }
+
+    /// A loopback/tailnet listener bound to `listen_address` with this router's
+    /// own `identity`, signing and verifying every forward through a real criome
+    /// daemon at `criome_socket_path`. The milestone-3 construction: the same
+    /// identity is stamped as the attestation signer and bound into the signed
+    /// digest, so the receiver's criome verifies content and origin together.
+    pub fn criome_listening(
+        listen_address: SocketAddr,
+        identity: RemoteRouterIdentity,
+        criome_socket_path: std::path::PathBuf,
+    ) -> Self {
+        Self::new(
+            Some(listen_address),
+            identity.clone(),
+            Arc::new(CriomeForwardAttestation::new(identity, criome_socket_path)),
+        )
     }
 
     pub fn listen_address(&self) -> Option<SocketAddr> {

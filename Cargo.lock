@@ -113,6 +113,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "criome"
+version = "0.4.3"
+source = "git+https://github.com/LiGoldragon/criome.git?branch=main#4c820a057c3c46eb8d17c5ef55c4468bfc22d85e"
+dependencies = [
+ "blake3",
+ "blst",
+ "kameo",
+ "meta-signal-criome",
+ "rkyv",
+ "sema-engine",
+ "signal-criome",
+ "signal-frame",
+ "thiserror",
+ "tokio",
+ "triad-runtime",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -139,6 +157,12 @@ dependencies = [
  "libc",
  "windows-sys",
 ]
+
+[[package]]
+name = "fastrand"
+version = "2.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "find-msvc-tools"
@@ -235,6 +259,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "getrandom"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "r-efi",
+]
+
+[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -270,9 +305,9 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.102"
+version = "0.3.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03d04c30968dffe80775bd4d7fb676131cd04a1fb46d2686dbffbaec2d9dfd31"
+checksum = "53b44bfcdb3f8d5837a46dae1ca9660a837176eee74a28b229bc626816589102"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -323,6 +358,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
+name = "meta-signal-criome"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=main#1fc655bc6eaad11cb27a99d6cb28cf9e7d1bbe8e"
+dependencies = [
+ "rkyv",
+ "schema-rust",
+ "signal-criome",
+ "signal-frame",
+ "thiserror",
+]
+
+[[package]]
+name = "meta-signal-mirror"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/meta-signal-mirror.git?branch=main#9d2aeddf11d0a87ff23fbcc7f22a55869ffe06b2"
+dependencies = [
+ "nota",
+ "rkyv",
+ "schema-rust",
+ "signal-frame",
+ "thiserror",
+]
+
+[[package]]
 name = "meta-signal-router"
 version = "0.2.0"
 source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#5c0f6ee830cf032cb041cb22c6574de8cc35de34"
@@ -342,6 +401,23 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys",
+]
+
+[[package]]
+name = "mirror"
+version = "0.1.2"
+source = "git+https://github.com/LiGoldragon/mirror.git?branch=main#5102f5ed87d10d6a7386358b3b10214a04fdf89d"
+dependencies = [
+ "meta-signal-mirror",
+ "nota",
+ "rkyv",
+ "schema-rust",
+ "sema-engine",
+ "signal-frame",
+ "signal-mirror",
+ "thiserror",
+ "tokio",
+ "triad-runtime",
 ]
 
 [[package]]
@@ -460,6 +536,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "r-efi"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
 name = "rancor"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -520,8 +602,10 @@ dependencies = [
 name = "router"
 version = "0.4.1"
 dependencies = [
+ "criome",
  "kameo",
  "meta-signal-router",
+ "mirror",
  "nota",
  "rkyv",
  "schema-rust",
@@ -535,6 +619,7 @@ dependencies = [
  "signal-persona",
  "signal-router",
  "signal-standard",
+ "tempfile",
  "thiserror",
  "tokio",
  "triad-runtime",
@@ -611,8 +696,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.6.2"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#73eea24b294a2bdcac470111afc387e7ce06608e"
+version = "0.6.3"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#98ba507b9807d35d9d081529f3e52d1262c40b2e"
 dependencies = [
  "blake3",
  "rkyv",
@@ -660,8 +745,8 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-criome"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=main#182036acc4e763b9ef6c763082f6c277785f86b3"
+version = "0.6.0"
+source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=main#5976b2870e0231742dc1a8bf4db17fd98f8f6b61"
 dependencies = [
  "blake3",
  "blst",
@@ -719,8 +804,8 @@ dependencies = [
 
 [[package]]
 name = "signal-mind"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#f5d6a93d7a64ea833d407329a66916975a79c437"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#eb2e0025e60a07901a096178a26e214fb5d40ba1"
 dependencies = [
  "nota",
  "rkyv",
@@ -754,7 +839,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#277bd153a7141f92e7bd83f7525568d9e137e595"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#289c7de47d58432f41c8295b7852da2a94f84475"
 dependencies = [
  "nota",
  "rkyv",
@@ -766,7 +851,7 @@ dependencies = [
 [[package]]
 name = "signal-sema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#bdd7fe369952cb51e4476f201a3419ae5b35d444"
+source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#e11901358bab47e710e3d15414141183a13c2ad6"
 dependencies = [
  "rkyv",
  "thiserror",
@@ -813,6 +898,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom",
+ "once_cell",
+ "rustix",
+ "windows-sys",
 ]
 
 [[package]]
@@ -938,9 +1036,9 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "uuid"
-version = "1.23.3"
+version = "1.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "144d6b123cef80b301b8f72a9e2ca4370ddec21950d0a103dd22c437006d2db7"
+checksum = "bf80a72845275afea99e7f2b434723d3bc7e38470fcd1c7ed39a599c73319a53"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -954,9 +1052,9 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.125"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ddb3f79143bced6de84270411622a2699cee572fc0875aeaf1e7867cf9fca1a"
+checksum = "4b067c0c11094aef6b7a801c1e34a26affafdf3d051dba08456b868789aaf9a4"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -967,9 +1065,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.125"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e21a184b13fb19e157296e2c46056aec9092264fab83e4ba59e68c61b323c3d"
+checksum = "167ce5e579f6bcf889c4f7175a8a5a585de84e8ff93976ce393efa5f2837aab1"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -977,9 +1075,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.125"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fecefd9c35bd935a20fc3fc344b5f29138961e4f47fb03297d88f2587afb5ebd"
+checksum = "f3997c7839262f4ef12cf90b818d6340c18e80f263f1a94bf157d0ec4420380e"
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -990,9 +1088,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.125"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23939e44bb9a5d7576fa2b563dc2e136628f1224e88a8deed09e04858b77871f"
+checksum = "dc1b4cb0cc549fcf58d7dfc081778139b3d283a081644e833e84682ad71cea24"
 dependencies = [
  "unicode-ident",
 ]

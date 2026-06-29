@@ -99,6 +99,18 @@
               meta.mainProgram = "router";
             }
           );
+          # The two-VM criome-auth witness build: the nota-text bins PLUS the
+          # router-forward-witness sender (the `witness` feature also enables
+          # nota-text). Used by the CriomOS-test-cluster criome-auth witness.
+          witness = context.craneLib.buildPackage (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoExtraArgs = "--features witness";
+              pname = "router-witness";
+              meta.mainProgram = "router-daemon";
+            }
+          );
         }
       );
 
@@ -112,6 +124,52 @@
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
+            }
+          );
+          router-accepts-only-real-criome-attestation = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_attestation router_accepts_forward_under_real_criome_bls_attestation -- --exact";
+            }
+          );
+          router-refuses-forward-without-criome-credential = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_attestation router_refuses_forwards_without_a_valid_criome_attestation -- --exact";
+            }
+          );
+          # L5: a criome-verified forward carrying a signal-mirror Append is
+          # relayed to a co-resident mirror's ComponentSocket and DURABLY LANDS
+          # (the real mirror engine's head advances to the appended record).
+          router-criome-forward-lands-in-mirror = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_an_append_in_the_co_resident_mirror -- --exact";
+            }
+          );
+          # The REAL-BODY witness: the forward carries the rkyv VersionedCommitLogEntry
+          # the production shipper ships (no placeholder), it durably lands, and
+          # re-deriving the digest from the LANDED body reproduces the record's
+          # real head — sema-engine's own content-addressing, the value ObserveHead returns.
+          router-criome-forward-lands-real-body-in-mirror = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_the_real_record_body_which_rehashes_to_the_head -- --exact";
+            }
+          );
+          # The witness sender forwards the REAL record body: ENTRY_BODY_PATH
+          # octets (the rkyv VersionedCommitLogEntry meta-spirit "(ObserveHeadObject)"
+          # surfaces) become the Append payload byte-for-byte, binary-safe, instead
+          # of a stand-in; the carried head digest stays HEAD_DIGEST_HEX.
+          router-forward-witness-reads-entry-body = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features witness --bin router-forward-witness";
             }
           );
           router-generated-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
@@ -323,6 +381,20 @@
             // {
               inherit (context) cargoArtifacts;
               cargoTestExtraArgs = "--test end_to_end_remote_forward message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_locally -- --exact";
+            }
+          );
+          router-write-configuration-carries-network-fields = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features nota-text --test configuration_text_edges router_configuration_carries_listen_identity_and_criome_socket -- --exact";
+            }
+          );
+          router-write-bootstrap-carries-hardwired-peers = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--features nota-text --test configuration_text_edges router_bootstrap_carries_hardwired_peers_and_actor_homes -- --exact";
             }
           );
         }

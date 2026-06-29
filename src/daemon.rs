@@ -21,7 +21,8 @@ use std::sync::Arc;
 
 use signal_router::RemoteRouterIdentity;
 
-use crate::forward_attestation::AcceptFixedTestIdentity;
+use crate::criome_attestation::CriomeForwardAttestation;
+use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
 use crate::router::RouterNetworkConfiguration;
 use crate::{
     ApplyMetaRouterPolicy, ApplyRouterObservation, ApplySignalMessage, Configuration,
@@ -63,18 +64,25 @@ pub enum RouterDaemonError {
 
 impl RouterEngine {
     pub fn from_configuration(configuration: &Configuration) -> RouterResult<Self> {
-        // Milestone 2: the criome verifier is the offline
-        // accept-fixed-test-identity stand-in keyed on the shared cluster
-        // test identity (a sender's attestation must carry an identity the
-        // receiver admits). Milestone 3 swaps this for a criome client over
-        // `configuration.criome_socket_path()` admitting per-router
-        // cluster-root identities.
+        // Milestone 3: when `criome_socket_path` is configured the verifier is
+        // a real criome client that BLS-signs each outbound forward and verifies
+        // each inbound one over that socket. Absent the socket the daemon keeps
+        // the offline accept-fixed-test-identity stand-in (milestone 2), so a
+        // single-host or pre-criome deployment still runs.
+        let verifier: Arc<dyn ForwardAttestationVerifier> = match configuration.criome_socket_path()
+        {
+            Some(criome_socket_path) => Arc::new(CriomeForwardAttestation::new(
+                configuration.router_identity().clone(),
+                criome_socket_path.to_path_buf(),
+            )),
+            None => Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
+                RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
+            ))),
+        };
         let network = RouterNetworkConfiguration::new(
             configuration.tailnet_listen_address(),
             configuration.router_identity().clone(),
-            Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
-                RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
-            ))),
+            verifier,
         );
         Ok(Self {
             tables: RouterTables::open(configuration.database_path())?,
