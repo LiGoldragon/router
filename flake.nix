@@ -150,6 +150,17 @@
               cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_an_append_in_the_co_resident_mirror -- --exact";
             }
           );
+          # The REAL-BODY witness: the forward carries the rkyv VersionedCommitLogEntry
+          # the production shipper ships (no placeholder), it durably lands, and
+          # re-deriving the digest from the LANDED body reproduces the record's
+          # real head — sema-engine's own content-addressing, the value ObserveHead returns.
+          router-criome-forward-lands-real-body-in-mirror = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_the_real_record_body_which_rehashes_to_the_head -- --exact";
+            }
+          );
           router-generated-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
             context.commonArgs
             // {

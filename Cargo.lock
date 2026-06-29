@@ -405,8 +405,8 @@ dependencies = [
 
 [[package]]
 name = "mirror"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/mirror.git?branch=criome-auth-witness#d30cd180507cd52d0369d2ec8b49136fdfca8458"
+version = "0.1.1"
+source = "git+https://github.com/LiGoldragon/mirror.git?branch=criome-auth-witness#9a72e87e843f8ed12ea94700a3183639088cdedc"
 dependencies = [
  "meta-signal-mirror",
  "nota",
