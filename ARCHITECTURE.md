@@ -461,6 +461,26 @@ decide whether Spirit had permission to ask criome to sign. Router accepts
 only the resulting authenticated propagation as transport input and applies
 its own peer attestation, freshness, replay, routing, and channel policy.
 
+Per archived intent `57f9`, this milestone is one instance of Router's
+**standardized routing protocol**: a router-typed envelope carries
+routing/object metadata for a serialized contract-owned rkyv payload, and
+Router stays payload-blind beyond envelope, routing, authentication, and
+delivery policy. Router is the sole operational subscription matcher for
+non-direct passing. Object-update fan-out is reference-shaped rather than
+payload-shaped: criome stamps and authorizes the object and emits an
+authorized-object reference (not the payload); Router matches subscriptions
+and fans the reference to subscribers, who then fetch the rkyv object
+themselves. Accepted objects are quorum-backed by default. Time-driven
+pulses use an after-time contract that schedules a later check and triggers
+a fresh quorum-signed acceptance if the awaited events did not occur. In the
+spirit-vcs milestone the receiving mirror owns fetch/restore after the
+authenticated head notice — criome auth-only, Router transport-only, mirror
+the version-control substrate, one mirror per node (symmetric with the
+per-system router). The mirror is the psyche's cross-machine self: an edit on
+any owner machine propagates as a criome-authorized state transition, criome
+holds authority on the latest approved head, and Spirit fetches it. The
+mirror aspect may eventually fold into the Spirit daemon.
+
 ```mermaid
 flowchart LR
     "submit on router A" -->|"local lookup misses"| "RouterRoot.retry_pending"
