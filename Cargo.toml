@@ -54,7 +54,7 @@ signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
 signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
 signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "main", default-features = false }
-signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "criome-authorization-push", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main", optional = true }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
@@ -72,8 +72,8 @@ witness = ["dep:signal-mirror", "nota-text"]
 schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
 [dev-dependencies]
-criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "main", default-features = false }
-signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
+criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "criome-authorization-push", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "criome-authorization-push", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
 # The real mirror engine, behind a co-resident ComponentSocket, so the durable
 # mirror-landing witness drives a genuine versioned sema-engine store (its head

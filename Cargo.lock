@@ -115,7 +115,7 @@ dependencies = [
 [[package]]
 name = "criome"
 version = "0.4.3"
-source = "git+https://github.com/LiGoldragon/criome.git?branch=main#4c820a057c3c46eb8d17c5ef55c4468bfc22d85e"
+source = "git+https://github.com/LiGoldragon/criome.git?branch=criome-authorization-push#19184a1f96dcaa154895e7d508a3e036bf31c77c"
 dependencies = [
  "blake3",
  "blst",
@@ -360,7 +360,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 [[package]]
 name = "meta-signal-criome"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=main#1fc655bc6eaad11cb27a99d6cb28cf9e7d1bbe8e"
+source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=criome-authorization-push#acd203e7e07191ff83dfedcafbc9ecb2da9f87ea"
 dependencies = [
  "rkyv",
  "schema-rust",
@@ -746,7 +746,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "signal-criome"
 version = "0.6.0"
-source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=main#5976b2870e0231742dc1a8bf4db17fd98f8f6b61"
+source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=criome-authorization-push#2986f8f8ec83de14546cf8ce286738bc2aba77c9"
 dependencies = [
  "blake3",
  "blst",
