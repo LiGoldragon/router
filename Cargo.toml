@@ -44,7 +44,7 @@ required-features = ["witness"]
 [dependencies]
 kameo                 = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
 meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
-nota             = { package = "nota", git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
+nota             = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
@@ -69,7 +69,7 @@ nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 witness = ["dep:signal-mirror", "nota-text"]
 
 [build-dependencies]
-schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
 
 [dev-dependencies]
 criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "criome-authorization-push", default-features = false }
