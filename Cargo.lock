@@ -395,8 +395,8 @@ dependencies = [
 
 [[package]]
 name = "meta-signal-router"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#5c0f6ee830cf032cb041cb22c6574de8cc35de34"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=main#31f9262d1b40c28ad1465ca612df391be67fd13b"
 dependencies = [
  "nota",
  "rkyv",
@@ -869,8 +869,8 @@ dependencies = [
 
 [[package]]
 name = "signal-router"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#590406c38584c52a95913bacccb67a55c7b17038"
+version = "0.4.0"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#bf8e91b44711126bfc89def9673dd550186d2571"
 dependencies = [
  "nota",
  "rkyv",

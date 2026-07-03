@@ -817,6 +817,7 @@ fn router_tables_register_engine_families_and_advance_commit_sequence() {
             "delivery_attempts",
             "delivery_results",
             "messages",
+            "mirror_switch",
         ]
         .into_iter()
         .map(str::to_owned)

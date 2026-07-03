@@ -18,8 +18,9 @@ use meta_signal_router::{
     ChannelRevocation as MetaChannelRevocation, ComponentName as MetaComponentName,
     ConnectionClass as MetaConnectionClass, DeniedAdjudication as MetaDeniedAdjudication,
     ExtendedChannel as MetaExtendedChannel, GrantedChannel as MetaGrantedChannel,
-    Input as MetaInput, OperationKind as MetaOperationKind, Output as MetaOutput,
-    RejectedChannelOrder as MetaRejectedChannelOrder, RevokedChannel as MetaRevokedChannel,
+    Input as MetaInput, MirrorEnabled as MetaMirrorEnabled, OperationKind as MetaOperationKind,
+    Output as MetaOutput, RejectedChannelOrder as MetaRejectedChannelOrder,
+    RevokedChannel as MetaRevokedChannel,
 };
 use nota::{Block, Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use signal_frame::{
@@ -1735,6 +1736,14 @@ pub struct RouterRoot {
     signal_message_sequence: u64,
     delivery_sequence: u64,
     signal_slots: Vec<SignalMessageSlot>,
+    /// The router's single owner-controlled mirror switch (primary-nbmq.7).
+    /// Ships-dark: default OFF, and any absent or unreadable persisted state
+    /// resolves to OFF via `RouterTables::mirror_enabled`'s own fail-safe
+    /// read. While OFF, this router neither originates
+    /// (`apply_routed_object_submission`) nor accepts
+    /// (`apply_forwarded`) mirror — that is, routed-object-carrying —
+    /// traffic; ordinary signal-message forwarding is unaffected.
+    mirror_enabled: bool,
 }
 
 impl RouterRoot {
@@ -1747,6 +1756,10 @@ impl RouterRoot {
         peer_delivery: ActorRef<RouterPeerDelivery>,
         tables: Option<RouterTables>,
     ) -> Self {
+        let mirror_enabled = tables
+            .as_ref()
+            .map(RouterTables::mirror_enabled)
+            .unwrap_or(false);
         Self {
             pending: Vec::new(),
             registry,
@@ -1760,6 +1773,7 @@ impl RouterRoot {
             signal_message_sequence: 0,
             delivery_sequence: 0,
             signal_slots: Vec::new(),
+            mirror_enabled,
         }
     }
 
@@ -1901,7 +1915,31 @@ impl RouterRoot {
                 self.apply_meta_revocation(revocation.into_payload()).await
             }
             MetaInput::Deny(denial) => self.apply_meta_denial(denial.into_payload()).await,
+            MetaInput::SetMirrorEnabled(set) => {
+                self.apply_meta_set_mirror_enabled(set.into_payload())
+            }
         }
+    }
+
+    /// The off-by-default mirror switch (primary-nbmq.7): the owner-only
+    /// meta socket is the single authoritative place this flips, and the
+    /// new value is persisted before it takes effect in this runtime — a
+    /// crash between commit and reply still leaves the persisted fact
+    /// correct for the next restart to read. Always succeeds; there is no
+    /// policy check on the owner-only meta channel, so the reply simply
+    /// confirms the value now in effect.
+    fn apply_meta_set_mirror_enabled(
+        &mut self,
+        requested: MetaMirrorEnabled,
+    ) -> RouterResult<MetaOutput> {
+        let enabled = *requested.payload();
+        if let Some(tables) = &self.tables {
+            tables.set_mirror_enabled(enabled)?;
+        }
+        self.mirror_enabled = enabled;
+        Ok(MetaOutput::mirror_enabled_set(MetaMirrorEnabled::new(
+            enabled,
+        )))
     }
 
     async fn apply_meta_grant(&mut self, grant: MetaChannelGrant) -> RouterResult<MetaOutput> {
@@ -2121,6 +2159,16 @@ impl RouterRoot {
         &mut self,
         submission: ForwardedMessagePayload,
     ) -> RouterResult<SignalRouterOutput> {
+        // The mirror gate (primary-nbmq.7). This op exists only to originate
+        // routed-object (mirror) forwards, so the whole op is gated
+        // unconditionally — unlike the inbound `apply_forwarded`, which also
+        // carries ordinary messages and so gates only on objects present.
+        // While OFF this router originates nothing; ships dark until flipped.
+        if !self.mirror_enabled {
+            return Ok(SignalRouterOutput::routed_objects_refused(
+                RouterForwardRefusalReason::MirrorDisabled.into(),
+            ));
+        }
         let sender = ActorIdentifier::new(submission.source_actor.payload().payload().as_str());
         let recipient =
             ActorIdentifier::new(submission.destination_actor.payload().payload().as_str());
@@ -2454,6 +2502,18 @@ impl RouterRoot {
         verified_origin: RemoteRouterIdentity,
         payload: ForwardedMessagePayload,
     ) -> RouterResult<ForwardApplied> {
+        // The mirror gate (primary-nbmq.7) is scoped to mirror traffic: a
+        // forward that carries routed objects. While the owner-only switch
+        // is OFF the router refuses to accept such a forward, so nothing
+        // crosses regardless of the peer's or the local components' state.
+        // An ordinary human-message forward carries no routed objects and is
+        // never gated by this switch — it is a distinct, pre-existing
+        // capability.
+        if !self.mirror_enabled && !payload.routed_objects().is_empty() {
+            return Ok(ForwardApplied::Refused(
+                RouterForwardRefusalReason::MirrorDisabled,
+            ));
+        }
         let sender = ActorIdentifier::new(payload.source_actor.payload().payload().as_str());
         let recipient =
             ActorIdentifier::new(payload.destination_actor.payload().payload().as_str());

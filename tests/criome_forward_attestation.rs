@@ -31,14 +31,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use criome::daemon::CriomeDaemon;
 use criome::tables::StoreLocation;
 use kameo::actor::ActorRef;
-use signal_criome::Identity;
 use router::{
-    Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, ChannelLifetime,
-    CriomeForwardAttestation, EndpointKind, EndpointTransport, ForwardAttestationVerifier,
-    GrantChannel, GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute,
-    ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor, RemoteRouterIdentity, RouterInput,
-    RouterNetworkConfiguration, RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
+    Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRouterInput, ApplySignalMessage,
+    ChannelLifetime, CriomeForwardAttestation, EndpointKind, EndpointTransport,
+    ForwardAttestationVerifier, GrantChannel, GrantRouteChannel, InstallRemotePeer,
+    InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor,
+    RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime, RouterTraceStep,
+    SignalMessageInput, TailnetAddress,
 };
+use signal_criome::Identity;
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
@@ -228,6 +229,23 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
         .expect("router input reaches runtime")
         .into_result()
         .expect("router input applies");
+}
+
+/// Flip the router's owner-only mirror switch ON (primary-nbmq.7). These
+/// witnesses carry routed objects — mirror traffic — which the switch gates
+/// default-OFF; enabling it is the honest opt-in these attestation/transport
+/// proofs now make explicit before driving object forwards.
+async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
+    runtime
+        .ask(ApplyMetaRouterPolicy {
+            input: meta_signal_router::Input::set_mirror_enabled(
+                meta_signal_router::MirrorEnabled::new(true),
+            ),
+        })
+        .await
+        .expect("meta SetMirrorEnabled reaches runtime")
+        .into_result()
+        .expect("SetMirrorEnabled applies");
 }
 
 /// A forwarded payload addressed to `recipient`, carrying one opaque routed
@@ -455,6 +473,8 @@ async fn router_refuses_forwards_without_a_valid_criome_attestation() {
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
+    // This witness drives routed-object (mirror) forwards; open the gate.
+    enable_mirror(&router_b).await;
 
     // The two minting verifiers carry the SAME router identity, so the only
     // difference between a trusted and a foreign forward is which criome key

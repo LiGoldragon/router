@@ -27,11 +27,16 @@ const ADJUDICATION_PENDING: TableName = TableName::new("adjudication_pending");
 const MESSAGES: TableName = TableName::new("messages");
 const DELIVERY_ATTEMPTS: TableName = TableName::new("delivery_attempts");
 const DELIVERY_RESULTS: TableName = TableName::new("delivery_results");
+const MIRROR_SWITCH: TableName = TableName::new("mirror_switch");
 const CHANNELS_FAMILY: &str = "router-channel";
 const ADJUDICATION_PENDING_FAMILY: &str = "router-adjudication-pending";
 const MESSAGES_FAMILY: &str = "router-message";
 const DELIVERY_ATTEMPTS_FAMILY: &str = "router-delivery-attempt";
 const DELIVERY_RESULTS_FAMILY: &str = "router-delivery-result";
+const MIRROR_SWITCH_FAMILY: &str = "router-mirror-switch";
+/// The mirror switch is a single owner-controlled row, keyed by this fixed
+/// identifier — there is exactly one mirror-enabled fact per router.
+const MIRROR_SWITCH_KEY: &str = "mirror-enabled";
 
 #[derive(Clone)]
 pub struct RouterTables {
@@ -45,6 +50,7 @@ struct RouterStore {
     messages: TableReference<StoredMessageRecord>,
     delivery_attempts: TableReference<StoredDeliveryAttempt>,
     delivery_results: TableReference<StoredDeliveryResult>,
+    mirror_switch: TableReference<StoredMirrorSwitch>,
 }
 
 impl std::fmt::Debug for RouterTables {
@@ -72,6 +78,8 @@ impl RouterTables {
             DELIVERY_RESULTS,
             DELIVERY_RESULTS_FAMILY,
         ))?;
+        let mirror_switch =
+            engine.register_table(Self::family_descriptor(MIRROR_SWITCH, MIRROR_SWITCH_FAMILY))?;
         Ok(Self {
             store: Arc::new(RouterStore {
                 engine,
@@ -80,6 +88,7 @@ impl RouterTables {
                 messages,
                 delivery_attempts,
                 delivery_results,
+                mirror_switch,
             }),
         })
     }
@@ -256,6 +265,40 @@ impl RouterTables {
             .store
             .engine
             .match_records(QueryPlan::key(self.store.channels, RecordKey::new(key)))?
+            .records()
+            .first()
+            .cloned())
+    }
+
+    /// Whether the router's mirror path is switched on. Fail-safe by
+    /// construction: a missing row (never flipped) or any read/decode error
+    /// both resolve to `false` — the default-OFF, ships-dark posture
+    /// (primary-nbmq.7). Callers never see a `Result` here on purpose; there
+    /// is exactly one safe answer to give when the persisted fact cannot be
+    /// read.
+    pub fn mirror_enabled(&self) -> bool {
+        self.mirror_switch_record()
+            .ok()
+            .flatten()
+            .is_some_and(|record| record.enabled)
+    }
+
+    /// Persist the owner-only mirror switch. Unlike the read side, a write
+    /// failure is a real error the caller (the meta-socket handler) should
+    /// see and propagate — silently swallowing it would let the daemon claim
+    /// a toggle stuck when it did not actually survive to disk.
+    pub fn set_mirror_enabled(&self, enabled: bool) -> RouterResult<()> {
+        self.put_record(self.store.mirror_switch, StoredMirrorSwitch::new(enabled))
+    }
+
+    fn mirror_switch_record(&self) -> RouterResult<Option<StoredMirrorSwitch>> {
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::key(
+                self.store.mirror_switch,
+                RecordKey::new(MIRROR_SWITCH_KEY),
+            ))?
             .records()
             .first()
             .cloned())
@@ -440,5 +483,30 @@ impl StoredDeliveryResult {
 impl EngineRecord for StoredDeliveryResult {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(self.sequence.to_string())
+    }
+}
+
+/// The router's single owner-controlled mirror switch (primary-nbmq.7,
+/// design piece 6). Exactly one row exists, keyed by `MIRROR_SWITCH_KEY`;
+/// there is no meaning to more than one, so this is not a lookup table so
+/// much as a durable cell.
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StoredMirrorSwitch {
+    pub key: String,
+    pub enabled: bool,
+}
+
+impl StoredMirrorSwitch {
+    fn new(enabled: bool) -> Self {
+        Self {
+            key: MIRROR_SWITCH_KEY.to_string(),
+            enabled,
+        }
+    }
+}
+
+impl EngineRecord for StoredMirrorSwitch {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.key.clone())
     }
 }

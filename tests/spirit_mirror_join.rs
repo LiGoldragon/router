@@ -32,17 +32,18 @@ use criome::tables::StoreLocation;
 use criome::transport::CriomeClient;
 use kameo::actor::ActorRef;
 use router::{
-    Actor, ActorIdentifier, ApplyRoutedObjectSubmission, ApplyRouterInput, ChannelLifetime,
-    EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel, InstallRemotePeer,
-    InstallRemoteRoute, ReadRouterTailnetAddress, RegisterActor, RemoteRouterIdentity, RouterInput,
-    RouterNetworkConfiguration, RouterRuntime, TailnetAddress,
+    Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
+    ChannelLifetime, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
+    InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress, RegisterActor,
+    RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime, TailnetAddress,
 };
 use sema_engine::EntryDigest;
 use signal_criome::{
-    AttestedMoment, AttestedMomentProposition, ComponentKind, Contract, ContractDigest, CriomeReply,
-    CriomeRequest, Evidence, Identity, IdentityRegistration, KeyPurpose, OperationDigest,
-    PolicyMember, RequiredSignatureThreshold, Rule, SignatureEnvelope, SignatureScheme,
-    StampedSignatureEnvelope, Threshold, TimeSignature, TimeWindow, TimestampNanos,
+    AttestedMoment, AttestedMomentProposition, ComponentKind, Contract, ContractDigest,
+    CriomeReply, CriomeRequest, Evidence, Identity, IdentityRegistration, KeyPurpose,
+    OperationDigest, PolicyMember, RequiredSignatureThreshold, Rule, SignatureEnvelope,
+    SignatureScheme, StampedSignatureEnvelope, Threshold, TimeSignature, TimeWindow,
+    TimestampNanos,
 };
 use signal_router::{
     ActorIdentifier as WireActorIdentifier, ForwardedMessagePayload, Output as SignalRouterOutput,
@@ -189,7 +190,13 @@ impl LocalCriomePolicy {
                 },
             }]
         };
-        Evidence::new(ComponentKind::Spirit, operation, stamp, signatures, Vec::new())
+        Evidence::new(
+            ComponentKind::Spirit,
+            operation,
+            stamp,
+            signatures,
+            Vec::new(),
+        )
     }
 
     /// Seed the running criome daemon: register both identities and admit the
@@ -248,13 +255,20 @@ struct SpiritBehindComponentSocket {
 }
 
 impl SpiritBehindComponentSocket {
-    async fn start(criome_socket: &std::path::Path, contract: ContractDigest, attestor_evidence: Evidence) -> Self {
+    async fn start(
+        criome_socket: &std::path::Path,
+        contract: ContractDigest,
+        attestor_evidence: Evidence,
+    ) -> Self {
         let directory = tempfile::tempdir().expect("spirit B store directory");
         let mut engine = open_spirit_engine(&directory, "spirit-b.sema");
         // The re-judge reads the admitted contract digest from the armed
         // attestor; its carried evidence field is unused on apply (apply judges
         // the ARRIVING Evidence).
-        engine.arm_criome_gate(criome_socket, SpiritAttestor::new(contract, attestor_evidence));
+        engine.arm_criome_gate(
+            criome_socket,
+            SpiritAttestor::new(contract, attestor_evidence),
+        );
         let engine = Arc::new(Mutex::new(engine));
 
         let socket = std::env::temp_dir().join(format!(
@@ -339,6 +353,22 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
         .expect("router input applies");
 }
 
+/// Flip the router's owner-only mirror switch ON (primary-nbmq.7). The A→B
+/// live join carries the authorized record as a routed object — mirror
+/// traffic the switch gates default-OFF — so both routers opt in.
+async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
+    runtime
+        .ask(ApplyMetaRouterPolicy {
+            input: meta_signal_router::Input::set_mirror_enabled(
+                meta_signal_router::MirrorEnabled::new(true),
+            ),
+        })
+        .await
+        .expect("meta SetMirrorEnabled reaches runtime")
+        .into_result()
+        .expect("SetMirrorEnabled applies");
+}
+
 /// Two in-process routers over loopback TCP: router B homes `recipient` LOCALLY
 /// to Spirit B's component socket; router A homes `recipient` remotely on B.
 async fn router_pair(
@@ -358,6 +388,8 @@ async fn router_pair(
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
+    // Both routers carry the mirror record as a routed object; open their gates.
+    enable_mirror(&router_b).await;
     apply_router_input(
         &router_b,
         RouterInput::RegisterActor(RegisterActor {
@@ -408,6 +440,7 @@ async fn router_pair(
         })
         .await
         .expect("install remote route installs");
+    enable_mirror(&router_a).await;
 
     (router_a, router_b)
 }
@@ -484,7 +517,9 @@ fn a_change_in_spirit_a_lands_live_in_spirit_b_via_the_routers() {
 
         // Router A originates -> router B -> spirit B applies live.
         let accepted = router_a
-            .ask(ApplyRoutedObjectSubmission { submission: payload })
+            .ask(ApplyRoutedObjectSubmission {
+                submission: payload,
+            })
             .await
             .expect("routed-object submission reaches router A")
             .into_result()
@@ -534,7 +569,9 @@ fn an_unauthorized_record_is_refused_fail_closed() {
         let (payload, _head_digest) = originate_change(&policy, "spirit-a", "spirit-b", 0).await;
 
         let accepted = router_a
-            .ask(ApplyRoutedObjectSubmission { submission: payload })
+            .ask(ApplyRoutedObjectSubmission {
+                submission: payload,
+            })
             .await
             .expect("routed-object submission reaches router A")
             .into_result()

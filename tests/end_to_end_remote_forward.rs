@@ -30,11 +30,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use kameo::actor::ActorRef;
 use router::ChannelLifetime;
 use router::{
-    Actor, ActorIdentifier, ApplyRoutedObjectSubmission, ApplyRouterInput, ApplySignalMessage,
-    EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel, InstallRemotePeer,
-    InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor,
-    RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime, RouterTraceStep,
-    SignalMessageInput, TailnetAddress,
+    Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
+    ApplySignalMessage, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
+    InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace,
+    RegisterActor, RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime,
+    RouterTraceStep, SignalMessageInput, TailnetAddress,
 };
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
@@ -233,6 +233,22 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
         .expect("router input applies");
 }
 
+/// Flip the router's owner-only mirror switch ON (primary-nbmq.7). The
+/// routed-object (mirror) forwards these witnesses drive are gated
+/// default-OFF, so a router that originates or accepts them opts in here.
+async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
+    runtime
+        .ask(ApplyMetaRouterPolicy {
+            input: meta_signal_router::Input::set_mirror_enabled(
+                meta_signal_router::MirrorEnabled::new(true),
+            ),
+        })
+        .await
+        .expect("meta SetMirrorEnabled reaches runtime")
+        .into_result()
+        .expect("SetMirrorEnabled applies");
+}
+
 fn timestamp_now() -> signal_router::TimestampNanos {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -346,6 +362,9 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
+    // This witness later drives routed-object (mirror) forwards to router B;
+    // open its gate (the ordinary-message leg is not gated either way).
+    enable_mirror(&router_b).await;
 
     apply_router_input(
         &router_b,
@@ -638,6 +657,9 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
+    // The origination witness carries a routed object end to end; open the
+    // gate on the accepting router B.
+    enable_mirror(&router_b).await;
     apply_router_input(
         &router_b,
         RouterInput::RegisterActor(RegisterActor {
@@ -677,6 +699,8 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     )
     .await;
     let _router_a_address = bound_tailnet_address(&router_a).await;
+    // Router A originates the routed-object forward; open its gate.
+    enable_mirror(&router_a).await;
     router_a
         .ask(InstallRemotePeer {
             identity: router_b_identity.clone(),

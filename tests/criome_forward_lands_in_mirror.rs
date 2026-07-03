@@ -35,10 +35,10 @@ use kameo::actor::ActorRef;
 use mirror::{ComponentShipper, Engine, Store};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use router::{
-    Actor, ActorIdentifier, ApplyRouterInput, ChannelLifetime, CriomeForwardAttestation,
-    EndpointKind, EndpointTransport, ForwardAttestationVerifier, GrantChannel, GrantRouteChannel,
-    ReadRouterTailnetAddress, RegisterActor, RemoteRouterIdentity, RouterInput,
-    RouterNetworkConfiguration, RouterRuntime,
+    Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRouterInput, ChannelLifetime,
+    CriomeForwardAttestation, EndpointKind, EndpointTransport, ForwardAttestationVerifier,
+    GrantChannel, GrantRouteChannel, ReadRouterTailnetAddress, RegisterActor, RemoteRouterIdentity,
+    RouterInput, RouterNetworkConfiguration, RouterRuntime,
 };
 use sema_engine::VersionedCommitLogEntry;
 use signal_criome::Identity;
@@ -252,6 +252,22 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
         .expect("router input applies");
 }
 
+/// Flip the router's owner-only mirror switch ON (primary-nbmq.7). This
+/// witness lands a routed object in a co-resident mirror — mirror traffic
+/// the switch gates default-OFF — so the receiving router opts in here.
+async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
+    runtime
+        .ask(ApplyMetaRouterPolicy {
+            input: meta_signal_router::Input::set_mirror_enabled(
+                meta_signal_router::MirrorEnabled::new(true),
+            ),
+        })
+        .await
+        .expect("meta SetMirrorEnabled reaches runtime")
+        .into_result()
+        .expect("SetMirrorEnabled applies");
+}
+
 /// One genesis `signal-mirror::Append` (sequence 1, no previous digest) carrying
 /// `digest` as its sole entry. The mirror validates chain linkage, not a payload
 /// hash, so the entry digest IS the head this forward lands. Wrapped as the
@@ -462,6 +478,8 @@ async fn criome_verified_forward_lands_an_append_in_the_co_resident_mirror() {
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
+    // The forward lands a routed object in the co-resident mirror; open the gate.
+    enable_mirror(&router_b).await;
 
     // The mirror actor is homed locally with a ComponentSocket endpoint, and the
     // forward's source actor is authorized to reach it — exactly what the
@@ -585,6 +603,8 @@ async fn criome_verified_forward_lands_the_real_record_body_which_rehashes_to_th
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
+    // The forward lands the real record body in the co-resident mirror; open the gate.
+    enable_mirror(&router_b).await;
 
     let operator = ActorIdentifier::new("operator");
     let mirror_actor = ActorIdentifier::new("mirror");
