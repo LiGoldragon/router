@@ -80,6 +80,11 @@ signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", bran
 # is the witnessed claim, not the router's ForwardAccepted reply). Pinned to the
 # signal-frame 0.3.0 alignment branch so the ComponentSocket wire is shared.
 mirror = { git = "https://github.com/LiGoldragon/mirror.git", branch = "main" }
+# The real spirit runtime behind a ComponentSocket, for the A->B live-mirror join
+# witness (primary-nbmq.3): spirit A originates the `ApplyAuthorizedRecord`
+# hand-off, router A -> router B carries it, and spirit B re-judges + lands it
+# live. `mirror-shipper` gates spirit's origination + apply-ingress surface.
+spirit = { git = "https://github.com/LiGoldragon/spirit.git", branch = "main", features = ["mirror-shipper"] }
 tempfile = "3"
 
 [lints.rust]
