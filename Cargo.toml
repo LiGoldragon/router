@@ -49,10 +49,10 @@ rkyv                  = { version = "0.8", default-features = false, features = 
 sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
+signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "synchronizer" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "synchronizer", default-features = false }
 signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "main", default-features = false }
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main", optional = true }
