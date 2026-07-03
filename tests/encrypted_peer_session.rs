@@ -277,6 +277,12 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
 /// well-formed 32-byte hex string bound into the client proof.
 const DUMMY_EPHEMERAL: &str = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
 
+/// A second, distinct 64-hex ephemeral public key: the key a man-in-the-middle
+/// substitutes into the `SessionClientHello` while the honest initiator's proof
+/// still binds the original ephemeral. The mismatch is what the identity-proof
+/// digest binding must catch.
+const SWAPPED_EPHEMERAL: &str = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
+
 /// Open a raw loopback TCP client to a router's tailnet ingress.
 async fn dial(address: SocketAddr) -> TcpStream {
     TcpStream::connect(address)
@@ -574,6 +580,70 @@ async fn a_replayed_proof_is_refused_on_the_nonce_freshness_check() {
             "a replayed proof carrying a stale challenge must be refused ChallengeMismatch"
         ),
         other => panic!("expected SessionRefused(ChallengeMismatch), got {other:?}"),
+    }
+
+    let _ = router_b.stop_gracefully().await;
+    router_b.wait_for_shutdown().await;
+}
+
+/// (e): a man-in-the-middle who swaps the session ephemeral key is refused
+/// fail-closed. A REGISTERED peer answers B's fresh challenge with a genuine
+/// criome-signed proof — but the `SessionClientHello` the responder observes
+/// carries a DIFFERENT ephemeral key than the one the proof binds, exactly as an
+/// on-path attacker substitutes to key the encrypted channel to itself. Because
+/// the identity-proof digest binds the ephemeral key, the responder derives the
+/// digest from the hello's ephemeral, criome sees a content-digest mismatch, and
+/// the session is refused `IdentityProofInvalid`. The MITM cannot swap the
+/// encryption key out from under the authenticated identity.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_swapped_session_ephemeral_key_is_refused_fail_closed() {
+    let criome_a = CriomeFixture::start("mitm-a", "router-a");
+    let criome_b = CriomeFixture::start("mitm-b", "router-b");
+    let identity_a = Identity::host("router-a".to_string());
+
+    // A IS registered in B — so any refusal is the ephemeral-binding check, not
+    // UnknownSigner.
+    let key_a = node_public_key(&criome_a.socket(), identity_a.clone());
+    register_peer(&criome_b.socket(), identity_a.clone(), key_a);
+
+    let router_b = RouterRuntime::start_networked(
+        None,
+        RouterNetworkConfiguration::criome_session_listening(
+            "127.0.0.1:0".parse().expect("loopback address"),
+            RemoteRouterIdentity::new("router-b"),
+            criome_b.socket(),
+        ),
+    )
+    .await;
+    let router_b_address = bound_tailnet_address(&router_b).await;
+
+    let prover_a =
+        CriomeIdentityProver::new(RemoteRouterIdentity::new("router-a"), criome_a.socket());
+
+    assert_ne!(
+        DUMMY_EPHEMERAL, SWAPPED_EPHEMERAL,
+        "the swap must present a different ephemeral than the proof binds"
+    );
+    let mut stream = dial(router_b_address).await;
+    // The hello carries DUMMY_EPHEMERAL — the ephemeral the responder will bind.
+    let (responder_challenge, _responder_ephemeral) =
+        open_and_read_server_hello(&mut stream, "mitm-initiator-challenge").await;
+    // The proof answers B's fresh challenge (so it passes the freshness check)
+    // but is signed over SWAPPED_EPHEMERAL — the on-path key swap.
+    let proof = prover_a.prove(SWAPPED_EPHEMERAL, &responder_challenge);
+    write_input(
+        &mut stream,
+        SignalRouterInput::SessionClientProof(RouterSessionClientProof::new(proof.into())),
+    )
+    .await;
+
+    match read_output(&mut stream).await {
+        SignalRouterOutput::SessionRefused(refused) => assert_eq!(
+            refused.reason(),
+            SessionRefusalReason::IdentityProofInvalid,
+            "a swapped session ephemeral key breaks the signed identity-proof digest and must be refused"
+        ),
+        other => panic!("expected SessionRefused(IdentityProofInvalid), got {other:?}"),
     }
 
     let _ = router_b.stop_gracefully().await;
