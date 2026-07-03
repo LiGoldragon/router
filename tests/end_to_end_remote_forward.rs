@@ -770,3 +770,47 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     let _ = router_b.stop_gracefully().await;
     router_b.wait_for_shutdown().await;
 }
+
+/// M1 (primary-nbmq.9): the plaintext door is SHUT on a session-capable node.
+///
+/// Every other witness in this file drives a plaintext `ForwardMessage` against
+/// a `None`-prover (`offline_listening`) node, where the cleartext path is the
+/// single-host transport and is served. This witness stands up a session-capable
+/// node (`offline_session_listening`, `identity_prover` = `Some`) — the standing
+/// deployed posture (primary-nbmq.9) in miniature — and sends the SAME bare
+/// plaintext `ForwardMessage` carrying a fully valid per-forward attestation.
+/// The ingress must REFUSE it as `SessionRequired` before any verify/apply: a
+/// valid attestation buys no cleartext access, so real mirror content can only
+/// cross the encrypted authenticated session. This is the downgrade-resistance
+/// property the security audit's M1 requires.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_capable_ingress_shuts_the_plaintext_forward_door() {
+    let router = RouterRuntime::start_networked(
+        None,
+        RouterNetworkConfiguration::offline_session_listening(
+            "127.0.0.1:0".parse().expect("loopback address"),
+            RemoteRouterIdentity::new("mirror-alpha"),
+        ),
+    )
+    .await;
+    let address = bound_tailnet_address(&router).await;
+
+    let output = send_forward(
+        address,
+        direct_forward_request("spirit", "m1-plaintext-door-shut"),
+    )
+    .await;
+
+    match &output {
+        SignalRouterOutput::ForwardRefused(refused) => assert_eq!(
+            *refused.payload(),
+            RouterForwardRefusalReason::SessionRequired.into(),
+            "a session-capable ingress must refuse a bare plaintext forward as SessionRequired, \
+             not serve it — the cleartext door is shut once the encrypted session is available"
+        ),
+        other => panic!("expected ForwardRefused(SessionRequired), got {other:?}"),
+    }
+
+    let _ = router.stop_gracefully().await;
+    router.wait_for_shutdown().await;
+}

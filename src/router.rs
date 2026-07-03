@@ -530,11 +530,29 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
                     .await
                 }
             },
-            // Legacy plaintext single forward (one connection = one forward).
-            SignalRouterInput::ForwardMessage(request) => {
-                let output = self.handle_forward(request).await;
-                self.write_reply(connection.stream_mut(), output).await
-            }
+            // Plaintext single forward (one connection = one forward). Served
+            // ONLY on a node with no session capability (single-host /
+            // pre-criome). Once this ingress is session-capable
+            // (`identity_prover` is `Some`, primary-nbmq.9) the plaintext door is
+            // SHUT: real mirror content must cross the encrypted authenticated
+            // session (`SessionClientHello`), never the cleartext path. A valid
+            // per-forward attestation buys no plaintext access here — refused
+            // fail-closed with `SessionRequired` before any verify/apply.
+            SignalRouterInput::ForwardMessage(request) => match &self.identity_prover {
+                None => {
+                    let output = self.handle_forward(request).await;
+                    self.write_reply(connection.stream_mut(), output).await
+                }
+                Some(_) => {
+                    self.write_reply(
+                        connection.stream_mut(),
+                        SignalRouterOutput::forward_refused(
+                            RouterForwardRefusalReason::SessionRequired.into(),
+                        ),
+                    )
+                    .await
+                }
+            },
             _ => {
                 self.write_reply(
                     connection.stream_mut(),

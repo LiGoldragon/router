@@ -23,6 +23,7 @@ use signal_router::RemoteRouterIdentity;
 
 use crate::criome_attestation::CriomeForwardAttestation;
 use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
+use crate::identity_proof::{CriomeIdentityProver, PeerIdentityProver};
 use crate::router::RouterNetworkConfiguration;
 use crate::{
     ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterObservation, ApplySignalMessage,
@@ -64,34 +65,46 @@ pub enum RouterDaemonError {
 
 impl RouterEngine {
     pub fn from_configuration(configuration: &Configuration) -> RouterResult<Self> {
-        // Milestone 3: when `criome_socket_path` is configured the verifier is
-        // a real criome client that BLS-signs each outbound forward and verifies
-        // each inbound one over that socket. Absent the socket the daemon keeps
-        // the offline accept-fixed-test-identity stand-in (milestone 2), so a
-        // single-host or pre-criome deployment still runs.
-        let verifier: Arc<dyn ForwardAttestationVerifier> = match configuration.criome_socket_path()
-        {
-            Some(criome_socket_path) => Arc::new(CriomeForwardAttestation::new(
-                configuration.router_identity().clone(),
-                criome_socket_path.to_path_buf(),
-            )),
-            None => Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
-                RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
-            ))),
+        // A configured `criome_socket_path` is the single condition that roots
+        // this node in a real criome. That one root lights up BOTH halves of the
+        // trust anchor together (primary-nbmq.9):
+        //   - the per-forward attestation verifier (`CriomeForwardAttestation`),
+        //     a criome client that BLS-signs each outbound forward and verifies
+        //     each inbound one over that socket (milestone 3); and
+        //   - the per-session identity prover (`CriomeIdentityProver`), whose
+        //     presence selects the encrypted authenticated peer session as the
+        //     peer transport — the ingress serves the mutual-proof + ECDH
+        //     handshake and, being session-capable, SHUTS the plaintext door so
+        //     real mirror content only crosses the encrypted channel (M1).
+        // Absent the socket the daemon keeps the offline accept-fixed-test-identity
+        // stand-in and no session prover (milestone 2 plaintext connect-per-forward),
+        // so a single-host or pre-criome deployment still runs.
+        let (verifier, identity_prover): (
+            Arc<dyn ForwardAttestationVerifier>,
+            Option<Arc<dyn PeerIdentityProver>>,
+        ) = match configuration.criome_socket_path() {
+            Some(criome_socket_path) => (
+                Arc::new(CriomeForwardAttestation::new(
+                    configuration.router_identity().clone(),
+                    criome_socket_path.to_path_buf(),
+                )),
+                Some(Arc::new(CriomeIdentityProver::new(
+                    configuration.router_identity().clone(),
+                    criome_socket_path.to_path_buf(),
+                ))),
+            ),
+            None => (
+                Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
+                    RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
+                ))),
+                None,
+            ),
         };
-        // primary-nbmq.6 seam: the encrypted authenticated peer session is built
-        // and proven at the mechanism level (RouterNetworkConfiguration::
-        // criome_session_listening + tests/encrypted_peer_session.rs). Enabling
-        // it as the DEPLOYED transport is deploy/config wiring — it needs the
-        // mutual peer identity→key seed and peer/route bootstrap that
-        // primary-nbmq.9/.10 install — so the standing daemon keeps the plaintext
-        // path (`None` prover) until that lands. Flipping this to a prover here is
-        // exactly the `.9`/`.10` switch.
         let network = RouterNetworkConfiguration::new(
             configuration.tailnet_listen_address(),
             configuration.router_identity().clone(),
             verifier,
-            None,
+            identity_prover,
         );
         Ok(Self {
             tables: RouterTables::open(configuration.database_path())?,
