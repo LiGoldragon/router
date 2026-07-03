@@ -15,6 +15,7 @@ use sema_engine::{
 };
 use signal_message::{MessageOrigin, MessageSlot};
 use signal_persona::ChannelIdentifier;
+use signal_router::{ForwardMarker, RoutedContractObject};
 
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
@@ -28,12 +29,14 @@ const MESSAGES: TableName = TableName::new("messages");
 const DELIVERY_ATTEMPTS: TableName = TableName::new("delivery_attempts");
 const DELIVERY_RESULTS: TableName = TableName::new("delivery_results");
 const MIRROR_SWITCH: TableName = TableName::new("mirror_switch");
+const OUTBOUND_BACKLOG: TableName = TableName::new("outbound_backlog");
 const CHANNELS_FAMILY: &str = "router-channel";
 const ADJUDICATION_PENDING_FAMILY: &str = "router-adjudication-pending";
 const MESSAGES_FAMILY: &str = "router-message";
 const DELIVERY_ATTEMPTS_FAMILY: &str = "router-delivery-attempt";
 const DELIVERY_RESULTS_FAMILY: &str = "router-delivery-result";
 const MIRROR_SWITCH_FAMILY: &str = "router-mirror-switch";
+const OUTBOUND_BACKLOG_FAMILY: &str = "router-outbound-backlog";
 /// The mirror switch is a single owner-controlled row, keyed by this fixed
 /// identifier — there is exactly one mirror-enabled fact per router.
 const MIRROR_SWITCH_KEY: &str = "mirror-enabled";
@@ -51,6 +54,7 @@ struct RouterStore {
     delivery_attempts: TableReference<StoredDeliveryAttempt>,
     delivery_results: TableReference<StoredDeliveryResult>,
     mirror_switch: TableReference<StoredMirrorSwitch>,
+    outbound_backlog: TableReference<StoredOutboundForward>,
 }
 
 impl std::fmt::Debug for RouterTables {
@@ -80,6 +84,10 @@ impl RouterTables {
         ))?;
         let mirror_switch =
             engine.register_table(Self::family_descriptor(MIRROR_SWITCH, MIRROR_SWITCH_FAMILY))?;
+        let outbound_backlog = engine.register_table(Self::family_descriptor(
+            OUTBOUND_BACKLOG,
+            OUTBOUND_BACKLOG_FAMILY,
+        ))?;
         Ok(Self {
             store: Arc::new(RouterStore {
                 engine,
@@ -89,6 +97,7 @@ impl RouterTables {
                 delivery_attempts,
                 delivery_results,
                 mirror_switch,
+                outbound_backlog,
             }),
         })
     }
@@ -289,6 +298,42 @@ impl RouterTables {
     /// a toggle stuck when it did not actually survive to disk.
     pub fn set_mirror_enabled(&self, enabled: bool) -> RouterResult<()> {
         self.put_record(self.store.mirror_switch, StoredMirrorSwitch::new(enabled))
+    }
+
+    /// Durably record one outbound forward that is waiting in the router's
+    /// in-memory backlog (primary-nbmq.5). Keyed by the message identifier, so a
+    /// re-enqueue of the same message overwrites rather than duplicates. Written
+    /// when the forward is first enqueued; a restart rehydrates the live backlog
+    /// from these rows, so a peer-down park survives the daemon going away.
+    pub fn insert_outbound_forward(&self, forward: &StoredOutboundForward) -> RouterResult<()> {
+        self.put_record(self.store.outbound_backlog, forward.clone())
+    }
+
+    /// Clear one outbound-forward row once the forward reached a terminal
+    /// outcome (delivered locally, accepted by the peer, or denied). Returns
+    /// whether a row existed to remove; a missing row is the idempotent no-op a
+    /// crash-then-redelivery relies on, not an error.
+    pub fn remove_outbound_forward(&self, message: &MessageIdentifier) -> RouterResult<bool> {
+        match self.store.engine.retract(Retraction::new(
+            self.store.outbound_backlog,
+            RecordKey::new(message.as_str()),
+        )) {
+            Ok(_receipt) => Ok(true),
+            Err(sema_engine::Error::RecordNotFound { .. }) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The full durable outbound backlog, in no particular order. The root reads
+    /// this once on start to rehydrate its live pending queue before it admits
+    /// new work.
+    pub fn outbound_forward_records(&self) -> RouterResult<Vec<StoredOutboundForward>> {
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::all(self.store.outbound_backlog))?
+            .records()
+            .to_vec())
     }
 
     fn mirror_switch_record(&self) -> RouterResult<Option<StoredMirrorSwitch>> {
@@ -508,5 +553,43 @@ impl StoredMirrorSwitch {
 impl EngineRecord for StoredMirrorSwitch {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(self.key.clone())
+    }
+}
+
+/// One waiting outbound forward, the durable twin of a `PendingRouterMessage`
+/// held in `RouterRoot`'s in-memory backlog (primary-nbmq.5, design piece 2).
+/// It carries everything needed to reconstruct that pending item after a
+/// restart: the whole message, its stamped origin, the opaque contract objects
+/// riding alongside the body, and the `forward_marker` loop guard that decides
+/// whether the rehydrated item may still resolve to a remote route. The row is
+/// removed the moment the forward reaches a terminal outcome, so this table is
+/// the live queue, distinct from the append-only `messages` audit log.
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StoredOutboundForward {
+    pub message: Message,
+    pub origin: MessageOrigin,
+    pub routed_objects: Vec<RoutedContractObject>,
+    pub forward_marker: ForwardMarker,
+}
+
+impl StoredOutboundForward {
+    pub fn new(
+        message: Message,
+        origin: MessageOrigin,
+        routed_objects: Vec<RoutedContractObject>,
+        forward_marker: ForwardMarker,
+    ) -> Self {
+        Self {
+            message,
+            origin,
+            routed_objects,
+            forward_marker,
+        }
+    }
+}
+
+impl EngineRecord for StoredOutboundForward {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.message.id.as_str())
     }
 }

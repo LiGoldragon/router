@@ -132,5 +132,5 @@ pub use supervision::{
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelRecord, StoredDeliveryAttempt,
-    StoredDeliveryResult, StoredMessageRecord, StoredMirrorSwitch,
+    StoredDeliveryResult, StoredMessageRecord, StoredMirrorSwitch, StoredOutboundForward,
 };

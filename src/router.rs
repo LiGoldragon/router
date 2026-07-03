@@ -102,7 +102,7 @@ use crate::remote_router::{
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
-    RouterResult, RouterTables, ThreadIdentifier,
+    RouterResult, RouterTables, StoredOutboundForward, ThreadIdentifier,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream as TokioTcpStream;
@@ -1383,6 +1383,7 @@ impl RouterRuntime {
                 .await
                 .map_err(|error| Error::ActorCall(error.to_string()))?;
         }
+        self.schedule_root_backlog_drain();
         Ok(())
     }
 
@@ -1397,7 +1398,24 @@ impl RouterRuntime {
                 .await
                 .map_err(|error| Error::ActorCall(error.to_string()))?;
         }
+        self.schedule_root_backlog_drain();
         Ok(())
+    }
+
+    /// Nudge the root to drain its durable outbound backlog (primary-nbmq.5)
+    /// after the remote topology changes. Learning a peer's route is the
+    /// "I can now reach it" push that lets a backlog rehydrated on restart
+    /// deliver on its own, without waiting for the next origination — and
+    /// without a poll. Fire-and-forget so a bootstrap installing routes is not
+    /// serialised behind network delivery.
+    fn schedule_root_backlog_drain(&self) {
+        let Some(root) = &self.root else {
+            return;
+        };
+        let root = root.clone();
+        tokio::spawn(async move {
+            let _ = root.ask(DrainOutboundBacklog).await;
+        });
     }
 
     fn root(&self) -> RouterResult<&ActorRef<RouterRoot>> {
@@ -1936,10 +1954,15 @@ pub struct RouterRoot {
     mirror_enabled: bool,
     /// The encrypted-session establishment log (primary-nbmq.6). Each entry is a
     /// "peer is back" push: an authenticated encrypted session (re)established
-    /// while delivering a forward. This is the seam bead `.5` drains its durable
-    /// outbound backlog from; this bead records it (observable proof the event
-    /// reaches the root) and leaves the outbox itself to `.5`.
+    /// while delivering a forward. Bead `.5` drains its durable outbound backlog
+    /// off this seam (`on_peer_session_established`); the log itself stays for
+    /// the observation witness that proves the event reaches the root.
     peer_sessions: Vec<PeerSessionEstablished>,
+    /// This root's own handle, captured in `on_start` (primary-nbmq.5). The
+    /// session-up seam uses it to push a `DrainOutboundBacklog` back into this
+    /// mailbox rather than re-entering `retry_pending` mid-forward — a fresh
+    /// mailbox turn, not a recursive drain, and never a poll.
+    self_reference: Option<ActorRef<RouterRoot>>,
 }
 
 impl RouterRoot {
@@ -1971,6 +1994,7 @@ impl RouterRoot {
             signal_slots: Vec::new(),
             mirror_enabled,
             peer_sessions: Vec::new(),
+            self_reference: None,
         }
     }
 
@@ -1988,6 +2012,7 @@ impl RouterRoot {
                 let pending = PendingRouterMessage::internal_router(input.message);
                 let message_identifier = pending.message.id.clone();
                 self.persist_message(&pending.message, &pending.origin, None)?;
+                self.persist_outbound_backlog(&pending)?;
                 self.pending.push(pending);
                 self.trace
                     .record(message_identifier, RouterTraceStep::MessageCommitted);
@@ -2332,8 +2357,9 @@ impl RouterRoot {
         let slot = self.next_signal_message_slot();
         let message = self.signal_message(sender, stamped.message_submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
-        self.pending
-            .push(PendingRouterMessage::new(message.clone(), origin));
+        let pending = PendingRouterMessage::new(message.clone(), origin);
+        self.persist_outbound_backlog(&pending)?;
+        self.pending.push(pending);
         self.signal_slots
             .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
         self.trace
@@ -2379,11 +2405,10 @@ impl RouterRoot {
         };
         let message = self.signal_message(sender, message_submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
-        self.pending.push(PendingRouterMessage::origin_with_objects(
-            message.clone(),
-            origin,
-            routed_objects,
-        ));
+        let pending =
+            PendingRouterMessage::origin_with_objects(message.clone(), origin, routed_objects);
+        self.persist_outbound_backlog(&pending)?;
+        self.pending.push(pending);
         self.signal_slots
             .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
         self.trace
@@ -2452,6 +2477,66 @@ impl RouterRoot {
         Ok(())
     }
 
+    /// Durably enqueue a pending item into the outbound backlog (primary-nbmq.5)
+    /// before it enters the in-memory queue, so a crash between enqueue and
+    /// delivery cannot lose it. A no-op on the store-less single-host path.
+    fn persist_outbound_backlog(&self, pending: &PendingRouterMessage) -> RouterResult<()> {
+        if let Some(tables) = &self.tables {
+            tables.insert_outbound_forward(&pending.to_stored())?;
+        }
+        Ok(())
+    }
+
+    /// Clear the durable backlog row for a message that reached a terminal
+    /// outcome — delivered locally, accepted by the peer, or denied. A missing
+    /// row is a benign no-op (the idempotent-redelivery safety net), so the
+    /// row-existed flag is intentionally discarded.
+    fn clear_outbound_backlog(&self, message: &MessageIdentifier) -> RouterResult<()> {
+        if let Some(tables) = &self.tables {
+            tables.remove_outbound_forward(message)?;
+        }
+        Ok(())
+    }
+
+    /// Rehydrate the in-memory backlog from its durable rows on start
+    /// (primary-nbmq.5). This is the missing startup path: `self.pending` was
+    /// `Vec::new()` on every boot, silently dropping a peer-down park across a
+    /// restart. A read failure fails safe to an empty queue — the same
+    /// ships-dark posture the mirror switch takes — rather than refusing to
+    /// start; any still-durable rows are re-read on the next boot.
+    fn rehydrate_outbound_backlog(&mut self) {
+        let Some(tables) = &self.tables else {
+            return;
+        };
+        match tables.outbound_forward_records() {
+            Ok(rows) => {
+                self.pending = rows
+                    .into_iter()
+                    .map(PendingRouterMessage::from_stored)
+                    .collect();
+            }
+            Err(_) => {
+                self.pending = Vec::new();
+            }
+        }
+    }
+
+    /// Push a backlog drain into this root's own mailbox (primary-nbmq.5). The
+    /// session-up seam calls this from inside a forward, where `self.pending`
+    /// is mid-drain and re-entering `retry_pending` would be unsound; enqueuing
+    /// a `DrainOutboundBacklog` instead runs the drain on a later mailbox turn.
+    /// The reconnection is the trigger, so there is no poll — a `None` handle
+    /// (no session ever established) simply has nothing to drain.
+    fn schedule_outbound_backlog_drain(&self) {
+        let Some(self_reference) = &self.self_reference else {
+            return;
+        };
+        let self_reference = self_reference.clone();
+        tokio::spawn(async move {
+            let _ = self_reference.ask(DrainOutboundBacklog).await;
+        });
+    }
+
     fn signal_inbox(&self, recipient: &SignalMessageRecipient) -> Vec<SignalInboxEntry> {
         self.pending
             .iter()
@@ -2517,7 +2602,14 @@ impl RouterRoot {
                             // The message left for a peer: drop it from
                             // pending (via `continue` without re-queueing)
                             // but keep its signal slot so the trace query
-                            // can report `ForwardedRemote` for it.
+                            // can report `ForwardedRemote` for it. The peer
+                            // accepted it, so the durable backlog row is now
+                            // terminal — clear it (primary-nbmq.5) so a restart
+                            // does not redeliver a forward the peer already has.
+                            if let Err(error) = self.clear_outbound_backlog(&message.id) {
+                                self.restore_pending_after_error(next, None, messages);
+                                return Err(error);
+                            }
                             self.trace
                                 .record(message.id.clone(), RouterTraceStep::ForwardedRemote);
                             delivered += 1;
@@ -2629,6 +2721,11 @@ impl RouterRoot {
                 delivered += 1;
                 self.trace
                     .record(message.id.clone(), RouterTraceStep::DeliveryMarked);
+                // Delivered locally — the durable backlog row is terminal.
+                if let Err(error) = self.clear_outbound_backlog(&message.id) {
+                    self.restore_pending_after_error(next, None, messages);
+                    return Err(error);
+                }
             } else {
                 next.push(pending);
             }
@@ -2700,6 +2797,11 @@ impl RouterRoot {
     /// outbox and its drain are `.5`. No polling: the reconnection IS the event.
     fn on_peer_session_established(&mut self, event: PeerSessionEstablished) {
         self.peer_sessions.push(event);
+        // The reconnection IS the trigger: a (re)established session to a peer
+        // is the "peer is back" push, so drain the durable backlog toward it
+        // (primary-nbmq.5). Scheduled as a fresh mailbox turn — this fires from
+        // inside a forward, where `self.pending` is mid-drain — never a poll.
+        self.schedule_outbound_backlog_drain();
     }
 
     /// The inbound twin of `apply_stamped_message_submission`. The verified
@@ -2742,12 +2844,13 @@ impl RouterRoot {
         };
         let message = self.signal_message(sender, submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
-        self.pending
-            .push(PendingRouterMessage::forwarded_with_objects(
-                message.clone(),
-                origin,
-                payload.routed_objects().to_vec(),
-            ));
+        let pending = PendingRouterMessage::forwarded_with_objects(
+            message.clone(),
+            origin,
+            payload.routed_objects().to_vec(),
+        );
+        self.persist_outbound_backlog(&pending)?;
+        self.pending.push(pending);
         self.signal_slots
             .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
         self.trace
@@ -2775,6 +2878,9 @@ impl RouterRoot {
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
+        // Denial is terminal — drop the durable backlog row too, so a restart
+        // does not rehydrate and re-attempt a message the mind rejected.
+        self.clear_outbound_backlog(&MessageIdentifier::new(request.as_str()))?;
         Ok(rejected)
     }
 
@@ -2865,6 +2971,31 @@ impl PendingRouterMessage {
 
     fn may_resolve_remote(&self) -> bool {
         matches!(self.forward_marker, ForwardMarker::Origin)
+    }
+
+    /// Project this pending item into its durable backlog row
+    /// (primary-nbmq.5). The row is self-contained — it carries the whole
+    /// message, origin, objects, and loop guard — so rehydration needs no join
+    /// against the append-only `messages` log.
+    fn to_stored(&self) -> StoredOutboundForward {
+        StoredOutboundForward::new(
+            self.message.clone(),
+            self.origin.clone(),
+            self.routed_objects.clone(),
+            self.forward_marker,
+        )
+    }
+
+    /// Rebuild a pending item from a rehydrated backlog row after a restart.
+    /// The reconstruction is lossless: the same message identity, objects, and
+    /// loop guard the daemon parked before it went away.
+    fn from_stored(stored: StoredOutboundForward) -> Self {
+        Self {
+            message: stored.message,
+            origin: stored.origin,
+            routed_objects: stored.routed_objects,
+            forward_marker: stored.forward_marker,
+        }
     }
 }
 
@@ -3320,15 +3451,55 @@ impl RouterInboxEntry {
     }
 }
 
+/// Drain the durable outbound backlog toward whatever peers are now reachable
+/// (primary-nbmq.5). It is a self-message the session-up seam pushes into the
+/// root's own mailbox, so the drain runs on a clean turn instead of re-entering
+/// an in-flight `retry_pending`. It carries no payload: the drain always
+/// reconsiders the whole live queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DrainOutboundBacklog;
+
+/// How many items the drain delivered. The fire-and-forget seam callers ignore
+/// it; it exists so the drain has a typed reply and a future observation could
+/// read progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, kameo::Reply)]
+pub(crate) struct OutboundBacklogDrained {
+    pub delivered: u64,
+}
+
 impl kameo::actor::Actor for RouterRoot {
     type Args = Self;
     type Error = Infallible;
 
     async fn on_start(
-        actor: Self::Args,
-        _actor_reference: ActorRef<Self>,
+        mut actor: Self::Args,
+        actor_reference: ActorRef<Self>,
     ) -> std::result::Result<Self, Self::Error> {
+        // Rehydrate the durable outbound backlog before this root admits any new
+        // work (primary-nbmq.5). `self.pending` was empty on every boot, so a
+        // peer-down park did not survive a restart; now it does. The self-handle
+        // is captured for the session-up drain seam.
+        actor.self_reference = Some(actor_reference);
+        actor.rehydrate_outbound_backlog();
         Ok(actor)
+    }
+}
+
+impl kameo::message::Message<DrainOutboundBacklog> for RouterRoot {
+    type Reply = OutboundBacklogDrained;
+
+    async fn handle(
+        &mut self,
+        _message: DrainOutboundBacklog,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        // A background drain: `retry_pending` already restores its queue on a
+        // transport error, so a peer still down here just leaves the rows parked
+        // for the next push. Swallow that error into a zero count rather than
+        // failing the fire-and-forget self-message.
+        OutboundBacklogDrained {
+            delivered: self.retry_pending().await.unwrap_or(0),
+        }
     }
 }
 
