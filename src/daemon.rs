@@ -79,10 +79,19 @@ impl RouterEngine {
                 RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
             ))),
         };
+        // primary-nbmq.6 seam: the encrypted authenticated peer session is built
+        // and proven at the mechanism level (RouterNetworkConfiguration::
+        // criome_session_listening + tests/encrypted_peer_session.rs). Enabling
+        // it as the DEPLOYED transport is deploy/config wiring — it needs the
+        // mutual peer identity→key seed and peer/route bootstrap that
+        // primary-nbmq.9/.10 install — so the standing daemon keeps the plaintext
+        // path (`None` prover) until that lands. Flipping this to a prover here is
+        // exactly the `.9`/`.10` switch.
         let network = RouterNetworkConfiguration::new(
             configuration.tailnet_listen_address(),
             configuration.router_identity().clone(),
             verifier,
+            None,
         );
         Ok(Self {
             tables: RouterTables::open(configuration.database_path())?,

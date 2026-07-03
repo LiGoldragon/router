@@ -9,6 +9,8 @@
 //! reads ONE `ForwardAccepted`/`ForwardRefused` reply, and maps the outcome
 //! to a delivery-attempt result. One connection = one forward.
 
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -23,29 +25,129 @@ use signal_router::{
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex as AsyncMutex;
 use triad_runtime::{FrameBody as LengthPrefixedFrameBody, LengthPrefixedCodec};
 
 use crate::forward_attestation::ForwardAttestationVerifier;
+use crate::identity_proof::PeerIdentityProver;
+use crate::peer_session::{PeerSession, PeerSessionEstablished};
 use crate::{Error, Message, RouterResult, TailnetAddress};
+
+/// A per-peer session slot: the live encrypted session to one address, shared
+/// across forwards so the handshake is amortised (persistent session). The
+/// async mutex serialises the one TCP stream to that peer — one in-flight
+/// request/reply at a time — while different peers proceed concurrently. A dead
+/// session is cleared here and the next forward re-establishes it on demand.
+type PeerSessionSlot = Arc<AsyncMutex<Option<PeerSession>>>;
+
+/// The peer address a session is keyed by. `TailnetAddress` is not `Hash`, so
+/// the map keys on its wire string — the same value dialed for the forward.
+type PeerAddressKey = String;
 
 /// The outbound peer-delivery plane. It holds the shared attestation
 /// verifier (its signing side builds each outbound attestation) and a
 /// monotonic nonce counter so every forward this process emits carries a
 /// distinct `(signer, nonce)` — the basis for the receiver's future
 /// replay window (milestone 3).
-#[derive(Debug)]
 pub struct RouterPeerDelivery {
     verifier: Arc<dyn ForwardAttestationVerifier>,
+    /// The peer-session identity prover (primary-nbmq.6). `Some` ⇒ outbound
+    /// forwards ride an encrypted, mutually-authenticated session; `None` ⇒ the
+    /// plaintext connect-per-forward path.
+    identity_prover: Option<Arc<dyn PeerIdentityProver>>,
+    /// Live persistent sessions keyed by peer address. Reused across forwards;
+    /// re-established on demand when a session is absent or found dead.
+    sessions: HashMap<PeerAddressKey, PeerSessionSlot>,
     attempted_forward_count: u64,
     nonce_sequence: u64,
+    /// Monotonic identifier stamped on each newly-established session, so a
+    /// re-established session is distinguishable and the seam consumer (`.5`)
+    /// can dedupe.
+    session_epoch: u64,
 }
 
 impl RouterPeerDelivery {
-    pub fn new(verifier: Arc<dyn ForwardAttestationVerifier>) -> Self {
+    pub fn new(
+        verifier: Arc<dyn ForwardAttestationVerifier>,
+        identity_prover: Option<Arc<dyn PeerIdentityProver>>,
+    ) -> Self {
         Self {
             verifier,
+            identity_prover,
+            sessions: HashMap::new(),
             attempted_forward_count: 0,
             nonce_sequence: 0,
+            session_epoch: 0,
+        }
+    }
+
+    fn session_slot(&mut self, address: &TailnetAddress) -> PeerSessionSlot {
+        self.sessions
+            .entry(address.payload().clone())
+            .or_insert_with(|| Arc::new(AsyncMutex::new(None)))
+            .clone()
+    }
+
+    fn next_session_epoch(&mut self) -> u64 {
+        self.session_epoch = self.session_epoch.saturating_add(1);
+        self.session_epoch
+    }
+
+    /// Establish-or-reuse the session to `address`, seal + exchange the forward
+    /// over it, and report whether the session was freshly established (the
+    /// seam event) alongside the outcome. A dead session is cleared so the next
+    /// forward re-establishes it — establish-on-demand, no polling.
+    async fn deliver_over_session(
+        slot: PeerSessionSlot,
+        prover: Arc<dyn PeerIdentityProver>,
+        address: TailnetAddress,
+        request: RouterForwardRequest,
+        epoch: u64,
+    ) -> RemoteDeliveryOutcome {
+        let socket_address = match address.payload().parse::<SocketAddr>() {
+            Ok(socket_address) => socket_address,
+            Err(error) => {
+                return RemoteDeliveryOutcome::from_parts(
+                    Err(Error::RemoteAddressInvalid {
+                        address: address.payload().clone(),
+                        detail: format!("{error}"),
+                    }),
+                    None,
+                );
+            }
+        };
+        let mut guard = slot.lock().await;
+        let mut established = None;
+        if guard.is_none() {
+            match PeerSession::establish_initiator(socket_address, &prover, epoch).await {
+                Ok(session) => {
+                    established = Some(PeerSessionEstablished::new(
+                        session.verified_peer().clone(),
+                        epoch,
+                    ));
+                    *guard = Some(session);
+                }
+                Err(error) => {
+                    return RemoteDeliveryOutcome::from_parts(Err(Error::from(error)), None);
+                }
+            }
+        }
+        let Some(session) = guard.as_mut() else {
+            return RemoteDeliveryOutcome::from_parts(
+                Err(Error::PeerSession("session slot vacated".to_string())),
+                established,
+            );
+        };
+        match session.exchange_forward(request).await {
+            Ok(output) => RemoteDeliveryOutcome::from_parts(
+                Ok(RemoteForwardOutcome::from_output(output)),
+                established,
+            ),
+            Err(error) => {
+                // A dead session drops so the next forward re-establishes it.
+                *guard = None;
+                RemoteDeliveryOutcome::from_parts(Err(Error::from(error)), established)
+            }
         }
     }
 
@@ -167,15 +269,41 @@ pub struct DeliverRemote {
 #[derive(Debug, kameo::Reply)]
 pub struct RemoteDeliveryOutcome {
     result: RouterResult<RemoteForwardOutcome>,
+    /// Set when this delivery freshly (re)established the encrypted session to
+    /// the peer — the seam bead `.5` hooks its outbound-backlog drain onto.
+    /// `None` on a reused session or the plaintext path.
+    session_established: Option<PeerSessionEstablished>,
 }
 
 impl RemoteDeliveryOutcome {
     fn from_result(result: RouterResult<RemoteForwardOutcome>) -> Self {
-        Self { result }
+        Self {
+            result,
+            session_established: None,
+        }
+    }
+
+    fn from_parts(
+        result: RouterResult<RemoteForwardOutcome>,
+        session_established: Option<PeerSessionEstablished>,
+    ) -> Self {
+        Self {
+            result,
+            session_established,
+        }
     }
 
     pub fn into_result(self) -> RouterResult<RemoteForwardOutcome> {
         self.result
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        RouterResult<RemoteForwardOutcome>,
+        Option<PeerSessionEstablished>,
+    ) {
+        (self.result, self.session_established)
     }
 }
 
@@ -185,6 +313,21 @@ pub struct ReadRouterPeerDeliveryStatus;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, kameo::Reply)]
 pub struct RouterPeerDeliveryStatus {
     pub attempted_forward_count: u64,
+}
+
+impl std::fmt::Debug for RouterPeerDelivery {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Deliberately omit `sessions`: a live session holds the transient
+        // symmetric keys, which must never reach a debug/log surface (secrets
+        // discipline). Only counts and the session-enabled flag are printed.
+        formatter
+            .debug_struct("RouterPeerDelivery")
+            .field("session_transport_enabled", &self.identity_prover.is_some())
+            .field("live_session_count", &self.sessions.len())
+            .field("attempted_forward_count", &self.attempted_forward_count)
+            .field("session_epoch", &self.session_epoch)
+            .finish_non_exhaustive()
+    }
 }
 
 impl kameo::actor::Actor for RouterPeerDelivery {
@@ -214,9 +357,24 @@ impl kameo::message::Message<DeliverRemote> for RouterPeerDelivery {
             routed_objects,
         } = message;
         let request = self.forward_request(&forwarded_message, routed_objects);
-        context.spawn(async move {
-            RemoteDeliveryOutcome::from_result(Self::forward(request, address).await)
-        })
+        match &self.identity_prover {
+            // Encrypted authenticated session transport (primary-nbmq.6): the
+            // forward rides a persistent per-peer session, sealed. Establishment
+            // reports the seam event back in the outcome.
+            Some(prover) => {
+                let prover = prover.clone();
+                let slot = self.session_slot(&address);
+                let epoch = self.next_session_epoch();
+                context.spawn(async move {
+                    Self::deliver_over_session(slot, prover, address, request, epoch).await
+                })
+            }
+            // Plaintext connect-per-forward (single-host and pre-session
+            // witnesses).
+            None => context.spawn(async move {
+                RemoteDeliveryOutcome::from_result(Self::forward(request, address).await)
+            }),
+        }
     }
 }
 

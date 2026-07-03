@@ -48,24 +48,18 @@
 //! key equal to the signing key. A signature minted by a criome whose key the
 //! verifying criome does not hold resolves to a different key and is refused.
 
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use signal_criome::{
     Attestation, AuditContext, BlsPublicKey, BlsSignature, ContentPurpose, ContentReference,
-    CriomeFrame, CriomeFrameBody, CriomeReply, CriomeRequest, Identity, ObjectDigest,
-    PrincipalName, SignRequest, SignatureEnvelope, VerificationDecision, VerifyRequest,
-};
-use signal_frame::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
+    Identity, ObjectDigest, PrincipalName, SignRequest, SignatureEnvelope, VerificationDecision,
 };
 use signal_router::{
     ForwardedMessagePayload, RemoteRouterIdentity, ReplayNonce, RouterForwardRefusalReason,
     RouterPeerAttestation, SignatureScheme, TimestampNanos,
 };
-use thiserror::Error;
 
+use crate::criome_client::{CriomeSigningClient, CriomeSigningError};
 use crate::forward_attestation::ForwardAttestationVerifier;
 
 /// The criome-backed forward-attestation verifier. Holds this router's own
@@ -74,7 +68,7 @@ use crate::forward_attestation::ForwardAttestationVerifier;
 #[derive(Debug, Clone)]
 pub struct CriomeForwardAttestation {
     router_identity: RemoteRouterIdentity,
-    client: CriomeAttestationClient,
+    client: CriomeSigningClient,
 }
 
 impl CriomeForwardAttestation {
@@ -89,7 +83,7 @@ impl CriomeForwardAttestation {
     pub fn new(router_identity: RemoteRouterIdentity, criome_socket_path: PathBuf) -> Self {
         Self {
             router_identity,
-            client: CriomeAttestationClient::new(criome_socket_path),
+            client: CriomeSigningClient::new(criome_socket_path),
         }
     }
 
@@ -145,7 +139,7 @@ impl CriomeForwardAttestation {
         payload: &ForwardedMessagePayload,
         nonce: &ReplayNonce,
         issued_at: &TimestampNanos,
-    ) -> Result<RouterPeerAttestation, CriomeAttestationError> {
+    ) -> Result<RouterPeerAttestation, CriomeSigningError> {
         let digest = ForwardContentPreimage::for_forward(&self.router_identity, payload).digest();
         let sign_request = SignRequest::new(
             self.content_reference(digest.clone()),
@@ -175,7 +169,7 @@ impl CriomeForwardAttestation {
         &self,
         attestation: &RouterPeerAttestation,
         payload: &ForwardedMessagePayload,
-    ) -> Result<VerificationDecision, CriomeAttestationError> {
+    ) -> Result<VerificationDecision, CriomeSigningError> {
         let origin = attestation.signer.payload();
         let derived_digest = ForwardContentPreimage::for_forward(origin, payload).digest();
         let criome_attestation = self.reconstruct_attestation(attestation)?;
@@ -192,7 +186,7 @@ impl CriomeForwardAttestation {
     fn reconstruct_attestation(
         &self,
         attestation: &RouterPeerAttestation,
-    ) -> Result<Attestation, CriomeAttestationError> {
+    ) -> Result<Attestation, CriomeSigningError> {
         let signed_digest = ObjectDigest::new(attestation.content_digest.payload().clone());
         let envelope = SignatureEnvelope {
             scheme: self.criome_scheme(attestation.scheme.payload()),
@@ -321,129 +315,4 @@ impl ForwardContentPreimage {
     fn digest(&self) -> ObjectDigest {
         ObjectDigest::from_bytes(&self.bytes)
     }
-}
-
-/// A synchronous client to a criome daemon's working socket, speaking the
-/// `signal-criome` length-prefixed frame protocol. Holds only the socket path;
-/// one request opens one connection.
-#[derive(Debug, Clone)]
-struct CriomeAttestationClient {
-    socket_path: PathBuf,
-}
-
-impl CriomeAttestationClient {
-    fn new(socket_path: PathBuf) -> Self {
-        Self { socket_path }
-    }
-
-    fn sign(&self, request: SignRequest) -> Result<Attestation, CriomeAttestationError> {
-        match self.exchange(CriomeRequest::Sign(request))? {
-            CriomeReply::SignReceipt(receipt) => Ok(receipt.attestation),
-            other => Err(CriomeAttestationError::UnexpectedReply(format!(
-                "{other:?}"
-            ))),
-        }
-    }
-
-    fn verify(
-        &self,
-        attestation: Attestation,
-        content: ContentReference,
-    ) -> Result<VerificationDecision, CriomeAttestationError> {
-        match self.exchange(CriomeRequest::VerifyAttestation(VerifyRequest {
-            attestation,
-            content,
-        }))? {
-            CriomeReply::VerificationResult(result) => Ok(result.decision),
-            other => Err(CriomeAttestationError::UnexpectedReply(format!(
-                "{other:?}"
-            ))),
-        }
-    }
-
-    /// One request → one reply over a fresh connection, mirroring criome's own
-    /// `CriomeFrameCodec` framing: a 4-byte big-endian length prefix followed by
-    /// the length-prefixed criome frame body.
-    fn exchange(&self, request: CriomeRequest) -> Result<CriomeReply, CriomeAttestationError> {
-        let mut stream = UnixStream::connect(&self.socket_path).map_err(|source| {
-            CriomeAttestationError::Socket {
-                path: self.socket_path.clone(),
-                source,
-            }
-        })?;
-        let frame = CriomeFrame::new(CriomeFrameBody::Request {
-            exchange: Self::synthetic_exchange(),
-            request: request.into_request(),
-        });
-        let outbound = frame
-            .encode_length_prefixed()
-            .map_err(|error| CriomeAttestationError::Frame(format!("{error:?}")))?;
-        stream
-            .write_all(&outbound)
-            .map_err(|source| CriomeAttestationError::Io(source.to_string()))?;
-        stream
-            .flush()
-            .map_err(|source| CriomeAttestationError::Io(source.to_string()))?;
-        let inbound = Self::read_frame_bytes(&mut stream)?;
-        let reply_frame = CriomeFrame::decode_length_prefixed(&inbound)
-            .map_err(|error| CriomeAttestationError::Frame(format!("{error:?}")))?;
-        match reply_frame.into_body() {
-            CriomeFrameBody::Reply {
-                reply: Reply::Accepted { per_operation, .. },
-                ..
-            } => match per_operation.into_head() {
-                SubReply::Ok(reply) => Ok(reply),
-                other => Err(CriomeAttestationError::UnexpectedReply(format!(
-                    "{other:?}"
-                ))),
-            },
-            other => Err(CriomeAttestationError::UnexpectedReply(format!(
-                "{other:?}"
-            ))),
-        }
-    }
-
-    fn read_frame_bytes(stream: &mut UnixStream) -> Result<Vec<u8>, CriomeAttestationError> {
-        let mut prefix = [0_u8; 4];
-        stream
-            .read_exact(&mut prefix)
-            .map_err(|source| CriomeAttestationError::Io(source.to_string()))?;
-        let length = u32::from_be_bytes(prefix) as usize;
-        let mut bytes = Vec::with_capacity(4 + length);
-        bytes.extend_from_slice(&prefix);
-        bytes.resize(4 + length, 0);
-        stream
-            .read_exact(&mut bytes[4..])
-            .map_err(|source| CriomeAttestationError::Io(source.to_string()))?;
-        Ok(bytes)
-    }
-
-    fn synthetic_exchange() -> ExchangeIdentifier {
-        ExchangeIdentifier::new(
-            SessionEpoch::new(0),
-            ExchangeLane::Connector,
-            LaneSequence::first(),
-        )
-    }
-}
-
-/// Internal failures of the criome attestation seam. Never crosses the router
-/// crate boundary: `attest` maps it to a fail-closed unsigned attestation and
-/// `verify` maps it to `RouterForwardRefusalReason::AttestationInvalid`.
-#[derive(Debug, Error)]
-enum CriomeAttestationError {
-    #[error("criome socket {path:?} is unavailable: {source}")]
-    Socket {
-        path: PathBuf,
-        source: std::io::Error,
-    },
-
-    #[error("criome socket input/output failed: {0}")]
-    Io(String),
-
-    #[error("criome frame codec failed: {0}")]
-    Frame(String),
-
-    #[error("criome returned an unexpected reply: {0}")]
-    UnexpectedReply(String),
 }

@@ -8,16 +8,19 @@ pub mod client;
 pub mod command;
 pub mod config;
 pub mod criome_attestation;
+pub mod criome_client;
 pub mod daemon;
 pub mod delivery;
 pub mod error;
 pub mod forward_attestation;
 pub mod harness_delivery;
 pub mod harness_registry;
+pub mod identity_proof;
 pub mod message;
 pub mod meta;
 pub mod observation;
 pub mod peer_delivery;
+pub mod peer_session;
 pub mod remote_router;
 pub mod router;
 pub mod supervision;
@@ -62,6 +65,7 @@ pub use client::{RouterCommand, RouterCommandEnvironment};
 pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
 pub use config::{Configuration, ConfigurationError};
 pub use criome_attestation::CriomeForwardAttestation;
+pub use criome_client::{CriomeSigningClient, CriomeSigningError};
 pub use daemon::{RouterDaemonError, RouterEngine, RouterProcessDaemon};
 pub use delivery::{DeliveryDecision, PendingDelivery};
 pub use error::{Error, RouterResult};
@@ -71,6 +75,7 @@ pub use harness_registry::{
     HarnessDeliveryTarget, HarnessRegistration, HarnessRegistry, ReadHarnessDeliveryTarget,
     ReadHarnessRegistryStatus,
 };
+pub use identity_proof::{AcceptFixedIdentityProver, CriomeIdentityProver, PeerIdentityProver};
 pub use kameo::actor::ActorRef;
 pub use message::{
     Actor, ActorIdentifier, EndpointKind, EndpointTransport, Message, MessageBody,
@@ -87,6 +92,9 @@ pub use peer_delivery::{
     DeliverRemote, ReadRouterPeerDeliveryStatus, RemoteDeliveryOutcome, RemoteForwardOutcome,
     RouterPeerDelivery, RouterPeerDeliveryStatus,
 };
+pub use peer_session::{
+    PeerSession, PeerSessionEstablished, SessionError, SessionResponder, SessionRole,
+};
 pub use remote_router::{
     ReadRemoteRouterRegistryStatus, RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute,
     RemoteRouterRegistry, RemoteRouterRegistryStatus, ResolveRemoteRoute,
@@ -98,24 +106,26 @@ pub use router::{
     GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, InstallRouteStructuralChannels,
     MetaRouterPolicyOutcome, MindAdjudicationDeny, MindAdjudicationDenyApplied, MindChannelGrant,
     MindChannelGrantApplied, ReadRouterChannelPersistence, ReadRouterMindAdjudicationOutbox,
-    ReadRouterObservationFacts, ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor,
-    Registered, RetractRouteChannel, RouteMessage, RoutedObjectSubmissionOutcome,
+    ReadRouterObservationFacts, ReadRouterPeerSessions, ReadRouterTailnetAddress, ReadRouterTrace,
+    RegisterActor, Registered, RetractRouteChannel, RouteMessage, RoutedObjectSubmissionOutcome,
     RouterApplyOutcome, RouterBootstrap, RouterChannelPersistenceOutcome, RouterCommandLine,
     RouterConnection, RouterDaemon, RouterDaemonInput, RouterIngressContext, RouterInput,
     RouterMetaConnection, RouterMindAdjudicationOutboxOutcome, RouterNetworkConfiguration,
     RouterObservationFacts, RouterObservationFrameCodec, RouterObservationSlot,
-    RouterObservationTraceEvent, RouterOutput, RouterRoot, RouterRuntime, RouterStatus,
-    RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
-    SignalMessageInput, SignalMessageOutcome, SocketMode, Status, StructuralChannelsInstalled,
-    TailnetForwardIngress,
+    RouterObservationTraceEvent, RouterOutput, RouterPeerSessions, RouterPeerSessionsOutcome,
+    RouterRoot, RouterRuntime, RouterStatus, RouterTrace, RouterTraceEvent, RouterTraceSnapshot,
+    RouterTraceStep, SignalMessageFrameCodec, SignalMessageInput, SignalMessageOutcome, SocketMode,
+    Status, StructuralChannelsInstalled, TailnetForwardIngress,
 };
 pub use schema::daemon::{ComponentDaemon, DaemonCommand, DaemonEntry, DaemonError, ListenerTier};
 pub use signal_router::{
-    ForwardMarker, ForwardedMessagePayload, GrantDirectMessage,
+    EphemeralPublicKey, ForwardMarker, ForwardedMessagePayload, GrantDirectMessage,
     InstallStructuralChannels as InstallStructuralChannelsBootstrap, RegisterRemoteRouter,
     RemoteRouterIdentity, RouterBootstrapOperation, RouterForwardAccepted,
-    RouterForwardRefusalReason, RouterForwardRefused, RouterForwardRequest, RouterPeerAttestation,
-    TailnetAddress,
+    RouterForwardRefusalReason, RouterForwardRefused, RouterForwardRequest, RouterIdentityProof,
+    RouterPeerAttestation, RouterSessionAccepted, RouterSessionClientHello,
+    RouterSessionClientProof, RouterSessionData, RouterSessionRefused, RouterSessionServerHello,
+    SessionChallenge, SessionRefusalReason, TailnetAddress,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,

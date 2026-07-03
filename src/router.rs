@@ -54,7 +54,7 @@ use signal_router::{
     EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
     MessageSlot as RouterMessageSlot, RemoteRouterIdentity, RoutedContractObject,
     RouterBootstrapDocument, RouterBootstrapOperation, RouterDaemonConfiguration,
-    RouterForwardRefusalReason, RouterForwardRequest,
+    RouterForwardRefusalReason, RouterForwardRequest, RouterSessionData, SessionRefusalReason,
 };
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
@@ -88,11 +88,13 @@ use crate::harness_registry::{
     HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
     RegisterHarness,
 };
+use crate::identity_proof::{AcceptFixedIdentityProver, CriomeIdentityProver, PeerIdentityProver};
 use crate::observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
     RouterObservationPlane, RouterObservationPlaneStatus,
 };
 use crate::peer_delivery::{DeliverRemote, RouterPeerDelivery};
+use crate::peer_session::{PeerSession, PeerSessionEstablished, SessionResponder};
 use crate::remote_router::{
     RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute, RemoteRouterRegistry,
     ResolveRemoteRoute,
@@ -106,7 +108,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream as TokioTcpStream;
 use triad_runtime::{
     AcceptedConnection, AsyncConnectionRuntime, FrameBody as RuntimeFrameBody, LengthPrefixedCodec,
-    RequestErrorLog, TcpListenerDaemon,
+    RequestConcurrencyLimit, RequestErrorLog, TcpListenerDaemon,
 };
 
 #[derive(Debug)]
@@ -353,6 +355,13 @@ impl RouterMetaServer {
 pub struct TailnetForwardIngress {
     runtime: ActorRef<RouterRuntime>,
     verifier: Arc<dyn ForwardAttestationVerifier>,
+    /// The peer-session prover (primary-nbmq.6). `Some` ⇒ this ingress accepts
+    /// an encrypted authenticated session handshake and serves sealed forwards
+    /// over it; `None` ⇒ plaintext connect-per-forward only. The legacy bare
+    /// `ForwardMessage` frame is still accepted either way during the migration
+    /// (the encrypted-session witnesses and the existing plaintext witnesses
+    /// coexist; `.9`/`.10`/`.13` consolidate onto the session at deploy).
+    identity_prover: Option<Arc<dyn PeerIdentityProver>>,
     codec: LengthPrefixedCodec,
 }
 
@@ -360,25 +369,13 @@ impl TailnetForwardIngress {
     pub fn new(
         runtime: ActorRef<RouterRuntime>,
         verifier: Arc<dyn ForwardAttestationVerifier>,
+        identity_prover: Option<Arc<dyn PeerIdentityProver>>,
     ) -> Self {
         Self {
             runtime,
             verifier,
+            identity_prover,
             codec: LengthPrefixedCodec::default(),
-        }
-    }
-
-    /// Decode the one inbound frame to a forward request, refusing anything
-    /// that is not `Input::ForwardMessage` (observation queries do not
-    /// belong on the network tier).
-    fn decode_forward_request(
-        bytes: &[u8],
-    ) -> std::result::Result<RouterForwardRequest, RouterForwardRefusalReason> {
-        let (_route, input) = SignalRouterInput::decode_signal_frame(bytes)
-            .map_err(|_| RouterForwardRefusalReason::AttestationInvalid)?;
-        match input {
-            SignalRouterInput::ForwardMessage(request) => Ok(request),
-            _ => Err(RouterForwardRefusalReason::RecipientUnknown),
         }
     }
 
@@ -419,6 +416,79 @@ impl TailnetForwardIngress {
             ),
         }
     }
+
+    /// The responder side of the encrypted authenticated session
+    /// (primary-nbmq.6). Given the initiator's first `SessionClientHello`, run
+    /// the mutual identity-proof + ECDH handshake off the mailbox, then loop:
+    /// open each AEAD-sealed forward, run the SAME per-forward verify + apply
+    /// path (`handle_forward`, unchanged — defence in depth over the session),
+    /// and seal the reply back. The loop ends when the peer closes the session.
+    /// A refused proof is written by `SessionResponder::accept` and the session
+    /// closes with no forward served — fail-closed.
+    async fn serve_session(
+        &self,
+        stream: &mut TokioTcpStream,
+        prover: &Arc<dyn PeerIdentityProver>,
+        client_hello: signal_router::RouterSessionClientHello,
+    ) -> std::result::Result<(), RouterDaemonError> {
+        let mut responder = match SessionResponder::accept(stream, prover, client_hello).await {
+            Ok(responder) => responder,
+            Err(_refused) => return Ok(()),
+        };
+        loop {
+            let input = match PeerSession::read_input(stream).await {
+                Ok(input) => input,
+                Err(_closed) => break,
+            };
+            let sealed = match input {
+                SignalRouterInput::SessionData(data) => data.sealed_octets().to_vec(),
+                _ => break,
+            };
+            let forward_frame = match responder.open_forward(&sealed) {
+                Ok(bytes) => bytes,
+                Err(_) => break,
+            };
+            let request = match SignalRouterInput::decode_signal_frame(&forward_frame) {
+                Ok((_route, SignalRouterInput::ForwardMessage(request))) => request,
+                _ => break,
+            };
+            let output = self.handle_forward(request).await;
+            let output_frame = match output.encode_signal_frame() {
+                Ok(bytes) => bytes,
+                Err(_) => break,
+            };
+            let reply_sealed = match responder.seal_reply(&output_frame) {
+                Ok(sealed) => sealed,
+                Err(_) => break,
+            };
+            if PeerSession::write_output(
+                stream,
+                &SignalRouterOutput::SessionData(RouterSessionData::from_octets(reply_sealed)),
+            )
+            .await
+            .is_err()
+            {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    async fn write_reply(
+        &self,
+        stream: &mut TokioTcpStream,
+        output: SignalRouterOutput,
+    ) -> std::result::Result<(), RouterDaemonError> {
+        let frame = output.encode_signal_frame().map_err(crate::Error::from)?;
+        self.codec
+            .write_body_async(stream, &RuntimeFrameBody::new(frame))
+            .await?;
+        stream
+            .flush()
+            .await
+            .map_err(triad_runtime::FrameError::from)?;
+        Ok(())
+    }
 }
 
 impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
@@ -429,20 +499,52 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
         mut connection: AcceptedConnection<TokioTcpStream>,
     ) -> std::result::Result<(), Self::Error> {
         let body = self.codec.read_body_async(connection.stream_mut()).await?;
-        let output = match Self::decode_forward_request(body.bytes()) {
-            Ok(request) => self.handle_forward(request).await,
-            Err(reason) => SignalRouterOutput::forward_refused(reason.into()),
+        let input = match SignalRouterInput::decode_signal_frame(body.bytes()) {
+            Ok((_route, input)) => input,
+            Err(_) => {
+                return self
+                    .write_reply(
+                        connection.stream_mut(),
+                        SignalRouterOutput::forward_refused(
+                            RouterForwardRefusalReason::AttestationInvalid.into(),
+                        ),
+                    )
+                    .await;
+            }
         };
-        let frame = output.encode_signal_frame().map_err(crate::Error::from)?;
-        self.codec
-            .write_body_async(connection.stream_mut(), &RuntimeFrameBody::new(frame))
-            .await?;
-        connection
-            .stream_mut()
-            .flush()
-            .await
-            .map_err(triad_runtime::FrameError::from)?;
-        Ok(())
+        match input {
+            // Encrypted authenticated session (primary-nbmq.6): the first frame
+            // is a handshake. Serve the whole session on this connection.
+            SignalRouterInput::SessionClientHello(client_hello) => match &self.identity_prover {
+                Some(prover) => {
+                    self.serve_session(connection.stream_mut(), prover, client_hello)
+                        .await
+                }
+                None => {
+                    self.write_reply(
+                        connection.stream_mut(),
+                        SignalRouterOutput::session_refused(
+                            SessionRefusalReason::HandshakeMalformed.into(),
+                        ),
+                    )
+                    .await
+                }
+            },
+            // Legacy plaintext single forward (one connection = one forward).
+            SignalRouterInput::ForwardMessage(request) => {
+                let output = self.handle_forward(request).await;
+                self.write_reply(connection.stream_mut(), output).await
+            }
+            _ => {
+                self.write_reply(
+                    connection.stream_mut(),
+                    SignalRouterOutput::forward_refused(
+                        RouterForwardRefusalReason::RecipientUnknown.into(),
+                    ),
+                )
+                .await
+            }
+        }
     }
 }
 
@@ -944,6 +1046,13 @@ pub struct RouterNetworkConfiguration {
     listen_address: Option<SocketAddr>,
     identity: RemoteRouterIdentity,
     verifier: Arc<dyn ForwardAttestationVerifier>,
+    /// The peer-session identity prover (primary-nbmq.6). `Some` selects the
+    /// encrypted, mutually-authenticated session transport for peer forwards —
+    /// the ingress accepts a handshake and the outbound side dials one; `None`
+    /// keeps the plaintext connect-per-forward path (single-host and the
+    /// pre-session witnesses). The presence of the prover IS the capability,
+    /// carrying the criome (or offline) proving authority with it.
+    identity_prover: Option<Arc<dyn PeerIdentityProver>>,
 }
 
 impl RouterNetworkConfiguration {
@@ -951,11 +1060,13 @@ impl RouterNetworkConfiguration {
         listen_address: Option<SocketAddr>,
         identity: RemoteRouterIdentity,
         verifier: Arc<dyn ForwardAttestationVerifier>,
+        identity_prover: Option<Arc<dyn PeerIdentityProver>>,
     ) -> Self {
         Self {
             listen_address,
             identity,
             verifier,
+            identity_prover,
         }
     }
 
@@ -982,6 +1093,7 @@ impl RouterNetworkConfiguration {
             None,
             RemoteRouterIdentity::new("router-local"),
             Self::offline_verifier(),
+            None,
         )
     }
 
@@ -990,7 +1102,32 @@ impl RouterNetworkConfiguration {
     /// verifier. The end-to-end witness builds each node this way: A signs
     /// with the shared test identity and B admits it, with no criome daemon.
     pub fn offline_listening(listen_address: SocketAddr, identity: RemoteRouterIdentity) -> Self {
-        Self::new(Some(listen_address), identity, Self::offline_verifier())
+        Self::new(
+            Some(listen_address),
+            identity,
+            Self::offline_verifier(),
+            None,
+        )
+    }
+
+    /// A loopback/tailnet listener that runs the encrypted authenticated peer
+    /// session (primary-nbmq.6) with the OFFLINE identity prover — no criome. It
+    /// exercises the real X25519 ECDH + ChaCha20-Poly1305 handshake and forward
+    /// tunnel with a fixed-identity stand-in, so the encryption plumbing runs on
+    /// single-host paths without a criome daemon. It does NOT exercise the real
+    /// criome trust anchor.
+    pub fn offline_session_listening(
+        listen_address: SocketAddr,
+        identity: RemoteRouterIdentity,
+    ) -> Self {
+        let prover: Arc<dyn PeerIdentityProver> =
+            Arc::new(AcceptFixedIdentityProver::new(identity.clone()));
+        Self::new(
+            Some(listen_address),
+            identity,
+            Self::offline_verifier(),
+            Some(prover),
+        )
     }
 
     /// A loopback/tailnet listener bound to `listen_address` with this router's
@@ -1007,6 +1144,31 @@ impl RouterNetworkConfiguration {
             Some(listen_address),
             identity.clone(),
             Arc::new(CriomeForwardAttestation::new(identity, criome_socket_path)),
+            None,
+        )
+    }
+
+    /// A loopback/tailnet listener that runs the encrypted authenticated peer
+    /// session (primary-nbmq.6) with the REAL criome trust root (piece 7+8): the
+    /// same criome BLS identity backs both the per-forward attestation
+    /// (tunnelled, unchanged) and the per-session identity proof. A session
+    /// establishes only when both peers' criome-signed proofs verify against
+    /// their registered identities; the ephemeral X25519 keys are vouched by
+    /// that one criome root.
+    pub fn criome_session_listening(
+        listen_address: SocketAddr,
+        identity: RemoteRouterIdentity,
+        criome_socket_path: std::path::PathBuf,
+    ) -> Self {
+        let prover: Arc<dyn PeerIdentityProver> = Arc::new(CriomeIdentityProver::new(
+            identity.clone(),
+            criome_socket_path.clone(),
+        ));
+        Self::new(
+            Some(listen_address),
+            identity.clone(),
+            Arc::new(CriomeForwardAttestation::new(identity, criome_socket_path)),
+            Some(prover),
         )
     }
 
@@ -1020,6 +1182,12 @@ impl RouterNetworkConfiguration {
 
     pub fn verifier(&self) -> Arc<dyn ForwardAttestationVerifier> {
         self.verifier.clone()
+    }
+
+    /// The peer-session identity prover, if this node runs the encrypted
+    /// session transport. `None` ⇒ plaintext connect-per-forward.
+    pub fn identity_prover(&self) -> Option<Arc<dyn PeerIdentityProver>> {
+        self.identity_prover.clone()
     }
 }
 
@@ -1054,6 +1222,13 @@ pub struct RouterRuntime {
 }
 
 impl RouterRuntime {
+    /// The tailnet ingress admission bound (primary-nbmq.6). Each admitted
+    /// connection holds one permit for its lifetime; a persistent encrypted
+    /// session holds it for the whole session, so this bounds the number of
+    /// concurrent peer sessions (plus legacy forwards and reconnection overlap)
+    /// the ingress serves at once. Generous for an M-of-N mirror; still a bound.
+    const PEER_SESSION_CONCURRENCY: usize = 256;
+
     pub async fn start() -> ActorRef<Self> {
         let runtime = Self::spawn(Self::new(None, RouterNetworkConfiguration::offline()));
         runtime.wait_for_startup().await;
@@ -1118,8 +1293,10 @@ impl RouterRuntime {
         mind_adjudication.wait_for_startup().await;
         let remote_routers = RemoteRouterRegistry::spawn(RemoteRouterRegistry::new());
         remote_routers.wait_for_startup().await;
-        let peer_delivery =
-            RouterPeerDelivery::spawn(RouterPeerDelivery::new(self.network.verifier()));
+        let peer_delivery = RouterPeerDelivery::spawn(RouterPeerDelivery::new(
+            self.network.verifier(),
+            self.network.identity_prover(),
+        ));
         peer_delivery.wait_for_startup().await;
         let authorized_objects = AuthorizedObjectFanout::spawn(AuthorizedObjectFanout::new());
         authorized_objects.wait_for_startup().await;
@@ -1159,12 +1336,25 @@ impl RouterRuntime {
         let Some(listen_address) = self.network.listen_address() else {
             return Ok(());
         };
-        let ingress = TailnetForwardIngress::new(actor_reference, self.network.verifier());
+        let ingress = TailnetForwardIngress::new(
+            actor_reference,
+            self.network.verifier(),
+            self.network.identity_prover(),
+        );
         let listener = TcpListenerDaemon::new(
             listen_address,
             ingress,
             RequestErrorLog::new("router-daemon-tailnet"),
         )
+        // primary-nbmq.6: the ingress admission gate defaults to one in-flight
+        // connection, which suited one-shot connect-per-forward. An encrypted
+        // session (piece 8) is PERSISTENT — it holds its connection (and so its
+        // admission permit) for the whole session — so a single permit would let
+        // one peer's session block every other peer. Raise the bound so an
+        // M-of-N mirror's concurrent peer sessions (plus reconnection overlap and
+        // legacy forwards) are all admitted; the permit is released when a
+        // session closes.
+        .with_concurrency_limit(RequestConcurrencyLimit::new(Self::PEER_SESSION_CONCURRENCY))
         .bind()
         .await
         .map_err(|error| Error::ActorCall(error.to_string()))?;
@@ -1744,6 +1934,12 @@ pub struct RouterRoot {
     /// (`apply_forwarded`) mirror — that is, routed-object-carrying —
     /// traffic; ordinary signal-message forwarding is unaffected.
     mirror_enabled: bool,
+    /// The encrypted-session establishment log (primary-nbmq.6). Each entry is a
+    /// "peer is back" push: an authenticated encrypted session (re)established
+    /// while delivering a forward. This is the seam bead `.5` drains its durable
+    /// outbound backlog from; this bead records it (observable proof the event
+    /// reaches the root) and leaves the outbox itself to `.5`.
+    peer_sessions: Vec<PeerSessionEstablished>,
 }
 
 impl RouterRoot {
@@ -1774,6 +1970,7 @@ impl RouterRoot {
             delivery_sequence: 0,
             signal_slots: Vec::new(),
             mirror_enabled,
+            peer_sessions: Vec::new(),
         }
     }
 
@@ -2473,12 +2670,12 @@ impl RouterRoot {
     /// accepted, `Ok(false)` when it refused (park for adjudication),
     /// `Err` on a transport/actor failure (restore pending).
     async fn forward_to_remote(
-        &self,
+        &mut self,
         message: &Message,
         routed_objects: Vec<RoutedContractObject>,
         route: RemoteRoute,
     ) -> RouterResult<bool> {
-        let outcome = self
+        let (result, session_established) = self
             .peer_delivery
             .ask(DeliverRemote {
                 remote_address: route.address,
@@ -2487,8 +2684,22 @@ impl RouterRoot {
             })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
-            .into_result()?;
+            .into_parts();
+        if let Some(event) = session_established {
+            self.on_peer_session_established(event);
+        }
+        let outcome = result?;
         Ok(outcome.is_accepted())
+    }
+
+    /// The push seam bead `.5` extends (primary-nbmq.6): an authenticated
+    /// encrypted session to a peer just (re)established during a forward — the
+    /// "peer is back" event. `.5` will, right here, drain the durable
+    /// `outbound_backlog` toward `event.peer()`. This bead records the event so
+    /// the establishment is observable and the seam is proven live; the durable
+    /// outbox and its drain are `.5`. No polling: the reconnection IS the event.
+    fn on_peer_session_established(&mut self, event: PeerSessionEstablished) {
+        self.peer_sessions.push(event);
     }
 
     /// The inbound twin of `apply_stamped_message_submission`. The verified
@@ -3357,6 +3568,66 @@ impl kameo::message::Message<ReadRouterTrace> for RouterRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.trace.from(message.since)
+    }
+}
+
+/// Read the encrypted-session establishment log (primary-nbmq.6) — the seam
+/// events recorded by `RouterRoot::on_peer_session_established`. Proves, to a
+/// witness, that a session (re)establishment reached the root; bead `.5` will
+/// consume the same events to drain its durable outbound backlog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadRouterPeerSessions;
+
+#[derive(Debug, Clone, PartialEq, Eq, kameo::Reply)]
+pub struct RouterPeerSessions {
+    pub established: Vec<PeerSessionEstablished>,
+}
+
+#[derive(Debug, kameo::Reply)]
+pub struct RouterPeerSessionsOutcome {
+    result: RouterResult<RouterPeerSessions>,
+}
+
+impl RouterPeerSessionsOutcome {
+    fn new(result: RouterResult<RouterPeerSessions>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> RouterResult<RouterPeerSessions> {
+        self.result
+    }
+}
+
+impl kameo::message::Message<ReadRouterPeerSessions> for RouterRoot {
+    type Reply = RouterPeerSessions;
+
+    async fn handle(
+        &mut self,
+        _message: ReadRouterPeerSessions,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        RouterPeerSessions {
+            established: self.peer_sessions.clone(),
+        }
+    }
+}
+
+impl kameo::message::Message<ReadRouterPeerSessions> for RouterRuntime {
+    type Reply = RouterPeerSessionsOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ReadRouterPeerSessions,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string())),
+            Err(error) => Err(error),
+        };
+        RouterPeerSessionsOutcome::new(result)
     }
 }
 

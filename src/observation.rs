@@ -57,6 +57,15 @@ impl RouterObservationPlane {
                             .to_string(),
                 })
             }
+            // The peer-session handshake and its sealed data frames are
+            // transport-tier: they cross the tailnet TCP ingress inside an
+            // encrypted session, never the working observation surface. The
+            // read-only observation plane refuses them out of scope.
+            SignalRouterInput::SessionClientHello(_)
+            | SignalRouterInput::SessionClientProof(_)
+            | SignalRouterInput::SessionData(_) => Err(Error::UnexpectedRouterObservationFrame {
+                got: "peer-session frames are transport-tier, not observation queries".to_string(),
+            }),
         }
     }
 

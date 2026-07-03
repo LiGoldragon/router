@@ -46,6 +46,9 @@ pub enum Error {
     #[error("remote router address {address:?} is not a valid socket address: {detail}")]
     RemoteAddressInvalid { address: String, detail: String },
 
+    #[error("encrypted peer session failed: {0}")]
+    PeerSession(String),
+
     #[error("forwarded message refused by this router: {reason:?}")]
     ForwardRefused {
         reason: signal_router::RouterForwardRefusalReason,
