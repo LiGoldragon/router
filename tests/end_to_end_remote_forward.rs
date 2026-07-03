@@ -30,10 +30,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use kameo::actor::ActorRef;
 use router::ChannelLifetime;
 use router::{
-    Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, EndpointKind, EndpointTransport,
-    GrantChannel, GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute,
-    ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor, RemoteRouterIdentity, RouterInput,
-    RouterNetworkConfiguration, RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
+    Actor, ActorIdentifier, ApplyRoutedObjectSubmission, ApplyRouterInput, ApplySignalMessage,
+    EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel, InstallRemotePeer,
+    InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor,
+    RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime, RouterTraceStep,
+    SignalMessageInput, TailnetAddress,
 };
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
@@ -598,6 +599,146 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
                 if *reason.payload() == RouterForwardRefusalReason::ReplayDetected.into()
         ),
         "second same-nonce forward should be refused as replay, got {second_replay_reply:?}"
+    );
+
+    let _ = router_a.stop_gracefully().await;
+    router_a.wait_for_shutdown().await;
+    let _ = router_b.stop_gracefully().await;
+    router_b.wait_for_shutdown().await;
+}
+
+/// THE PIECE-1 ORIGINATION WITNESS (primary-nbmq.1): the STANDING router
+/// daemon originates a component-object forward on its own — no hand-run
+/// witness binary.
+///
+/// A co-resident component hands router A a `signal-router`
+/// `SubmitRoutedObjects` submission over the working tier
+/// (`ApplyRoutedObjectSubmission`). Router A has NO local registration for the
+/// recipient, so it resolves the remote route, attests, and forwards the
+/// carried routed object over real loopback TCP to router B, which door-checks
+/// and delivers the opaque octets to its co-resident component socket. This is
+/// exactly the origination seam the standalone `router-forward-witness` bin
+/// stood in for — now driven by the standing daemon on its own initiative.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
+    let source = ActorIdentifier::new("spirit");
+    let recipient = ActorIdentifier::new("spirit-peer");
+    let router_b_identity = RemoteRouterIdentity::new("router-b-origin");
+
+    // Router B: the destination component socket, a listening ingress, the
+    // recipient registered LOCALLY (home None), and the channel grant the
+    // originated forward needs for B's channel-auth check (source -> recipient).
+    let mirror_socket = ComponentSignalWitness::new("spirit-peer");
+    let router_b = RouterRuntime::start_networked(
+        None,
+        RouterNetworkConfiguration::offline_listening(
+            "127.0.0.1:0".parse().expect("loopback address"),
+            router_b_identity.clone(),
+        ),
+    )
+    .await;
+    let router_b_address = bound_tailnet_address(&router_b).await;
+    apply_router_input(
+        &router_b,
+        RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: recipient.clone(),
+                pid: 21,
+                endpoint: Some(EndpointTransport {
+                    kind: EndpointKind::ComponentSocket,
+                    target: mirror_socket.target(),
+                    aux: None,
+                }),
+            },
+        }),
+    )
+    .await;
+    apply_router_input(
+        &router_b,
+        RouterInput::GrantChannel(GrantRouteChannel {
+            channel: GrantChannel::direct_message(
+                source.clone(),
+                recipient.clone(),
+                ChannelLifetime::Persistent,
+            ),
+        }),
+    )
+    .await;
+
+    // Router A: a listening ingress, B registered as a remote peer, and the
+    // recipient's home set to B. The recipient has NO local registration on A,
+    // so the submission must resolve to the remote route to leave the node.
+    let router_a = RouterRuntime::start_networked(
+        None,
+        RouterNetworkConfiguration::offline_listening(
+            "127.0.0.1:0".parse().expect("loopback address"),
+            RemoteRouterIdentity::new("router-a-origin"),
+        ),
+    )
+    .await;
+    let _router_a_address = bound_tailnet_address(&router_a).await;
+    router_a
+        .ask(InstallRemotePeer {
+            identity: router_b_identity.clone(),
+            address: TailnetAddress::new(router_b_address.to_string()),
+        })
+        .await
+        .expect("install remote peer installs");
+    router_a
+        .ask(InstallRemoteRoute {
+            recipient: recipient.clone(),
+            home: router_b_identity.clone(),
+        })
+        .await
+        .expect("install remote route installs");
+
+    // A co-resident component hands router A the sealed object to originate —
+    // the standing-daemon working-tier path, NOT a directly constructed
+    // ForwardMessage frame sent to B's ingress.
+    let submission = signal_router::ForwardedMessagePayload::new(
+        signal_router::ActorIdentifier::new(source.as_str()),
+        signal_router::ActorIdentifier::new(recipient.as_str()),
+        "mirror-append".to_string(),
+        Vec::new(),
+        vec![spirit_mirror_notice_object()],
+    );
+    let accepted = router_a
+        .ask(ApplyRoutedObjectSubmission { submission })
+        .await
+        .expect("routed-object submission reaches router A")
+        .into_result()
+        .expect("router A accepts the origination submission");
+    assert!(
+        matches!(accepted, SignalRouterOutput::RoutedObjectsAccepted(_)),
+        "router A should accept the origination with RoutedObjectsAccepted, got {accepted:?}"
+    );
+
+    // Router B received the carried routed object on its component socket —
+    // the standing daemon originated and forwarded it on its own.
+    let signal_mirror::Input::NotifyObject(notice) = mirror_socket.received() else {
+        panic!("expected mirror object notice delivered to router B");
+    };
+    assert_eq!(notice.store, signal_mirror::StoreName::new("spirit"));
+    assert_eq!(notice.head.sequence, signal_mirror::CommitSequence::new(1));
+
+    // Router A's trace records that the origination left for a peer.
+    let trace = router_a
+        .ask(ReadRouterTrace { since: 0 })
+        .await
+        .expect("read router A trace")
+        .into_result()
+        .expect("router A trace is readable");
+    assert!(
+        trace
+            .events()
+            .iter()
+            .any(|event| event.step() == RouterTraceStep::ForwardedRemote),
+        "router A trace should record ForwardedRemote for the origination, got {:?}",
+        trace
+            .events()
+            .iter()
+            .map(|event| event.step())
+            .collect::<Vec<_>>()
     );
 
     let _ = router_a.stop_gracefully().await;

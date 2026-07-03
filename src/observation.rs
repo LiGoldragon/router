@@ -45,6 +45,18 @@ impl RouterObservationPlane {
                 got: "ForwardMessage is a peer-forward request, not an observation query"
                     .to_string(),
             }),
+            // `SubmitRoutedObjects` is the local origination hand-off; the
+            // daemon lowers it to the write plane (RouterRoot) before it can
+            // reach the read-only observation plane. If one arrives here the
+            // routing invariant broke — refuse it fail-closed rather than
+            // treating it as a query.
+            SignalRouterInput::SubmitRoutedObjects(_) => {
+                Err(Error::UnexpectedRouterObservationFrame {
+                    got:
+                        "SubmitRoutedObjects is an origination submission, not an observation query"
+                            .to_string(),
+                })
+            }
         }
     }
 

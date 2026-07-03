@@ -1,11 +1,14 @@
 //! router-forward-witness — the two-VM criome-auth witness sender.
 //!
 //! This binary is the deployable sender leg of the criome-attestation witness.
-//! No router daemon ingress accepts a `RoutedContractObject` for an OUTBOUND
-//! forward (a locally submitted signal-message carries only a body string, never
-//! routed objects — see `peer_delivery::payload_for`), so the routed-object
-//! forward can only be constructed directly, exactly as
-//! `tests/end_to_end_remote_forward.rs::direct_forward_request_with_objects`
+//! The standing router daemon now DOES originate a `RoutedContractObject`
+//! forward on its own — a co-resident component hands it one over the working
+//! socket through the `signal-router` `SubmitRoutedObjects` operation
+//! (`router::apply_routed_object_submission`), and the origin path carries the
+//! objects through `peer_delivery::payload_for` instead of dropping them. This
+//! binary predates that seam and remains the standalone, env-driven two-VM
+//! criome-auth witness: it constructs and sends the forward directly, exactly
+//! as `tests/end_to_end_remote_forward.rs::direct_forward_request_with_objects`
 //! does. This binary is that construction made real and deployable: it attests
 //! through a REAL co-resident criome daemon (the production
 //! `CriomeForwardAttestation`, signing as this node's `Host(<identity>)`), then

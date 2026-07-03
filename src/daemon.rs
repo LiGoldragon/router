@@ -25,9 +25,9 @@ use crate::criome_attestation::CriomeForwardAttestation;
 use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
 use crate::router::RouterNetworkConfiguration;
 use crate::{
-    ApplyMetaRouterPolicy, ApplyRouterObservation, ApplySignalMessage, Configuration,
-    ConfigurationError, Error as RouterError, RouterBootstrap, RouterIngressContext, RouterResult,
-    RouterRuntime, RouterTables, SignalMessageInput, schema::daemon::ComponentDaemon,
+    ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterObservation, ApplySignalMessage,
+    Configuration, ConfigurationError, Error as RouterError, RouterBootstrap, RouterIngressContext,
+    RouterResult, RouterRuntime, RouterTables, SignalMessageInput, schema::daemon::ComponentDaemon,
 };
 
 #[derive(Debug)]
@@ -132,16 +132,28 @@ impl RouterEngine {
                     .await?;
             }
             Ok(WorkingInput::RouterObservation(received)) => {
-                let output = self
-                    .runtime()
-                    .await?
-                    .ask(ApplyRouterObservation {
-                        request: received.request,
-                    })
-                    .await
-                    .map_err(|error| RouterError::ActorCall(error.to_string()))?
-                    .into_result()?;
-                WorkingRouterObservationReply::new(received.exchange, output)
+                // The `signal-router` working tier carries two kinds of request:
+                // read-only observation queries (routed to the read plane) and
+                // the origination hand-off `SubmitRoutedObjects` (routed to the
+                // write plane, RouterRoot, which owns delivery). Lower each to
+                // its plane; both reply with a `signal-router` `Output`.
+                let ReceivedRouterObservationInput { exchange, request } = received;
+                let runtime = self.runtime().await?;
+                let output = match request {
+                    SignalRouterInput::SubmitRoutedObjects(submission) => runtime
+                        .ask(ApplyRoutedObjectSubmission { submission })
+                        .await
+                        .map_err(|error| RouterError::ActorCall(error.to_string()))?
+                        .into_result()?,
+                    observation => runtime
+                        .ask(ApplyRouterObservation {
+                            request: observation,
+                        })
+                        .await
+                        .map_err(|error| RouterError::ActorCall(error.to_string()))?
+                        .into_result()?,
+                };
+                WorkingRouterObservationReply::new(exchange, output)
                     .write(connection.stream_mut())
                     .await?;
             }

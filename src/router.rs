@@ -51,8 +51,9 @@ use signal_persona::{
 use signal_router::{
     Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
-    RemoteRouterIdentity, RouterBootstrapDocument, RouterBootstrapOperation,
-    RouterDaemonConfiguration, RouterForwardRefusalReason, RouterForwardRequest,
+    MessageSlot as RouterMessageSlot, RemoteRouterIdentity, RoutedContractObject,
+    RouterBootstrapDocument, RouterBootstrapOperation, RouterDaemonConfiguration,
+    RouterForwardRefusalReason, RouterForwardRequest,
 };
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
@@ -1283,6 +1284,16 @@ pub struct ApplySignalMessage {
     pub input: SignalMessageInput,
 }
 
+/// A local origination hand-off arriving on the working socket: a co-resident
+/// component asks its own router to originate a component-object forward. The
+/// working-tier twin of `ApplyForwardedMessage` (which is the inbound network
+/// side). The daemon lowers a `signal-router` `SubmitRoutedObjects` request
+/// into this runtime message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyRoutedObjectSubmission {
+    pub submission: ForwardedMessagePayload,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyMetaRouterPolicy {
     pub input: MetaInput,
@@ -1348,6 +1359,24 @@ impl SignalMessageOutcome {
     }
 
     pub fn into_result(self) -> RouterResult<SignalMessageContractOutput> {
+        self.result
+    }
+}
+
+/// The reply of `ApplyRoutedObjectSubmission`: the router accepted the local
+/// origination (returning the `signal-router` `RoutedObjectsAccepted` output
+/// with its minted slot) or failed with a typed router error.
+#[derive(Debug, kameo::Reply)]
+pub struct RoutedObjectSubmissionOutcome {
+    result: RouterResult<SignalRouterOutput>,
+}
+
+impl RoutedObjectSubmissionOutcome {
+    fn new(result: RouterResult<SignalRouterOutput>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> RouterResult<SignalRouterOutput> {
         self.result
     }
 }
@@ -1459,6 +1488,27 @@ impl kameo::message::Message<ApplySignalMessage> for RouterRuntime {
             Err(error) => Err(error),
         };
         SignalMessageOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ApplyRoutedObjectSubmission> for RouterRuntime {
+    type Reply = RoutedObjectSubmissionOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyRoutedObjectSubmission,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.applied_input_count = self.applied_input_count.saturating_add(1);
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(RoutedObjectSubmissionOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        RoutedObjectSubmissionOutcome::new(result)
     }
 }
 
@@ -2059,6 +2109,46 @@ impl RouterRoot {
         ))
     }
 
+    /// Originate a component-object forward on the standing daemon's own
+    /// initiative. A co-resident component hands the router a
+    /// `ForwardedMessagePayload` over the working socket; the router marks it
+    /// `Origin`, commits it, and drives delivery synchronously in this same
+    /// call (push, not poll — the submit itself is the trigger). It reuses the
+    /// whole resolve → forward → attest path; the only change from an ordinary
+    /// body submission is that the origin path now carries the routed objects
+    /// through to the peer instead of dropping them.
+    async fn apply_routed_object_submission(
+        &mut self,
+        submission: ForwardedMessagePayload,
+    ) -> RouterResult<SignalRouterOutput> {
+        let sender = ActorIdentifier::new(submission.source_actor.payload().payload().as_str());
+        let recipient =
+            ActorIdentifier::new(submission.destination_actor.payload().payload().as_str());
+        let routed_objects = submission.routed_objects().to_vec();
+        let origin = SignalMessageOrigin::Internal(SignalComponentName::Router);
+        let slot = self.next_signal_message_slot();
+        let message_submission = SignalMessageSubmission {
+            message_recipient: SignalMessageRecipient::new(recipient.as_str().to_string()),
+            message_kind: MessageKind::Send,
+            message_body: SignalMessageBody::new(submission.body.payload().clone()),
+        };
+        let message = self.signal_message(sender, message_submission, slot.clone());
+        self.persist_message(&message, &origin, Some(slot.clone()))?;
+        self.pending.push(PendingRouterMessage::origin_with_objects(
+            message.clone(),
+            origin,
+            routed_objects,
+        ));
+        self.signal_slots
+            .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
+        self.trace
+            .record(message.id.clone(), RouterTraceStep::MessageCommitted);
+        self.retry_pending().await?;
+        Ok(SignalRouterOutput::routed_objects_accepted(
+            RouterMessageSlot::new(slot.into_u64()),
+        ))
+    }
+
     fn unimplemented_message_request(
         operation: MessageOperationKind,
     ) -> SignalMessageContractOutput {
@@ -2174,7 +2264,10 @@ impl RouterRoot {
                 if pending.may_resolve_remote()
                     && let Some(route) = self.resolve_remote_route(&message.to).await?
                 {
-                    match self.forward_to_remote(&message, route).await {
+                    match self
+                        .forward_to_remote(&message, pending.routed_objects.clone(), route)
+                        .await
+                    {
                         Ok(true) => {
                             // The message left for a peer: drop it from
                             // pending (via `continue` without re-queueing)
@@ -2331,12 +2424,18 @@ impl RouterRoot {
     /// for one outbound TCP forward. Returns `Ok(true)` when the peer
     /// accepted, `Ok(false)` when it refused (park for adjudication),
     /// `Err` on a transport/actor failure (restore pending).
-    async fn forward_to_remote(&self, message: &Message, route: RemoteRoute) -> RouterResult<bool> {
+    async fn forward_to_remote(
+        &self,
+        message: &Message,
+        routed_objects: Vec<RoutedContractObject>,
+        route: RemoteRoute,
+    ) -> RouterResult<bool> {
         let outcome = self
             .peer_delivery
             .ask(DeliverRemote {
                 remote_address: route.address,
                 message: message.clone(),
+                routed_objects,
             })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
@@ -2458,6 +2557,23 @@ impl PendingRouterMessage {
             message,
             SignalMessageOrigin::Internal(SignalComponentName::Router),
         )
+    }
+
+    /// A locally-submitted origination carrying contract-owned objects. Marked
+    /// `Origin` so it resolves to a remote route and forwards on its own — the
+    /// standing-daemon twin of `forwarded_with_objects`. The message body still
+    /// drives router policy; the opaque objects ride to the peer unread.
+    fn origin_with_objects(
+        message: Message,
+        origin: SignalMessageOrigin,
+        routed_objects: Vec<signal_router::RoutedContractObject>,
+    ) -> Self {
+        Self {
+            message,
+            origin,
+            routed_objects,
+            forward_marker: ForwardMarker::Origin,
+        }
     }
 
     /// A message that arrived via forward carrying contract-owned
@@ -2966,6 +3082,21 @@ impl kameo::message::Message<ApplySignalMessage> for RouterRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         SignalMessageOutcome::new(self.apply_signal(message.input).await)
+    }
+}
+
+impl kameo::message::Message<ApplyRoutedObjectSubmission> for RouterRoot {
+    type Reply = RoutedObjectSubmissionOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyRoutedObjectSubmission,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        RoutedObjectSubmissionOutcome::new(
+            self.apply_routed_object_submission(message.submission)
+                .await,
+        )
     }
 }
 

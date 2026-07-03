@@ -18,8 +18,8 @@ use kameo::message::Context;
 use kameo::reply::DelegatedReply;
 use signal_router::{
     ForwardMarker, ForwardedMessagePayload, Input as SignalRouterInput,
-    Output as SignalRouterOutput, ReplayNonce, RouterForwardRefusalReason, RouterForwardRequest,
-    TimestampNanos,
+    Output as SignalRouterOutput, ReplayNonce, RoutedContractObject, RouterForwardRefusalReason,
+    RouterForwardRequest, TimestampNanos,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -66,7 +66,10 @@ impl RouterPeerDelivery {
         TimestampNanos::new(u64::try_from(nanos).unwrap_or(u64::MAX))
     }
 
-    fn payload_for(message: &Message) -> ForwardedMessagePayload {
+    fn payload_for(
+        message: &Message,
+        routed_objects: Vec<RoutedContractObject>,
+    ) -> ForwardedMessagePayload {
         ForwardedMessagePayload::new(
             signal_router::ActorIdentifier::new(message.from.as_str()),
             signal_router::ActorIdentifier::new(message.to.as_str()),
@@ -76,12 +79,16 @@ impl RouterPeerDelivery {
                 .iter()
                 .map(|attachment| attachment.path.clone())
                 .collect(),
-            Vec::new(),
+            routed_objects,
         )
     }
 
-    fn forward_request(&mut self, message: &Message) -> RouterForwardRequest {
-        let payload = Self::payload_for(message);
+    fn forward_request(
+        &mut self,
+        message: &Message,
+        routed_objects: Vec<RoutedContractObject>,
+    ) -> RouterForwardRequest {
+        let payload = Self::payload_for(message, routed_objects);
         let nonce = self.next_nonce();
         let issued_at = Self::issued_at();
         let attestation = self.verifier.attest(&payload, &nonce, issued_at.clone());
@@ -150,6 +157,11 @@ impl RemoteForwardOutcome {
 pub struct DeliverRemote {
     pub remote_address: TailnetAddress,
     pub message: Message,
+    /// The contract-owned objects to carry alongside the message body. Empty
+    /// for an ordinary body-only forward; populated when the router originates
+    /// (or relays) a component-object forward. The outbound payload builder
+    /// carries these octets verbatim — the router never decodes them.
+    pub routed_objects: Vec<RoutedContractObject>,
 }
 
 #[derive(Debug, kameo::Reply)]
@@ -196,8 +208,12 @@ impl kameo::message::Message<DeliverRemote> for RouterPeerDelivery {
         context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.attempted_forward_count = self.attempted_forward_count.saturating_add(1);
-        let request = self.forward_request(&message.message);
-        let address = message.remote_address;
+        let DeliverRemote {
+            remote_address: address,
+            message: forwarded_message,
+            routed_objects,
+        } = message;
+        let request = self.forward_request(&forwarded_message, routed_objects);
         context.spawn(async move {
             RemoteDeliveryOutcome::from_result(Self::forward(request, address).await)
         })
