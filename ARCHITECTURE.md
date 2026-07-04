@@ -590,6 +590,157 @@ the Yggdrasil fabric, and Router lowers that to the exact socket it dials.
 Criome remains the message-level peer identity proof. The two are separate:
 `.criome` answers *where to connect*; criome answers *who spoke*.
 
+## 2.10 · Persistent mirror transport: origination, encrypted session, durable outbox, toggle
+
+Four pieces extend the networked forwarding transport in §2.9 into a
+persistent, encrypted, crash-durable channel a co-resident component can use
+to originate a change on its own initiative, gated behind one off-by-default
+switch. None of this replaces §2.9's forwarding contract or its
+attestation-verify seam; it is the transport those pieces now ride, built for
+the persistent both-directions quorum-gated Spirit mirror.
+
+### Origination hand-off (`SubmitRoutedObjects`)
+
+A co-resident component (Spirit, Criome) that wants to originate a
+component-object forward — not just answer an inbound one — connects to its
+own router's working socket and sends `signal-router` `Input::SubmitRoutedObjects`.
+`daemon.rs::handle_working_connection` routes this one request variant to
+`RouterRoot` as `ApplyRoutedObjectSubmission`; every other `signal-router::Input`
+variant stays on the read-only observation plane (`ApplyRouterObservation`).
+`RouterRoot::apply_routed_object_submission`:
+
+- refuses with a typed `RouterForwardRefusalReason::MirrorDisabled` refusal
+  while the mirror switch (below) is off — this op exists only to originate
+  mirror traffic, so the whole op is gated, not just the objects it carries;
+- otherwise mints a `PendingRouterMessage::origin_with_objects` (marked
+  `ForwardMarker::Origin`), persists it to the message table and the
+  outbound backlog (below), pushes it onto the live pending queue, and calls
+  `retry_pending` in the same call — the submit is the delivery trigger, there
+  is no poller;
+- replies with the `RoutedObjectsAccepted` output carrying the minted slot.
+
+This reuses the entire pre-existing forward path (`RemoteRouterRegistry` route
+resolution, `RouterPeerDelivery::DeliverRemote`, the receiving peer's
+`TailnetForwardIngress`/`apply_forwarded`) — the only change is that the origin
+path now carries `routed_objects` through instead of dropping them.
+
+### Encrypted, mutually-authenticated peer session (`PeerSession`)
+
+`src/peer_session.rs` and `src/identity_proof.rs` replace plaintext
+connect-per-forward with a persistent, per-peer session:
+
+- **Handshake (three messages).** Initiator → responder `SessionClientHello`
+  (a fresh challenge + an ephemeral X25519 public key); responder → initiator
+  `SessionServerHello` (its own challenge + ephemeral key + an identity proof
+  binding {responder identity, responder ephemeral key} under the initiator's
+  challenge); initiator → responder `SessionClientProof` (the mirror-image
+  proof under the responder's challenge). The responder answers
+  `SessionAccepted` (an AEAD key-confirmation sealing the handshake transcript
+  digest) or `SessionRefused`.
+- **Identity proof, one root of trust.** `CriomeIdentityProver` — selected
+  whenever the daemon has a `criome_socket_path` configured — asks the
+  co-resident criome to BLS-`Sign` the proof and to `VerifyAttestation` an
+  inbound one, the same criome identity that already backs the per-forward
+  attestation (§2.9). Verification runs two checks: criome's
+  `VerifyAttestation` must return `Valid` (a stranger with no registered
+  identity fails `UnknownSigner`), and the router itself — not criome — checks
+  the proof's nonce equals the challenge it issued for this handshake, the
+  freshness check criome's stateless verify does not perform. Either failure
+  is `SessionRefused`, fail-closed.
+- **Key agreement and forward secrecy.** On mutual success both sides derive a
+  shared secret by X25519 ECDH over the two ephemeral keys, bind it and the
+  full handshake transcript through a blake3 KDF into two directional
+  ChaCha20-Poly1305 keys (`SessionCipher`), and seal every subsequent forward
+  under a monotonic per-direction nonce counter. The ephemeral secrets are
+  consumed by the ECDH and dropped; a later compromise of the long-term BLS
+  identity key cannot decrypt a recorded past session. The symmetric keys
+  never leave the router process and are never persisted.
+- **Persistent, reused across forwards.** `RouterPeerDelivery` holds one live
+  `PeerSession` per peer address (keyed by the dialed address, serialized by
+  an async mutex), established on demand and reused for every subsequent
+  `DeliverRemote` to that peer; a dead session is dropped so the next forward
+  re-establishes it. `TailnetForwardIngress::serve_session` is the responder
+  side: it runs the handshake once, then loops opening each sealed forward
+  through the SAME per-forward verify + apply path (`handle_forward`) used
+  before the session existed, and sealing the reply.
+- **Session-up event.** Freshly establishing (or re-establishing) a session to
+  a peer produces a `PeerSessionEstablished { peer, epoch }`, returned
+  alongside the ordinary delivery outcome and recorded by
+  `RouterRoot::on_peer_session_established`. This is the sole trigger for the
+  outbound-backlog drain below — no polling.
+
+### Durable outbound backlog and push redial
+
+`RouterRoot.pending` (the live, in-memory forward queue) is backed by a
+durable `outbound_backlog` SEMA table (family `router-outbound-backlog`, keyed
+by message identifier; its addition raised `ROUTER_SCHEMA_VERSION` to 2
+alongside `mirror_switch`, below):
+
+- every pending item — a local submission, a routed-object origination, or an
+  accepted inbound forward parked for further routing — is written to
+  `outbound_backlog` (`persist_outbound_backlog`) before it is pushed onto the
+  in-memory queue, so a crash between enqueue and delivery cannot lose it;
+- a row is removed (`clear_outbound_backlog`) only on a terminal outcome —
+  delivered locally, accepted by the peer, or denied; it is retained across a
+  transport error or a park;
+- on daemon start, `RouterRoot`'s actor `on_start` hook rehydrates the whole
+  in-memory queue from `outbound_backlog` (`rehydrate_outbound_backlog`)
+  before admitting new work — `self.pending` no longer resets to empty on
+  every boot;
+- the `PeerSessionEstablished` event is the redial trigger:
+  `on_peer_session_established` schedules a `DrainOutboundBacklog`
+  self-message on a fresh mailbox turn (never re-entering an in-flight
+  `retry_pending`), which re-runs `retry_pending` over the whole live queue.
+  The reconnection itself is the "peer is back" push; there is no liveness
+  poll.
+
+### Off-by-default mirror toggle (`SetMirrorEnabled`)
+
+A durable, single-row `mirror_switch` SEMA table (family
+`router-mirror-switch`) holds one owner-controlled boolean, read once into
+`RouterRoot.mirror_enabled` at construction and flipped only through
+`meta-signal-router`'s `SetMirrorEnabled` operation on the owner-only (0600)
+meta socket:
+
+- `RouterTables::mirror_enabled()` is fail-safe by construction: a missing row
+  or any read/decode error both resolve to `false` — the default-off,
+  ships-dark posture. Only the write side (`set_mirror_enabled`) surfaces a
+  real error, so a toggle that silently failed to persist is never claimed as
+  applied.
+- The switch gates exactly two code paths: `apply_routed_object_submission`
+  (unconditionally, since that op exists only to originate mirror traffic) and
+  `apply_forwarded` (scoped: only when the inbound payload's `routed_objects`
+  is non-empty — an ordinary human-message forward carries no objects and is
+  never gated). All other router traffic is unaffected.
+- The new value is persisted before it takes effect in the live `RouterRoot`,
+  so a crash between commit and reply still leaves the persisted fact correct
+  for the next restart to read.
+
+### Session-required — the plaintext door shuts once session-capable
+
+`TailnetForwardIngress` decides, per accepted connection, whether the daemon
+is session-capable: it holds `identity_prover: Option<Arc<dyn
+PeerIdentityProver>>`, which is `Some` exactly when the daemon was started
+with a configured `criome_socket_path` (`RouterEngine::from_configuration` —
+the same configuration switch that also selects the real criome-backed
+forward-attestation verifier over the offline fixed-identity stand-in). On the
+first decoded frame of a connection:
+
+- `SessionClientHello` is served (the encrypted session handshake) only when
+  `identity_prover` is `Some`; otherwise the ingress replies
+  `SessionRefused(HandshakeMalformed)`;
+- a bare `ForwardMessage` (the legacy plaintext, one-connection-one-forward
+  shape) is served only when `identity_prover` is `None` (single-host /
+  pre-criome deployment); once the ingress is session-capable, a bare
+  plaintext forward is refused `ForwardRefused(SessionRequired)` **before any
+  attestation is verified or the message is applied** — a valid per-forward
+  attestation buys no plaintext access once the peer is expected to hold a
+  session.
+
+So a session-capable router accepts real mirror traffic only over the
+encrypted, mutually-authenticated session; the plaintext path survives only as
+the single-host/offline witness transport, with no session prover configured.
+
 ## 3 · Boundaries
 
 This repo owns:
@@ -702,6 +853,29 @@ This repo does not own:
 - Router bootstrap records come from `signal-router`; the router
   accepts only binary rkyv `RouterBootstrapDocument` archives and converts
   contract `RouterBootstrapOperation` values into internal actor inputs.
+- A co-resident component originates a component-object forward only by
+  calling `SubmitRoutedObjects` on the local working socket; the router does
+  not originate mirror traffic on its own initiative.
+- While the mirror switch is off, the router neither originates
+  (`SubmitRoutedObjects`) nor accepts (`apply_forwarded`) a forward carrying
+  routed objects; ordinary `signal-message` forwarding is unaffected.
+- The mirror switch's persisted state is fail-safe: a missing or unreadable
+  row resolves to off, never to on.
+- A pending outbound forward is durably recorded in `outbound_backlog` before
+  it enters the live pending queue, and is removed only on a terminal delivery
+  outcome (delivered, peer-accepted, or denied).
+- A router restart rehydrates its live pending queue from `outbound_backlog`
+  before admitting new work.
+- Once a router's tailnet ingress is session-capable (a criome socket is
+  configured), it refuses a bare plaintext `ForwardMessage` with
+  `SessionRequired` before verifying or applying it; real mirror content
+  crosses only the encrypted, mutually-authenticated peer session.
+- A peer session's identity proof must both pass criome `VerifyAttestation`
+  and answer the exact challenge nonce the verifying router issued for that
+  handshake; either failure refuses the session, fail-closed.
+- Peer-session symmetric keys are derived per-session from ephemeral X25519
+  keys dropped after ECDH agreement; they are never persisted and never leave
+  the router process.
 
 ## Code Map
 
@@ -712,7 +886,9 @@ src/channel.rs          Kameo authorized-channel and adjudication state owner
 src/harness_registry.rs Kameo harness registry and delivery target owner
 src/harness_delivery.rs Kameo terminal delivery blocking-plane actor
 src/remote_router.rs    Kameo remote-router registry (cross-host route table)
-src/peer_delivery.rs    Kameo outbound peer-forward actor (network twin of harness_delivery)
+src/peer_delivery.rs    Kameo outbound peer-forward actor (network twin of harness_delivery); holds the per-peer PeerSession
+src/peer_session.rs     Encrypted, mutually-authenticated persistent peer session (X25519 ECDH + ChaCha20-Poly1305)
+src/identity_proof.rs   Peer-session identity-proof seam (criome-backed prover/verifier + offline fixed-identity stand-in)
 src/forward_attestation.rs ForwardAttestationVerifier trait + offline accept-fixed-identity impl (criome seam)
 src/observation.rs      Kameo router observation plane (signal-router queries)
 src/client.rs           thin router CLI/client over signal-router observation frames
@@ -771,6 +947,16 @@ tests/                  router smoke and actor-density truth tests
 | `HarnessDelivery::DeliverHarness` handler keeps `DelegatedReply` + `context.spawn` + `tokio::task::spawn_blocking` around the sync deliver body. Future async-without-detach refactors fail this regression witness. | `nix build .#checks.x86_64-linux.harness-delivery-handler-cannot-drop-spawn-blocking-detach` |
 | Router daemon restart with the same `--store` path surfaces the pre-restart pending-adjudication state through the typed observation plane. | `nix build .#checks.x86_64-linux.router-daemon-restart-surfaces-persisted-adjudication-through-observation-plane` |
 | Two in-process routers forward a message over loopback TCP: router A's trace reports `ForwardedRemote`, router B verifies the attestation and delivers to its local harness, and the forward reply is `ForwardAccepted` — fully offline, no criome daemon. | `nix build .#checks.x86_64-linux.router-two-router-loopback-forward-delivers-remotely` |
+| The standing router daemon originates a component-object forward over the working socket (`SubmitRoutedObjects`) and delivers it over loopback TCP, with no hand-run witness binary. | `cargo test --test end_to_end_remote_forward standing_daemon_originates_routed_object_forward_over_loopback_tcp` |
+| A session-capable ingress refuses a bare plaintext `ForwardMessage` as `SessionRequired`, before verifying or applying it. | `cargo test --test end_to_end_remote_forward session_capable_ingress_shuts_the_plaintext_forward_door` |
+| Two routers establish a mutual, criome-vouched encrypted session (challenge/ephemeral-key handshake, ECDH, AEAD key-confirmation). | `cargo test --test encrypted_peer_session two_routers_establish_a_mutual_criome_vouched_encrypted_session` |
+| An unregistered peer's identity proof is refused fail-closed (`UnknownSigner`). | `cargo test --test encrypted_peer_session an_unregistered_peer_is_refused_fail_closed` |
+| A replayed identity proof is refused on the nonce-freshness check, not on the signature. | `cargo test --test encrypted_peer_session a_replayed_proof_is_refused_on_the_nonce_freshness_check` |
+| A swapped session ephemeral key is refused fail-closed. | `cargo test --test encrypted_peer_session a_swapped_session_ephemeral_key_is_refused_fail_closed` |
+| The mirror switch defaults off, ships inert, and toggles over the meta socket. | `cargo test --test mirror_toggle mirror_switch_defaults_off_inert_and_toggles_over_the_meta_socket` |
+| The mirror switch's persisted state survives a router restart, in both the on and off directions. | `cargo test --test mirror_toggle mirror_switch_survives_router_restart_both_directions` |
+| Ordinary (non-routed-object) message forwarding is not gated by the mirror switch. | `cargo test --test mirror_toggle ordinary_message_forward_is_not_gated_by_the_mirror_switch` |
+| The durable outbound backlog survives a router restart and drains automatically once the peer session (re)establishes. | `cargo test --test outbound_backlog_durable outbound_backlog_survives_restart_and_drains_on_peer_session_up` |
 
 ## See Also
 
