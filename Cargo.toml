@@ -43,22 +43,22 @@ required-features = ["witness"]
 
 [dependencies]
 kameo                 = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
-meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
+meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "drop-next", default-features = false }
 nota             = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
-signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
-signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
-signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
-signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
-signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "main", default-features = false }
-signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "criome-authorization-push", default-features = false }
-signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main", optional = true }
+signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "drop-next" }
+signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "drop-next" }
+signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "drop-next" }
+signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "drop-next" }
+signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "drop-next" }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "drop-next", default-features = false }
+signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "drop-next", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "drop-next", default-features = false }
+signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "drop-next", optional = true }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
-triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "drop-next" }
 
 [features]
 default = []
@@ -69,17 +69,17 @@ nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 witness = ["dep:signal-mirror", "nota-text"]
 
 [build-dependencies]
-schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "drop-next" }
 
 [dev-dependencies]
-criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "criome-authorization-push", default-features = false }
-signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "criome-authorization-push", default-features = false }
-signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
+criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "drop-next", default-features = false }
+signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "drop-next", default-features = false }
+signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "drop-next" }
 # The real mirror engine, behind a co-resident ComponentSocket, so the durable
 # mirror-landing witness drives a genuine versioned sema-engine store (its head
 # is the witnessed claim, not the router's ForwardAccepted reply). Pinned to the
 # signal-frame 0.3.0 alignment branch so the ComponentSocket wire is shared.
-mirror = { git = "https://github.com/LiGoldragon/mirror.git", branch = "main" }
+mirror = { git = "https://github.com/LiGoldragon/mirror.git", branch = "drop-next" }
 tempfile = "3"
 
 [lints.rust]
