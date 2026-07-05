@@ -819,6 +819,7 @@ fn router_tables_register_engine_families_and_advance_commit_sequence() {
             "messages",
             "mirror_switch",
             "outbound_backlog",
+            "remote_routes",
         ]
         .into_iter()
         .map(str::to_owned)

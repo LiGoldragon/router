@@ -15,14 +15,15 @@ use sema_engine::{
 };
 use signal_message::{MessageOrigin, MessageSlot};
 use signal_persona::ChannelIdentifier;
-use signal_router::{ForwardMarker, RoutedContractObject};
+use signal_router::{CriomeHostId, ForwardMarker, RoutedContractObject, TailnetAddress};
 
+use crate::route::{DirectCandidate, DirectLocator, RouteEndpoint, YggdrasilBaseline};
 use crate::{
     AdjudicationRequest, ChannelKind, ChannelLifetime, ChannelStatus, GrantChannel, Message,
     MessageIdentifier, RouterResult,
 };
 
-const ROUTER_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(2);
+const ROUTER_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(3);
 const CHANNELS: TableName = TableName::new("channels");
 const ADJUDICATION_PENDING: TableName = TableName::new("adjudication_pending");
 const MESSAGES: TableName = TableName::new("messages");
@@ -30,6 +31,7 @@ const DELIVERY_ATTEMPTS: TableName = TableName::new("delivery_attempts");
 const DELIVERY_RESULTS: TableName = TableName::new("delivery_results");
 const MIRROR_SWITCH: TableName = TableName::new("mirror_switch");
 const OUTBOUND_BACKLOG: TableName = TableName::new("outbound_backlog");
+const REMOTE_ROUTES: TableName = TableName::new("remote_routes");
 const CHANNELS_FAMILY: &str = "router-channel";
 const ADJUDICATION_PENDING_FAMILY: &str = "router-adjudication-pending";
 const MESSAGES_FAMILY: &str = "router-message";
@@ -37,6 +39,7 @@ const DELIVERY_ATTEMPTS_FAMILY: &str = "router-delivery-attempt";
 const DELIVERY_RESULTS_FAMILY: &str = "router-delivery-result";
 const MIRROR_SWITCH_FAMILY: &str = "router-mirror-switch";
 const OUTBOUND_BACKLOG_FAMILY: &str = "router-outbound-backlog";
+const REMOTE_ROUTES_FAMILY: &str = "router-remote-route";
 /// The mirror switch is a single owner-controlled row, keyed by this fixed
 /// identifier — there is exactly one mirror-enabled fact per router.
 const MIRROR_SWITCH_KEY: &str = "mirror-enabled";
@@ -55,6 +58,7 @@ struct RouterStore {
     delivery_results: TableReference<StoredDeliveryResult>,
     mirror_switch: TableReference<StoredMirrorSwitch>,
     outbound_backlog: TableReference<StoredOutboundForward>,
+    remote_routes: TableReference<StoredHostRoute>,
 }
 
 impl std::fmt::Debug for RouterTables {
@@ -88,6 +92,8 @@ impl RouterTables {
             OUTBOUND_BACKLOG,
             OUTBOUND_BACKLOG_FAMILY,
         ))?;
+        let remote_routes =
+            engine.register_table(Self::family_descriptor(REMOTE_ROUTES, REMOTE_ROUTES_FAMILY))?;
         Ok(Self {
             store: Arc::new(RouterStore {
                 engine,
@@ -98,6 +104,7 @@ impl RouterTables {
                 delivery_results,
                 mirror_switch,
                 outbound_backlog,
+                remote_routes,
             }),
         })
     }
@@ -332,6 +339,38 @@ impl RouterTables {
             .store
             .engine
             .match_records(QueryPlan::all(self.store.outbound_backlog))?
+            .records()
+            .to_vec())
+    }
+
+    /// Durably record one Criome-host-ID-keyed route (Slice A2,
+    /// primary-79z1.20), mirroring the outbound-backlog persist pattern.
+    /// Written when `RemoteRouterRegistry` registers a peer, so a restart
+    /// resolves the same route without re-applying the bootstrap document.
+    pub fn insert_host_route(&self, route: &StoredHostRoute) -> RouterResult<()> {
+        self.put_record(self.store.remote_routes, route.clone())
+    }
+
+    /// Clear one durable route row. A missing row is a benign no-op.
+    pub fn remove_host_route(&self, criome_host_id: &CriomeHostId) -> RouterResult<bool> {
+        match self.store.engine.retract(Retraction::new(
+            self.store.remote_routes,
+            RecordKey::new(criome_host_id.payload().as_str()),
+        )) {
+            Ok(_receipt) => Ok(true),
+            Err(sema_engine::Error::RecordNotFound { .. }) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The full durable route table, in no particular order.
+    /// `RemoteRouterRegistry` reads this once on start to rehydrate its live
+    /// peer map before it admits any new registration.
+    pub fn host_route_records(&self) -> RouterResult<Vec<StoredHostRoute>> {
+        Ok(self
+            .store
+            .engine
+            .match_records(QueryPlan::all(self.store.remote_routes))?
             .records()
             .to_vec())
     }
@@ -591,5 +630,66 @@ impl StoredOutboundForward {
 impl EngineRecord for StoredOutboundForward {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(self.message.id.as_str())
+    }
+}
+
+/// The durable Criome-host-ID-keyed route (Slice A2, primary-79z1.20): what
+/// the router knows about reaching one Criome host, seeded at bootstrap or
+/// by peer registration and rehydrated on restart (`RemoteRouterRegistry`
+/// owns the durability seam). Keyed purely on `criome_host_id` — no host
+/// name anywhere in the fabric's route table.
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StoredHostRoute {
+    pub criome_host_id: CriomeHostId,
+    pub baseline: YggdrasilBaseline,
+    pub direct_candidates: Vec<DirectCandidate>,
+}
+
+impl StoredHostRoute {
+    /// A freshly seeded route with only its Yggdrasil baseline populated.
+    /// Direct candidates are populated later (multi-IP/domain discovery,
+    /// bead .27) — the model is shaped now, empty until then.
+    pub fn new(criome_host_id: CriomeHostId, baseline: YggdrasilBaseline) -> Self {
+        Self {
+            criome_host_id,
+            baseline,
+            direct_candidates: Vec::new(),
+        }
+    }
+
+    /// The endpoint to dial right now: the first reachable direct candidate
+    /// in preference order (an IP dialed directly, or a domain DNS-resolved
+    /// then dialed), else the always-present Yggdrasil baseline. Selection
+    /// is a reachability decision, never a trust decision: the peer session
+    /// authenticates the Criome host ID over whichever wire is selected, so
+    /// a stale or wrong address is a reachability miss, not a breach.
+    pub fn preferred_endpoint(&self) -> RouteEndpoint {
+        self.direct_candidates
+            .iter()
+            .find(|candidate| candidate.reachability.is_reachable())
+            .map(|candidate| RouteEndpoint::Direct(candidate.locator.clone()))
+            .unwrap_or_else(|| RouteEndpoint::Yggdrasil(self.baseline.clone()))
+    }
+
+    /// The literal socket address to dial for the preferred endpoint today.
+    /// A direct IP dials exactly like the Yggdrasil baseline — address kind
+    /// is not a security tag. A direct domain name cannot yet be dialed
+    /// without the DNS-resolve-during-probe mechanism (bead .27, not built
+    /// this slice); nothing marks one reachable yet, so this falls back to
+    /// the baseline rather than invent an out-of-scope dial mechanism.
+    pub fn dial_address(&self) -> TailnetAddress {
+        match self.preferred_endpoint() {
+            RouteEndpoint::Yggdrasil(baseline) => baseline.address,
+            RouteEndpoint::Direct(DirectLocator::IpAddress(address)) => {
+                TailnetAddress::new(address.into_string())
+            }
+            RouteEndpoint::Direct(DirectLocator::DomainName(_)) => self.baseline.address.clone(),
+        }
+    }
+}
+
+impl EngineRecord for StoredHostRoute {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.criome_host_id.payload().as_str())
     }
 }

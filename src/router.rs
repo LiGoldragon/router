@@ -1325,7 +1325,11 @@ impl RouterRuntime {
         channels.wait_for_startup().await;
         let mind_adjudication = MindAdjudicationOutbox::spawn(MindAdjudicationOutbox::new());
         mind_adjudication.wait_for_startup().await;
-        let remote_routers = RemoteRouterRegistry::spawn(RemoteRouterRegistry::new());
+        let remote_router_registry = match self.tables.clone() {
+            Some(tables) => RemoteRouterRegistry::with_tables(tables),
+            None => RemoteRouterRegistry::new(),
+        };
+        let remote_routers = RemoteRouterRegistry::spawn(remote_router_registry);
         remote_routers.wait_for_startup().await;
         let peer_delivery = RouterPeerDelivery::spawn(RouterPeerDelivery::new(
             self.network.verifier(),
@@ -1427,6 +1431,11 @@ impl RouterRuntime {
         address: crate::TailnetAddress,
     ) -> RouterResult<()> {
         if let Some(remote_routers) = &self.remote_routers {
+            // `RegisterRemotePeer`'s reply carries the durable-persist
+            // outcome (Slice A2, primary-79z1.20); kameo flattens a
+            // `Result`-shaped reply into the ask outcome, so a route that
+            // failed to persist surfaces here through the same `?`, not
+            // swallowed.
             remote_routers
                 .ask(RegisterRemotePeer { identity, address })
                 .await

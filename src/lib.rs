@@ -22,6 +22,7 @@ pub mod observation;
 pub mod peer_delivery;
 pub mod peer_session;
 pub mod remote_router;
+pub mod route;
 pub mod router;
 pub mod supervision;
 pub mod tables;
@@ -99,6 +100,10 @@ pub use remote_router::{
     ReadRemoteRouterRegistryStatus, RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute,
     RemoteRouterRegistry, RemoteRouterRegistryStatus, ResolveRemoteRoute,
 };
+pub use route::{
+    DirectCandidate, DirectLocator, DomainSocketName, IpSocketAddress, Reachability,
+    ReachabilityObservation, RouteEndpoint, YggdrasilBaseline,
+};
 pub use router::{
     ApplyForwardedMessage, ApplyMetaRouterPolicy, ApplyMindAdjudicationDeny, ApplyMindChannelGrant,
     ApplyRoutedObjectSubmission, ApplyRouterInput, ApplySignalMessage, BootstrapApply,
@@ -132,5 +137,6 @@ pub use supervision::{
 };
 pub use tables::{
     RouterTables, StoredAdjudicationRequest, StoredChannelRecord, StoredDeliveryAttempt,
-    StoredDeliveryResult, StoredMessageRecord, StoredMirrorSwitch, StoredOutboundForward,
+    StoredDeliveryResult, StoredHostRoute, StoredMessageRecord, StoredMirrorSwitch,
+    StoredOutboundForward,
 };
