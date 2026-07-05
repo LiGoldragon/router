@@ -169,7 +169,7 @@ dependencies = [
 [[package]]
 name = "criome"
 version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/criome.git?branch=main#b1200d95fa67d3e62d04b39ac9638a621c6fefec"
+source = "git+https://github.com/LiGoldragon/criome.git?branch=main#a933f3fed7a7ae11b88fbdac6064addb2f4dc27a"
 dependencies = [
  "blake3",
  "blst",
@@ -761,6 +761,7 @@ dependencies = [
  "chacha20poly1305",
  "criome",
  "kameo",
+ "meta-signal-criome",
  "meta-signal-router",
  "mirror",
  "nota",

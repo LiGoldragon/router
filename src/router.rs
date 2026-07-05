@@ -1273,7 +1273,7 @@ impl RouterNetworkConfiguration {
     /// a single silent attempt: a should-participate router that races its
     /// co-resident criome's own startup gets a real retry window instead of
     /// permanently pinning the fail-closed sentinel on one transient miss.
-    pub(crate) async fn criome_host_id(criome_socket_path: &std::path::Path) -> CriomeHostId {
+    pub async fn criome_host_id(criome_socket_path: &std::path::Path) -> CriomeHostId {
         CriomeIdentityGate::production()
             .resolve(criome_socket_path)
             .await

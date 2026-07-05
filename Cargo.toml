@@ -84,6 +84,9 @@ schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/s
 [dev-dependencies]
 criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "main", default-features = false }
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
+# The criome founding meta contract (InitiateRootFounding / AcceptRootFounding /
+# ObserveRootFounding), for the founding-over-router harness (Slice D).
+meta-signal-criome = { git = "https://github.com/LiGoldragon/meta-signal-criome.git", branch = "main" }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
 # The real mirror engine, behind a co-resident ComponentSocket, so the durable
 # mirror-landing witness drives a genuine versioned sema-engine store (its head
