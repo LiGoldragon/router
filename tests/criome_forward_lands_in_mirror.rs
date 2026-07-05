@@ -476,7 +476,8 @@ async fn criome_verified_forward_lands_an_append_in_the_co_resident_mirror() {
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
@@ -599,7 +600,8 @@ async fn criome_verified_forward_lands_the_real_record_body_which_rehashes_to_th
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;

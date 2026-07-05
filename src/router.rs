@@ -1090,16 +1090,21 @@ impl CriomeIdentityGate {
     }
 
     /// Resolve `criome_socket_path`'s fabric identity, retrying through this
-    /// gate's bounded budget. Every failed attempt is loud-logged; a router
-    /// that should participate never silently pins the sentinel — either it
-    /// gets a real identity, or the operator sees exactly why it didn't.
-    fn resolve(self, criome_socket_path: &std::path::Path) -> CriomeHostId {
-        let client = CriomeSigningClient::new(criome_socket_path.to_path_buf());
+    /// gate's bounded budget **without ever blocking the actor runtime**. Each
+    /// blocking `observe_node_public_key` probe runs on the blocking pool
+    /// (`observe_once` → `spawn_blocking`) and each backoff yields the runtime
+    /// (an async timer await, never a synchronous OS-thread block), so a
+    /// should-participate router that races its co-resident criome's own startup
+    /// keeps its runtime free to serve other work through the whole retry window
+    /// instead of pinning a worker thread. Every failed attempt is loud-logged; a router
+    /// that should participate never silently pins the sentinel — either it gets
+    /// a real identity, or the operator sees exactly why it didn't.
+    async fn resolve(self, criome_socket_path: &std::path::Path) -> CriomeHostId {
         let mut backoff = self.initial_backoff;
         let mut last_error = None;
         for attempt in 1..=self.attempts {
-            match client.observe_node_public_key() {
-                Ok(public_key) => return CriomeHostId::new(public_key.as_str().to_string()),
+            match Self::observe_once(criome_socket_path).await {
+                Ok(public_key) => return CriomeHostId::new(public_key),
                 Err(error) => {
                     eprintln!(
                         "router criome identity: attempt {attempt}/{} to observe the co-resident criome's public key at {criome_socket_path:?} failed: {error}",
@@ -1107,7 +1112,7 @@ impl CriomeIdentityGate {
                     );
                     last_error = Some(error);
                     if attempt < self.attempts {
-                        std::thread::sleep(backoff);
+                        tokio::time::sleep(backoff).await;
                         backoff *= 2;
                     }
                 }
@@ -1119,6 +1124,27 @@ impl CriomeIdentityGate {
             last_error.expect("the loop above runs at least one attempt before exhausting"),
         );
         CriomeHostId::new(RouterNetworkConfiguration::UNRESOLVED_CRIOME_HOST_ID.to_string())
+    }
+
+    /// One `ObserveNodePublicKey` probe of the co-resident criome, run on the
+    /// blocking pool so the synchronous criome socket read never occupies an
+    /// actor-runtime worker. The public key and any error are lowered to owned
+    /// strings inside the blocking task, and a panic in that task is surfaced as
+    /// an ordinary failed attempt rather than propagated as a crash — the gate's
+    /// bounded retry then either succeeds or fails closed to the sentinel.
+    async fn observe_once(criome_socket_path: &std::path::Path) -> Result<String, String> {
+        let socket_path = criome_socket_path.to_path_buf();
+        match tokio::task::spawn_blocking(move || {
+            CriomeSigningClient::new(socket_path)
+                .observe_node_public_key()
+                .map(|public_key| public_key.as_str().to_string())
+                .map_err(|error| error.to_string())
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(join_error) => Err(format!("criome identity probe task failed: {join_error}")),
+        }
     }
 }
 
@@ -1218,11 +1244,11 @@ impl RouterNetworkConfiguration {
     /// daemon at `criome_socket_path`. The milestone-3 construction: the same
     /// identity is stamped as the attestation signer and bound into the signed
     /// digest, so the receiver's criome verifies content and origin together.
-    pub fn criome_listening(
+    pub async fn criome_listening(
         listen_address: SocketAddr,
         criome_socket_path: std::path::PathBuf,
     ) -> Self {
-        let identity = Self::criome_host_id(&criome_socket_path);
+        let identity = Self::criome_host_id(&criome_socket_path).await;
         Self::new(
             Some(listen_address),
             identity.clone(),
@@ -1247,8 +1273,10 @@ impl RouterNetworkConfiguration {
     /// a single silent attempt: a should-participate router that races its
     /// co-resident criome's own startup gets a real retry window instead of
     /// permanently pinning the fail-closed sentinel on one transient miss.
-    pub(crate) fn criome_host_id(criome_socket_path: &std::path::Path) -> CriomeHostId {
-        CriomeIdentityGate::production().resolve(criome_socket_path)
+    pub(crate) async fn criome_host_id(criome_socket_path: &std::path::Path) -> CriomeHostId {
+        CriomeIdentityGate::production()
+            .resolve(criome_socket_path)
+            .await
     }
 
     /// A loopback/tailnet listener that runs the encrypted authenticated peer
@@ -1258,11 +1286,11 @@ impl RouterNetworkConfiguration {
     /// establishes only when both peers' criome-signed proofs verify against
     /// their registered identities; the ephemeral X25519 keys are vouched by
     /// that one criome root.
-    pub fn criome_session_listening(
+    pub async fn criome_session_listening(
         listen_address: SocketAddr,
         criome_socket_path: std::path::PathBuf,
     ) -> Self {
-        let identity = Self::criome_host_id(&criome_socket_path);
+        let identity = Self::criome_host_id(&criome_socket_path).await;
         let prover: Arc<dyn PeerIdentityProver> = Arc::new(CriomeIdentityProver::new(
             identity.clone(),
             criome_socket_path.clone(),
@@ -4519,9 +4547,10 @@ mod criome_identity_gate_tests {
     fn unresolved_identity_gate_retries_with_backoff_before_pinning_the_sentinel() {
         let socket = nonexistent_criome_socket_path();
         let gate = CriomeIdentityGate::new(3, Duration::from_millis(20));
+        let runtime = tokio::runtime::Runtime::new().expect("runtime starts");
 
         let started = Instant::now();
-        let identity = gate.resolve(&socket);
+        let identity = runtime.block_on(gate.resolve(&socket));
         let elapsed = started.elapsed();
 
         assert_eq!(
@@ -4547,9 +4576,10 @@ mod criome_identity_gate_tests {
     fn a_single_attempt_gate_fails_closed_without_a_trailing_sleep() {
         let socket = nonexistent_criome_socket_path();
         let gate = CriomeIdentityGate::new(1, Duration::from_millis(500));
+        let runtime = tokio::runtime::Runtime::new().expect("runtime starts");
 
         let started = Instant::now();
-        let identity = gate.resolve(&socket);
+        let identity = runtime.block_on(gate.resolve(&socket));
         let elapsed = started.elapsed();
 
         assert_eq!(

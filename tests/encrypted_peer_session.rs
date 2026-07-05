@@ -363,7 +363,8 @@ async fn two_routers_establish_a_mutual_criome_vouched_encrypted_session() {
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome_b.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
@@ -400,7 +401,8 @@ async fn two_routers_establish_a_mutual_criome_vouched_encrypted_session() {
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome_a.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let _router_a_address = bound_tailnet_address(&router_a).await;
@@ -488,7 +490,8 @@ async fn an_unregistered_peer_is_refused_fail_closed() {
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome_b.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
@@ -543,7 +546,8 @@ async fn a_replayed_proof_is_refused_on_the_nonce_freshness_check() {
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome_b.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
@@ -606,7 +610,8 @@ async fn a_swapped_session_ephemeral_key_is_refused_fail_closed() {
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome_b.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
@@ -654,7 +659,8 @@ async fn the_responder_mints_fresh_ephemeral_key_material_per_session() {
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome_b.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;

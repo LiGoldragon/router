@@ -67,7 +67,7 @@ signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", 
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main", optional = true }
 thiserror             = "2"
-tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync"] }
+tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 
 [features]

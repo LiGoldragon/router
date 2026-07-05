@@ -382,7 +382,8 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
@@ -420,7 +421,8 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let _router_a_address = bound_tailnet_address(&router_a).await;
@@ -512,7 +514,8 @@ async fn router_refuses_forwards_without_a_valid_criome_attestation() {
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
             criome.socket(),
-        ),
+        )
+        .await,
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
