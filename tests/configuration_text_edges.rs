@@ -57,7 +57,10 @@ fn router_configuration_carries_listen_identity_and_criome_socket() {
         Configuration::from_binary_path(&output).expect("daemon reads back the configuration");
 
     let expected_listen: SocketAddr = "0.0.0.0:7440".parse().expect("listen address parses");
-    assert_eq!(configuration.tailnet_listen_address(), Some(expected_listen));
+    assert_eq!(
+        configuration.tailnet_listen_address(),
+        Some(expected_listen)
+    );
     assert_eq!(
         configuration.router_identity(),
         &RemoteRouterIdentity::new("router-a"),

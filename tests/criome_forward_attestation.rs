@@ -31,7 +31,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use criome::daemon::CriomeDaemon;
 use criome::tables::StoreLocation;
 use kameo::actor::ActorRef;
-use signal_criome::Identity;
 use router::{
     Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, ChannelLifetime,
     CriomeForwardAttestation, EndpointKind, EndpointTransport, ForwardAttestationVerifier,
@@ -39,6 +38,7 @@ use router::{
     ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor, RemoteRouterIdentity, RouterInput,
     RouterNetworkConfiguration, RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
 };
+use signal_criome::Identity;
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,

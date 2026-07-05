@@ -32,7 +32,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use criome::daemon::CriomeDaemon;
 use criome::tables::StoreLocation;
 use kameo::actor::ActorRef;
-use mirror::{ComponentShipper, Engine, Store};
+use mirror::{ComponentShipper, Engine, Store, schema::sema::ContentAddressing};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use router::{
     Actor, ActorIdentifier, ApplyRouterInput, ChannelLifetime, CriomeForwardAttestation,
@@ -118,7 +118,10 @@ impl MirrorBehindComponentSocket {
         let mut store =
             Store::open(&directory.path().join("mirror.sema")).expect("mirror store opens");
         store
-            .register_store(&StoreName::new(registered_store.to_string()))
+            .register_store(
+                &StoreName::new(registered_store.to_string()),
+                ContentAddressing::Opaque,
+            )
             .expect("registers the witnessed store");
         // Shared so the relay's serving task and the test's landed-body read
         // both drive the SAME durable store: the body the router relays is the
