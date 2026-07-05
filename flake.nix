@@ -383,6 +383,19 @@
               cargoTestExtraArgs = "--test end_to_end_remote_forward message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_locally -- --exact";
             }
           );
+          # Slice D (primary-79z1.23): two in-process criome hosts found ONE root
+          # ENTIRELY over the real router voice — real RouterQuorumVoice
+          # origination (SubmitRoutedObjects -> apply_routed_object_submission)
+          # over two real routers with real durable pubkey-keyed route stores.
+          # Both hosts converge on the SAME founded anchor via the two-round
+          # commit under the witness-clock gate.
+          router-two-hosts-found-root-over-router-voice = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test founding_over_router two_hosts_found_the_same_root_anchor_over_the_real_router_voice -- --exact";
+            }
+          );
           router-write-configuration-carries-network-fields = context.craneLib.cargoTest (
             context.commonArgs
             // {
