@@ -26,6 +26,17 @@ pub trait ComponentDaemon: Sized + 'static {
     fn load_configuration(
         path: &std::path::Path,
     ) -> Result<Self::Configuration, Self::ConfigurationError>;
+    /// Validate the loaded configuration before any runtime, listener,
+    /// or store is built. Components that carry only already-validated
+    /// typed configuration keep the default no-op; components with decoded
+    /// path records override this hook so bad startup shape fails before
+    /// socket preparation or state mutation.
+    fn validate_configuration(
+        configuration: &Self::Configuration,
+    ) -> Result<(), Self::ConfigurationError> {
+        let _ = configuration;
+        Ok(())
+    }
     /// Open the component's durable Store and construct its Engine.
     fn build_runtime(
         configuration: &Self::Configuration,
@@ -90,8 +101,11 @@ impl<Daemon: ComponentDaemon> DaemonCommand<Daemon> {
     pub fn configuration(&self) -> Result<Daemon::Configuration, DaemonError<Daemon>> {
         match self.command.signal_file_argument()? {
             ComponentArgument::SignalFile(file) => {
-                Daemon::load_configuration(file.as_path())
-                    .map_err(DaemonError::Configuration)
+                let configuration = Daemon::load_configuration(file.as_path())
+                    .map_err(DaemonError::Configuration)?;
+                Daemon::validate_configuration(&configuration)
+                    .map_err(DaemonError::Configuration)?;
+                Ok(configuration)
             }
             ComponentArgument::InlineNota(_) | ComponentArgument::NotaFile(_) => {
                 Err(DaemonError::Argument(ArgumentError::ExpectedSignalFile))
