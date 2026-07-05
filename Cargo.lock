@@ -115,7 +115,7 @@ dependencies = [
 [[package]]
 name = "criome"
 version = "0.4.3"
-source = "git+https://github.com/LiGoldragon/criome.git?branch=drop-next#8924a59622d3d8c01e76ffd95028370e92f4e0cd"
+source = "git+https://github.com/LiGoldragon/criome.git?branch=drop-next#06c508e77c5e3dd106d065f99bf12f9a2fa079cd"
 dependencies = [
  "blake3",
  "blst",
@@ -361,7 +361,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 [[package]]
 name = "meta-signal-criome"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=drop-next#fe248a7a65f1061ac4361169cec948db75b809a5"
+source = "git+https://github.com/LiGoldragon/meta-signal-criome.git?branch=drop-next#37e4b427be02ce2a8145bf0ebbc2751d81a32861"
 dependencies = [
  "rkyv",
  "schema-rust",
@@ -373,7 +373,7 @@ dependencies = [
 [[package]]
 name = "meta-signal-mirror"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-mirror.git?branch=drop-next#3004ccf63adadff622ebd0396c674a4250eed17c"
+source = "git+https://github.com/LiGoldragon/meta-signal-mirror.git?branch=drop-next#9a77f97f4afd9a2c50bca71f0de0fcf590ad7570"
 dependencies = [
  "nota",
  "rkyv",
@@ -385,7 +385,7 @@ dependencies = [
 [[package]]
 name = "meta-signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=drop-next#06fd0bf1b35d7929b9532a1e56a003012e4e71b3"
+source = "git+https://github.com/LiGoldragon/meta-signal-router.git?branch=drop-next#99808d04b3e4e3aa353d1f0b07ba6d735848c2fb"
 dependencies = [
  "nota",
  "rkyv",
@@ -407,7 +407,7 @@ dependencies = [
 [[package]]
 name = "mirror"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/mirror.git?branch=drop-next#745453e4e8ab4f8037ea772bffcd796478f040d8"
+source = "git+https://github.com/LiGoldragon/mirror.git?branch=drop-next#40a4091ec0ce090d71e7e1ea496df84a64cf929f"
 dependencies = [
  "meta-signal-mirror",
  "nota",
@@ -673,7 +673,7 @@ dependencies = [
 [[package]]
 name = "schema-rust"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#94a0aa88a1d909b6f87cbf1431762c6fb0e19b71"
+source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#72c71ffc558fee0d29c5b0517013de46e0307597"
 dependencies = [
  "nota",
  "prettyplease",
@@ -747,7 +747,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "signal-criome"
 version = "0.6.0"
-source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=drop-next#4962a606abc1e0efb8b5ee5ac031b2a3c06bb8f3"
+source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=drop-next#b4bfeecef41a05a6a93b7909976ab5312a17fa46"
 dependencies = [
  "blake3",
  "blst",
@@ -803,7 +803,7 @@ dependencies = [
 [[package]]
 name = "signal-harness"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=drop-next#f3b76fb5624fa666f1565620d2943a6410c920ed"
+source = "git+https://github.com/LiGoldragon/signal-harness.git?branch=drop-next#4d9f5879ead06ccbf9221b0f5bef5c055b9acd9f"
 dependencies = [
  "nota",
  "rkyv",
@@ -815,7 +815,7 @@ dependencies = [
 [[package]]
 name = "signal-message"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=drop-next#311ee6c4279b232688db64a8e219cb86abb6d676"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=drop-next#0bd080fcd739bde92dbb76b83a6084541a31675a"
 dependencies = [
  "nota",
  "rkyv",
@@ -827,7 +827,7 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.7.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=drop-next#b6ec6ac165f6ed76fb18ec0f9836dffb477d4196"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=drop-next#458ad2dca2dbca8679f7d88c12f2673e462fc118"
 dependencies = [
  "nota",
  "rkyv",
@@ -839,7 +839,7 @@ dependencies = [
 [[package]]
 name = "signal-mirror"
 version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/signal-mirror.git?branch=drop-next#920b67cba85e061af16e3effc581d72ab01835dc"
+source = "git+https://github.com/LiGoldragon/signal-mirror.git?branch=drop-next#0a8ab9afe57dc6ce55524e4da7b6b8ff1f59c9e9"
 dependencies = [
  "nota",
  "rkyv",
@@ -850,7 +850,7 @@ dependencies = [
 [[package]]
 name = "signal-persona"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=drop-next#e8eead5ae6d576a298ee547b78901fe7fd7c7afc"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=drop-next#9de82cd3a11270dd3c38ed507553c78ea703b25f"
 dependencies = [
  "nota",
  "rkyv",
@@ -861,7 +861,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=drop-next#d55ee2bfcdf22ae4ccbeb5810ca0cefe08020fad"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=drop-next#9c3f8f7611e4a65868ae38abb18c93fc8debc73d"
 dependencies = [
  "nota",
  "rkyv",
@@ -882,7 +882,7 @@ dependencies = [
 [[package]]
 name = "signal-standard"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-standard.git?branch=drop-next#b668d65e5d15101d12d152d0bdde448f9bc69f26"
+source = "git+https://github.com/LiGoldragon/signal-standard.git?branch=drop-next#95e48936f84dc903148a6b0d4450692589cb75fd"
 dependencies = [
  "rkyv",
  "schema-rust",
