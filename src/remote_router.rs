@@ -92,7 +92,9 @@ impl RemoteRouterRegistry {
     /// mirroring `RouterRoot::rehydrate_outbound_backlog`. A read failure
     /// fails safe to an empty map — the same ships-dark posture the mirror
     /// switch and outbound backlog take — rather than refusing to start; any
-    /// still-durable rows are re-read on the next boot.
+    /// still-durable rows are re-read on the next boot. The failure is logged
+    /// loudly (L1, primary-79z1.22) so a store read that never recovers is
+    /// diagnosable instead of a silent empty-peer start.
     fn rehydrate_routes(&mut self) {
         let Some(tables) = &self.tables else {
             return;
@@ -105,7 +107,10 @@ impl RemoteRouterRegistry {
                     .collect();
                 self.registered_peer_count = self.peers.len() as u64;
             }
-            Err(_) => {
+            Err(error) => {
+                eprintln!(
+                    "router remote-router registry: durable peer route rehydrate failed, starting with an empty peer map: {error}"
+                );
                 self.peers = HashMap::new();
             }
         }
