@@ -36,9 +36,9 @@ use mirror::{ComponentShipper, Engine, Store, schema::sema::ContentAddressing};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRouterInput, ChannelLifetime,
-    CriomeForwardAttestation, EndpointKind, EndpointTransport, ForwardAttestationVerifier,
-    GrantChannel, GrantRouteChannel, ReadRouterTailnetAddress, RegisterActor, RemoteRouterIdentity,
-    RouterInput, RouterNetworkConfiguration, RouterRuntime,
+    CriomeForwardAttestation, CriomeHostId, EndpointKind, EndpointTransport,
+    ForwardAttestationVerifier, GrantChannel, GrantRouteChannel, ReadRouterTailnetAddress,
+    RegisterActor, RouterInput, RouterNetworkConfiguration, RouterRuntime,
 };
 use sema_engine::VersionedCommitLogEntry;
 use signal_criome::Identity;
@@ -410,7 +410,7 @@ fn attested_forward(
         Vec::new(),
         vec![object],
     );
-    let verifier = CriomeForwardAttestation::new(RemoteRouterIdentity::new(signer), criome_socket);
+    let verifier = CriomeForwardAttestation::new(CriomeHostId::new(signer), criome_socket);
     let nonce = ReplayNonce::new(nonce);
     let issued_at = timestamp_now();
     let attestation =
@@ -469,13 +469,12 @@ async fn criome_verified_forward_lands_an_append_in_the_co_resident_mirror() {
         "the registered store starts with no head — the forward must be the sole cause of the landing"
     );
 
-    // Router B verifies inbound forwards through the real criome daemon.
-    let router_b_identity = RemoteRouterIdentity::new("router-b");
+    // Router B verifies inbound forwards through the real criome daemon; it
+    // sources its own Criome host ID from that criome.
     let router_b = RouterRuntime::start_networked(
         None,
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            router_b_identity,
             criome.socket(),
         ),
     )
@@ -595,12 +594,10 @@ async fn criome_verified_forward_lands_the_real_record_body_which_rehashes_to_th
         "the registered store starts with no head — the forward must be the sole cause of the landing"
     );
 
-    let router_b_identity = RemoteRouterIdentity::new("router-b");
     let router_b = RouterRuntime::start_networked(
         None,
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            router_b_identity,
             criome.socket(),
         ),
     )

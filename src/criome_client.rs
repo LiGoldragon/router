@@ -16,8 +16,8 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use signal_criome::{
-    Attestation, ContentReference, CriomeFrame, CriomeFrameBody, CriomeReply, CriomeRequest,
-    SignRequest, VerificationDecision, VerifyRequest,
+    Attestation, BlsPublicKey, ContentReference, CriomeFrame, CriomeFrameBody, CriomeReply,
+    CriomeRequest, NodePublicKeyObservation, SignRequest, VerificationDecision, VerifyRequest,
 };
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
@@ -60,6 +60,19 @@ impl CriomeSigningClient {
             content,
         }))? {
             CriomeReply::VerificationResult(result) => Ok(result.decision),
+            other => Err(CriomeSigningError::UnexpectedReply(format!("{other:?}"))),
+        }
+    }
+
+    /// Ask criome for this node's Criome host ID — its master public key — via
+    /// the public `ObserveNodePublicKey` read-op. The router sources its own
+    /// fabric identity here at startup: the value it stamps as the session-proof
+    /// and forward-attestation signer, and routes peers by (primary-79z1.18).
+    pub fn observe_node_public_key(&self) -> Result<BlsPublicKey, CriomeSigningError> {
+        match self.exchange(CriomeRequest::ObserveNodePublicKey(
+            NodePublicKeyObservation::new(),
+        ))? {
+            CriomeReply::NodePublicKey(observed) => Ok(observed.public_key().clone()),
             other => Err(CriomeSigningError::UnexpectedReply(format!("{other:?}"))),
         }
     }

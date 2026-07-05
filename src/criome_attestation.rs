@@ -55,7 +55,7 @@ use signal_criome::{
     Identity, ObjectDigest, PrincipalName, SignRequest, SignatureEnvelope, VerificationDecision,
 };
 use signal_router::{
-    ForwardedMessagePayload, RemoteRouterIdentity, ReplayNonce, RouterForwardRefusalReason,
+    CriomeHostId, ForwardedMessagePayload, ReplayNonce, RouterForwardRefusalReason,
     RouterPeerAttestation, SignatureScheme, TimestampNanos,
 };
 
@@ -67,7 +67,7 @@ use crate::forward_attestation::ForwardAttestationVerifier;
 /// digest) and a client to the local criome daemon.
 #[derive(Debug, Clone)]
 pub struct CriomeForwardAttestation {
-    router_identity: RemoteRouterIdentity,
+    router_identity: CriomeHostId,
     client: CriomeSigningClient,
 }
 
@@ -80,23 +80,22 @@ impl CriomeForwardAttestation {
     /// Fixed audit policy version for the forward-attestation mapping.
     const POLICY_VERSION: &'static str = "router-forward-attestation-v1";
 
-    pub fn new(router_identity: RemoteRouterIdentity, criome_socket_path: PathBuf) -> Self {
+    pub fn new(router_identity: CriomeHostId, criome_socket_path: PathBuf) -> Self {
         Self {
             router_identity,
             client: CriomeSigningClient::new(criome_socket_path),
         }
     }
 
-    /// The criome signer identity of a node, derived from that node's router
-    /// identity. Each node signs as its own `Host(<node>)` identity, so a node
-    /// is one party in both the routing fabric and criome's registry. This is
-    /// used identically on both sides: the sender derives it from its own
-    /// `router_identity` (the `SignRequest` gate, which the co-resident criome
-    /// self-registers Active because its configured `node_identity` is the same
-    /// node), and the receiver derives it from the wire-carried origin router
-    /// identity (the reconstructed `Attestation.signer`), so the receiver's
-    /// criome resolves the registered key for exactly the node that signed.
-    fn criome_signer_identity(node: &RemoteRouterIdentity) -> Identity {
+    /// The criome signer identity of a node: `Host(<Criome host ID>)`, where the
+    /// host ID is the node's Criome master public key (primary-79z1.18). Used
+    /// identically on both sides: the sender derives it from its own host ID (its
+    /// co-resident criome authorizes signing as its own host ID and mints the
+    /// attestation under it), and the receiver derives it from the wire-carried
+    /// origin host ID (the reconstructed `Attestation.signer`, bound into the
+    /// digest), so the receiver's criome resolves the registered key by exactly
+    /// the Criome host ID that signed.
+    fn criome_signer_identity(node: &CriomeHostId) -> Identity {
         Identity::host(node.payload().to_string())
     }
 
@@ -228,7 +227,7 @@ impl ForwardAttestationVerifier for CriomeForwardAttestation {
         &self,
         attestation: &RouterPeerAttestation,
         payload: &ForwardedMessagePayload,
-    ) -> Result<RemoteRouterIdentity, RouterForwardRefusalReason> {
+    ) -> Result<CriomeHostId, RouterForwardRefusalReason> {
         // Every non-`Valid` criome decision and every client/transport error
         // collapses to one fail-closed refusal reason.
         match self.verify_forward(attestation, payload) {
@@ -275,7 +274,7 @@ impl ForwardContentPreimage {
     /// same hash over similar bytes.
     const DOMAIN: &'static [u8] = b"persona-router-forward-content-v1";
 
-    fn for_forward(origin: &RemoteRouterIdentity, payload: &ForwardedMessagePayload) -> Self {
+    fn for_forward(origin: &CriomeHostId, payload: &ForwardedMessagePayload) -> Self {
         let mut preimage = Self {
             bytes: Self::DOMAIN.to_vec(),
         };

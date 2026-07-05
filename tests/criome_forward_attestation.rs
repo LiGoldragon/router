@@ -30,16 +30,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use criome::daemon::CriomeDaemon;
 use criome::tables::StoreLocation;
+use criome::transport::CriomeClient;
 use kameo::actor::ActorRef;
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRouterInput, ApplySignalMessage,
-    ChannelLifetime, CriomeForwardAttestation, EndpointKind, EndpointTransport,
+    ChannelLifetime, CriomeForwardAttestation, CriomeHostId, EndpointKind, EndpointTransport,
     ForwardAttestationVerifier, GrantChannel, GrantRouteChannel, InstallRemotePeer,
-    InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor,
-    RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime, RouterTraceStep,
-    SignalMessageInput, TailnetAddress,
+    InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace, RegisterActor, RouterInput,
+    RouterNetworkConfiguration, RouterRuntime, RouterTraceStep, SignalMessageInput, TailnetAddress,
 };
-use signal_criome::Identity;
+use signal_criome::{
+    BlsPublicKey, CriomeReply, CriomeRequest, Identity, IdentityRegistration, KeyPurpose,
+    NodePublicKeyObservation, PublicKeyFingerprint,
+};
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
@@ -206,6 +209,45 @@ fn nanos() -> u128 {
         .as_nanos()
 }
 
+/// This node's Criome host ID — its master public key — read from
+/// `ObserveNodePublicKey`, the value the router sources as its fabric identity.
+fn observe_host_id(socket: &std::path::Path) -> BlsPublicKey {
+    match CriomeClient::new(socket)
+        .send(CriomeRequest::ObserveNodePublicKey(
+            NodePublicKeyObservation::new(),
+        ))
+        .unwrap_or_else(|error| panic!("observe node public key on {socket:?}: {error}"))
+    {
+        CriomeReply::NodePublicKey(observed) => observed.public_key().clone(),
+        other => panic!("expected NodePublicKey, got {other:?}"),
+    }
+}
+
+/// The fabric identity a router carries: the Criome host ID (master public key).
+fn criome_host_id(key: &BlsPublicKey) -> CriomeHostId {
+    CriomeHostId::new(key.as_str().to_string())
+}
+
+/// Seed a peer's Criome host ID → key so a receiving criome verifies its forward
+/// attestations by that key. The identity IS the host ID (the public key).
+fn register_host_id(socket: &std::path::Path, key: BlsPublicKey) {
+    let identity = Identity::host(key.as_str().to_string());
+    let registration = IdentityRegistration::new(
+        identity.clone(),
+        key,
+        PublicKeyFingerprint::new(format!("{identity:?}-fingerprint")),
+        KeyPurpose::CriomeRoot,
+        None,
+    );
+    match CriomeClient::new(socket)
+        .send(CriomeRequest::RegisterIdentity(registration))
+        .unwrap_or_else(|error| panic!("register host id on {socket:?}: {error}"))
+    {
+        CriomeReply::IdentityReceipt(_) => {}
+        other => panic!("expected IdentityReceipt, got {other:?}"),
+    }
+}
+
 fn timestamp_now() -> TimestampNanos {
     let value = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -326,7 +368,12 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
     let operator = ActorIdentifier::new("operator");
     let owner = ActorIdentifier::new("owner");
     let target = ActorIdentifier::new("responder");
-    let router_b_identity = RemoteRouterIdentity::new("router-b");
+    // Both routers share this criome, so both source the same Criome host ID
+    // (its master public key). Seed that host ID by key so the receiving router
+    // verifies the forward attestation by the Criome host ID directly.
+    let host_id_key = observe_host_id(&criome.socket());
+    register_host_id(&criome.socket(), host_id_key.clone());
+    let router_b_identity = criome_host_id(&host_id_key);
 
     // Router B verifies inbound forwards through the real criome daemon.
     let harness = HarnessWitness::new("router-b");
@@ -334,7 +381,6 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
         None,
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            router_b_identity.clone(),
             criome.socket(),
         ),
     )
@@ -373,7 +419,6 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
         None,
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-a"),
             criome.socket(),
         ),
     )
@@ -456,10 +501,9 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
 /// refusals are real criome verification failures, not a blanket refusal.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn router_refuses_forwards_without_a_valid_criome_attestation() {
-    // Both criomes sign as the same sending node identity (router-a) — the
-    // trusted one is the criome router B holds the key for; the foreign one has
-    // an independent key. So the only difference between a trusted and a foreign
-    // forward is which criome key signed it, as before.
+    // Two independent criomes, each with its own master key hence its own Criome
+    // host ID. Router B holds (registers) the trusted host ID's key; the foreign
+    // host ID is a stranger B never registered.
     let criome = CriomeFixture::start("verify-trust", "router-a");
     let foreign_criome = CriomeFixture::start("verify-foreign", "router-a");
 
@@ -467,7 +511,6 @@ async fn router_refuses_forwards_without_a_valid_criome_attestation() {
         None,
         RouterNetworkConfiguration::criome_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-b"),
             criome.socket(),
         ),
     )
@@ -476,12 +519,19 @@ async fn router_refuses_forwards_without_a_valid_criome_attestation() {
     // This witness drives routed-object (mirror) forwards; open the gate.
     enable_mirror(&router_b).await;
 
-    // The two minting verifiers carry the SAME router identity, so the only
-    // difference between a trusted and a foreign forward is which criome key
-    // signed it.
-    let sender_identity = RemoteRouterIdentity::new("router-a");
-    let trusted = CriomeForwardAttestation::new(sender_identity.clone(), criome.socket());
-    let foreign = CriomeForwardAttestation::new(sender_identity, foreign_criome.socket());
+    // The trusted sender attests as the trusted criome's own Criome host ID,
+    // which router B has registered by key; the foreign sender attests as ITS own
+    // host ID (a distinct key) that B never registered — a stranger.
+    let trusted_key = observe_host_id(&criome.socket());
+    register_host_id(&criome.socket(), trusted_key.clone());
+    let foreign_key = observe_host_id(&foreign_criome.socket());
+    assert_ne!(
+        trusted_key, foreign_key,
+        "the foreign criome must have an independent Criome host ID"
+    );
+    let trusted = CriomeForwardAttestation::new(criome_host_id(&trusted_key), criome.socket());
+    let foreign =
+        CriomeForwardAttestation::new(criome_host_id(&foreign_key), foreign_criome.socket());
 
     // Control: a forward signed by the criome router B trusts is accepted.
     let accepted = send_forward(

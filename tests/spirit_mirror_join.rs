@@ -33,15 +33,15 @@ use criome::transport::CriomeClient;
 use kameo::actor::ActorRef;
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
-    ChannelLifetime, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
-    InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress, RegisterActor,
-    RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime, TailnetAddress,
+    ChannelLifetime, CriomeHostId, EndpointKind, EndpointTransport, GrantChannel,
+    GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress,
+    RegisterActor, RouterInput, RouterNetworkConfiguration, RouterRuntime, TailnetAddress,
 };
 use sema_engine::EntryDigest;
 use signal_criome::{
     AttestedMoment, AttestedMomentProposition, ComponentKind, Contract, ContractDigest,
-    CriomeReply, CriomeRequest, Evidence, Identity, IdentityRegistration, KeyPurpose,
-    OperationDigest, PolicyMember, RequiredSignatureThreshold, Rule, SignatureEnvelope,
+    ContractParent, CriomeReply, CriomeRequest, Evidence, Identity, IdentityRegistration,
+    KeyPurpose, OperationDigest, PolicyMember, RequiredSignatureThreshold, Rule, SignatureEnvelope,
     SignatureScheme, StampedSignatureEnvelope, Threshold, TimeSignature, TimeWindow,
     TimestampNanos,
 };
@@ -137,12 +137,15 @@ impl LocalCriomePolicy {
     }
 
     fn contract() -> Contract {
-        Contract::new(Rule::Threshold(Threshold::new(
-            RequiredSignatureThreshold::new(1),
-            vec![PolicyMember::KeyMember(Identity::developer(
-                "spirit-local-signer".to_owned(),
-            ))],
-        )))
+        Contract::new(
+            Rule::Threshold(Threshold::new(
+                RequiredSignatureThreshold::new(1),
+                vec![PolicyMember::KeyMember(Identity::developer(
+                    "spirit-local-signer".to_owned(),
+                ))],
+            )),
+            ContractParent::Root,
+        )
     }
 
     fn stamp(&self) -> AttestedMoment {
@@ -378,7 +381,7 @@ async fn router_pair(
 ) -> (ActorRef<RouterRuntime>, ActorRef<RouterRuntime>) {
     let source = ActorIdentifier::new(source_name);
     let recipient = ActorIdentifier::new(recipient_name);
-    let router_b_identity = RemoteRouterIdentity::new("router-b-mirror");
+    let router_b_identity = CriomeHostId::new("router-b-mirror");
     let router_b = RouterRuntime::start_networked(
         None,
         RouterNetworkConfiguration::offline_listening(
@@ -421,7 +424,7 @@ async fn router_pair(
         None,
         RouterNetworkConfiguration::offline_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-a-mirror"),
+            CriomeHostId::new("router-a-mirror"),
         ),
     )
     .await;

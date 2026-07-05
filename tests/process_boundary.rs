@@ -80,7 +80,7 @@ impl DaemonFixture {
                 bootstrap_path: None,
                 owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
                 tailnet_listen_address: None,
-                router_identity: signal_router::RemoteRouterIdentity::new("router-local"),
+                router_identity: signal_router::CriomeHostId::new("router-local"),
                 criome_socket_path: None,
             });
         let bytes = configuration

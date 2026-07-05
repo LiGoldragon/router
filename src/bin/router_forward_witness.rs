@@ -56,9 +56,10 @@ use signal_mirror::{
     Input as MirrorInput, PayloadBytes, StoreName,
 };
 use signal_router::{
-    ActorIdentifier, ContractName, ContractOperation, ContractPayloadSize, ForwardMarker,
-    ForwardedMessagePayload, Input as RouterInput, NotaEncode, Output as RouterOutput,
-    RemoteRouterIdentity, ReplayNonce, RoutedContractObject, RouterForwardRequest, TimestampNanos,
+    ActorIdentifier, ContractName, ContractOperation, ContractPayloadSize, CriomeHostId,
+    ForwardMarker, ForwardedMessagePayload, Input as RouterInput, NotaEncode,
+    Output as RouterOutput, ReplayNonce, RoutedContractObject, RouterForwardRequest,
+    TimestampNanos,
 };
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
@@ -77,7 +78,7 @@ fn main() {
 struct ForwardWitness {
     criome_socket: PathBuf,
     peer_address: String,
-    node_identity: RemoteRouterIdentity,
+    node_identity: CriomeHostId,
     recipient: ActorIdentifier,
     store: StoreName,
     head: EntryDigest,
@@ -91,7 +92,7 @@ impl ForwardWitness {
         Ok(Self {
             criome_socket: PathBuf::from(Self::required("CRIOME_SOCKET")?),
             peer_address: Self::required("ROUTER_PEER_ADDRESS")?,
-            node_identity: RemoteRouterIdentity::new(Self::required("NODE_IDENTITY")?),
+            node_identity: CriomeHostId::new(Self::required("NODE_IDENTITY")?),
             recipient: ActorIdentifier::new(
                 std::env::var("RECIPIENT_ACTOR").unwrap_or_else(|_| "mirror".to_string()),
             ),

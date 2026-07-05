@@ -15,8 +15,8 @@ use std::process::Command;
 
 use router::{Configuration, RouterBootstrap};
 use signal_router::{
-    Actor, ActorIdentifier, Address, EndpointKind, EndpointTransport, GrantDirectMessage, Identity,
-    RegisterActor, RegisterRemoteRouter, RemoteRouterIdentity, RouterBootstrapOperation,
+    Actor, ActorIdentifier, Address, CriomeHostId, EndpointKind, EndpointTransport,
+    GrantDirectMessage, Identity, RegisterActor, RegisterRemoteRouter, RouterBootstrapOperation,
     TailnetAddress,
 };
 
@@ -63,7 +63,7 @@ fn router_configuration_carries_listen_identity_and_criome_socket() {
     );
     assert_eq!(
         configuration.router_identity(),
-        &RemoteRouterIdentity::new("router-a"),
+        &CriomeHostId::new("router-a"),
     );
     assert_eq!(
         configuration.criome_socket_path(),
@@ -99,12 +99,12 @@ fn router_bootstrap_carries_hardwired_peers_and_actor_homes() {
 
     let expected = vec![
         RouterBootstrapOperation::RegisterRemoteRouter(RegisterRemoteRouter {
-            identity: Identity::new(RemoteRouterIdentity::new("router-b")),
+            identity: Identity::new(CriomeHostId::new("router-b")),
             address: Address::new(TailnetAddress::new("192.168.1.20:7440")),
         }),
         RouterBootstrapOperation::RegisterActor(RegisterActor::new(
             Actor::new(ActorIdentifier::new("mirror"), 0, None),
-            Some(RemoteRouterIdentity::new("router-b")),
+            Some(CriomeHostId::new("router-b")),
         )),
         RouterBootstrapOperation::RegisterActor(RegisterActor::new(
             Actor::new(

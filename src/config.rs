@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use signal_router::{RemoteRouterIdentity, RouterDaemonConfiguration};
+use signal_router::{CriomeHostId, RouterDaemonConfiguration};
 use thiserror::Error;
 use triad_runtime::{BindingSurface, SocketMode as RuntimeSocketMode};
 
@@ -96,7 +96,7 @@ impl Configuration {
 
     /// This router's own stable identity, carried into outbound
     /// attestations as the signer and admitted by peers' registries.
-    pub fn router_identity(&self) -> &RemoteRouterIdentity {
+    pub fn router_identity(&self) -> &CriomeHostId {
         self.raw.router_identity.payload()
     }
 

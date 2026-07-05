@@ -5,9 +5,9 @@
 //! are strictly local). It owns two maps, both populated from the
 //! deploy-time bootstrap document (report 120 §4b, decision §5 shape A):
 //!
-//! - `RemoteRouterIdentity -> TailnetAddress`, from `RegisterRemoteRouter`
+//! - `CriomeHostId -> TailnetAddress`, from `RegisterRemoteRouter`
 //!   peer-manifest operations — identity is stable, address re-homes.
-//! - recipient `ActorIdentifier -> RemoteRouterIdentity`, from
+//! - recipient `ActorIdentifier -> CriomeHostId`, from
 //!   `RegisterActor` operations whose `home` is `Some(peer)`.
 //!
 //! `ResolveRemoteRoute { recipient }` walks recipient -> home identity ->
@@ -20,9 +20,9 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 
-use crate::{ActorIdentifier, RemoteRouterIdentity, TailnetAddress};
+use crate::{ActorIdentifier, CriomeHostId, TailnetAddress};
 
-/// `RemoteRouterIdentity` is a milestone-1 contract newtype that does not
+/// `CriomeHostId` is a milestone-1 contract newtype that does not
 /// derive `Hash`, so the peer table keys on its stable `String` payload
 /// rather than the newtype directly — the payload IS the stable identity.
 /// Recipient `ActorIdentifier` keys (the router's own newtype) do derive
@@ -30,7 +30,7 @@ use crate::{ActorIdentifier, RemoteRouterIdentity, TailnetAddress};
 #[derive(Debug)]
 pub struct RemoteRouterRegistry {
     peers: HashMap<String, TailnetAddress>,
-    homes: HashMap<ActorIdentifier, RemoteRouterIdentity>,
+    homes: HashMap<ActorIdentifier, CriomeHostId>,
     registered_peer_count: u64,
     registered_home_count: u64,
 }
@@ -45,13 +45,13 @@ impl RemoteRouterRegistry {
         }
     }
 
-    fn register_peer(&mut self, identity: RemoteRouterIdentity, address: TailnetAddress) -> u64 {
+    fn register_peer(&mut self, identity: CriomeHostId, address: TailnetAddress) -> u64 {
         self.peers.insert(identity.into_payload(), address);
         self.registered_peer_count = self.peers.len() as u64;
         self.registered_peer_count
     }
 
-    fn register_home(&mut self, recipient: ActorIdentifier, home: RemoteRouterIdentity) -> u64 {
+    fn register_home(&mut self, recipient: ActorIdentifier, home: CriomeHostId) -> u64 {
         self.homes.insert(recipient, home);
         self.registered_home_count = self.homes.len() as u64;
         self.registered_home_count
@@ -77,20 +77,20 @@ impl Default for RemoteRouterRegistry {
 /// address to dial it at right now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteRoute {
-    pub home: RemoteRouterIdentity,
+    pub home: CriomeHostId,
     pub address: TailnetAddress,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterRemotePeer {
-    pub identity: RemoteRouterIdentity,
+    pub identity: CriomeHostId,
     pub address: TailnetAddress,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterRemoteActorHome {
     pub recipient: ActorIdentifier,
-    pub home: RemoteRouterIdentity,
+    pub home: CriomeHostId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

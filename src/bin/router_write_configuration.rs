@@ -5,9 +5,7 @@ use std::{
 
 use nota::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use router::RouterDaemonConfigurationFile;
-use signal_router::{
-    OwnerIdentity, RemoteRouterIdentity, RouterDaemonConfiguration, TailnetAddress,
-};
+use signal_router::{CriomeHostId, OwnerIdentity, RouterDaemonConfiguration, TailnetAddress};
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
 
@@ -59,7 +57,7 @@ struct ConfigurationWriterPath(String);
 #[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
 struct ConfigurationWriterAddress(String);
 
-/// This router's stable `RemoteRouterIdentity` — the signer carried into
+/// This router's stable `CriomeHostId` — the signer carried into
 /// outbound attestations and admitted by peers' registries.
 #[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
 struct ConfigurationWriterIdentity(String);
@@ -138,7 +136,7 @@ impl ConfigurationWriteRequest {
                 .tailnet_listen_address
                 .as_ref()
                 .map(|address| TailnetAddress::new(address.as_str().to_owned())),
-            router_identity: RemoteRouterIdentity::new(self.router_identity.as_str().to_owned()),
+            router_identity: CriomeHostId::new(self.router_identity.as_str().to_owned()),
             criome_socket_path: self
                 .criome_socket_path
                 .as_ref()

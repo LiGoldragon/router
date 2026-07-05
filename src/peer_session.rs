@@ -32,10 +32,9 @@ use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, Key, KeyInit, Nonce};
 use rand_core::{OsRng, RngCore};
 use signal_router::{
-    EphemeralPublicKey, Input as SignalRouterInput, Output as SignalRouterOutput,
-    RemoteRouterIdentity, RouterForwardRequest, RouterSessionAccepted, RouterSessionClientHello,
-    RouterSessionData, RouterSessionRefused, RouterSessionServerHello, SessionChallenge,
-    SessionRefusalReason,
+    CriomeHostId, EphemeralPublicKey, Input as SignalRouterInput, Output as SignalRouterOutput,
+    RouterForwardRequest, RouterSessionAccepted, RouterSessionClientHello, RouterSessionData,
+    RouterSessionRefused, RouterSessionServerHello, SessionChallenge, SessionRefusalReason,
 };
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
@@ -61,16 +60,16 @@ pub enum SessionRole {
 /// polling. This bead only emits and records it; the outbox itself is `.5`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerSessionEstablished {
-    peer: RemoteRouterIdentity,
+    peer: CriomeHostId,
     epoch: u64,
 }
 
 impl PeerSessionEstablished {
-    pub fn new(peer: RemoteRouterIdentity, epoch: u64) -> Self {
+    pub fn new(peer: CriomeHostId, epoch: u64) -> Self {
         Self { peer, epoch }
     }
 
-    pub fn peer(&self) -> &RemoteRouterIdentity {
+    pub fn peer(&self) -> &CriomeHostId {
         &self.peer
     }
 
@@ -280,7 +279,7 @@ impl SessionCipher {
 pub struct PeerSession {
     stream: TokioTcpStream,
     cipher: SessionCipher,
-    verified_peer: RemoteRouterIdentity,
+    verified_peer: CriomeHostId,
     epoch: u64,
 }
 
@@ -401,7 +400,7 @@ impl PeerSession {
         Ok(output)
     }
 
-    pub fn verified_peer(&self) -> &RemoteRouterIdentity {
+    pub fn verified_peer(&self) -> &CriomeHostId {
         &self.verified_peer
     }
 
@@ -476,7 +475,7 @@ impl PeerSession {
 /// ingress loops sealing/opening forwards over the borrowed stream.
 pub struct SessionResponder {
     cipher: SessionCipher,
-    verified_peer: RemoteRouterIdentity,
+    verified_peer: CriomeHostId,
 }
 
 impl SessionResponder {
@@ -571,7 +570,7 @@ impl SessionResponder {
             .map_err(SessionError::Crypto)
     }
 
-    pub fn verified_peer(&self) -> &RemoteRouterIdentity {
+    pub fn verified_peer(&self) -> &CriomeHostId {
         &self.verified_peer
     }
 

@@ -8,7 +8,7 @@
 //! milestone 3): the attestation work lives behind the
 //! [`ForwardAttestationVerifier`] trait, and the offline
 //! [`AcceptFixedTestIdentity`] impl signs with — and verifies against — one
-//! fixed [`RemoteRouterIdentity`], so the loopback end-to-end forward runs
+//! fixed [`CriomeHostId`], so the loopback end-to-end forward runs
 //! with no criome daemon. Milestone 3 swaps the trait body for a criome
 //! client over `criome_socket_path` without touching the router's routing
 //! or transport code.
@@ -17,7 +17,7 @@ use std::collections::{HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use signal_router::{
-    ForwardedMessagePayload, RemoteRouterIdentity, ReplayNonce, RouterForwardRefusalReason,
+    CriomeHostId, ForwardedMessagePayload, ReplayNonce, RouterForwardRefusalReason,
     RouterForwardRequest, RouterPeerAttestation, SignatureScheme, TimestampNanos,
 };
 
@@ -40,7 +40,7 @@ pub trait ForwardAttestationVerifier: std::fmt::Debug + Send + Sync + 'static {
     ) -> RouterPeerAttestation;
 
     /// Verify an inbound attestation against the payload it claims to
-    /// cover. On success the returned [`RemoteRouterIdentity`] is the
+    /// cover. On success the returned [`CriomeHostId`] is the
     /// authoritative origin — the router stamps this, never the
     /// wire-claimed field. On failure the closed refusal reason maps
     /// straight onto `RouterForwardRefusalReason`.
@@ -48,7 +48,7 @@ pub trait ForwardAttestationVerifier: std::fmt::Debug + Send + Sync + 'static {
         &self,
         attestation: &RouterPeerAttestation,
         payload: &ForwardedMessagePayload,
-    ) -> Result<RemoteRouterIdentity, RouterForwardRefusalReason>;
+    ) -> Result<CriomeHostId, RouterForwardRefusalReason>;
 }
 
 /// The offline milestone-2 verifier: it signs with one fixed identity and
@@ -58,15 +58,15 @@ pub trait ForwardAttestationVerifier: std::fmt::Debug + Send + Sync + 'static {
 /// fixed identity stands in for a cluster-root-admitted router identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcceptFixedTestIdentity {
-    identity: RemoteRouterIdentity,
+    identity: CriomeHostId,
 }
 
 impl AcceptFixedTestIdentity {
-    pub fn new(identity: RemoteRouterIdentity) -> Self {
+    pub fn new(identity: CriomeHostId) -> Self {
         Self { identity }
     }
 
-    pub fn identity(&self) -> &RemoteRouterIdentity {
+    pub fn identity(&self) -> &CriomeHostId {
         &self.identity
     }
 
@@ -122,7 +122,7 @@ impl ForwardAttestationVerifier for AcceptFixedTestIdentity {
         &self,
         attestation: &RouterPeerAttestation,
         payload: &ForwardedMessagePayload,
-    ) -> Result<RemoteRouterIdentity, RouterForwardRefusalReason> {
+    ) -> Result<CriomeHostId, RouterForwardRefusalReason> {
         if attestation.signer.payload() != &self.identity {
             return Err(RouterForwardRefusalReason::AttestationInvalid);
         }
@@ -164,7 +164,7 @@ impl ForwardAdmissionWindow {
 
     pub fn admit(
         &mut self,
-        verified_origin: &RemoteRouterIdentity,
+        verified_origin: &CriomeHostId,
         request: &RouterForwardRequest,
         now: ForwardAdmissionInstant,
     ) -> Result<(), RouterForwardRefusalReason> {
@@ -238,7 +238,7 @@ struct ForwardAdmissionKey {
 }
 
 impl ForwardAdmissionKey {
-    fn new(router: &RemoteRouterIdentity, nonce: &ReplayNonce) -> Self {
+    fn new(router: &CriomeHostId, nonce: &ReplayNonce) -> Self {
         Self {
             router: router.payload().clone(),
             nonce: nonce.payload().clone(),
@@ -289,13 +289,13 @@ mod tests {
     #[derive(Debug)]
     struct ForwardAdmissionFixture {
         verifier: AcceptFixedTestIdentity,
-        identity: RemoteRouterIdentity,
+        identity: CriomeHostId,
         payload: ForwardedMessagePayload,
     }
 
     impl ForwardAdmissionFixture {
         fn new() -> Self {
-            let identity = RemoteRouterIdentity::new("router-a");
+            let identity = CriomeHostId::new("router-a");
             Self {
                 verifier: AcceptFixedTestIdentity::new(identity.clone()),
                 identity,

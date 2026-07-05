@@ -119,13 +119,13 @@ pub use router::{
 };
 pub use schema::daemon::{ComponentDaemon, DaemonCommand, DaemonEntry, DaemonError, ListenerTier};
 pub use signal_router::{
-    EphemeralPublicKey, ForwardMarker, ForwardedMessagePayload, GrantDirectMessage,
+    CriomeHostId, EphemeralPublicKey, ForwardMarker, ForwardedMessagePayload, GrantDirectMessage,
     InstallStructuralChannels as InstallStructuralChannelsBootstrap, RegisterRemoteRouter,
-    RemoteRouterIdentity, RouterBootstrapOperation, RouterForwardAccepted,
-    RouterForwardRefusalReason, RouterForwardRefused, RouterForwardRequest, RouterIdentityProof,
-    RouterPeerAttestation, RouterSessionAccepted, RouterSessionClientHello,
-    RouterSessionClientProof, RouterSessionData, RouterSessionRefused, RouterSessionServerHello,
-    SessionChallenge, SessionRefusalReason, TailnetAddress,
+    RouterBootstrapOperation, RouterForwardAccepted, RouterForwardRefusalReason,
+    RouterForwardRefused, RouterForwardRequest, RouterIdentityProof, RouterPeerAttestation,
+    RouterSessionAccepted, RouterSessionClientHello, RouterSessionClientProof, RouterSessionData,
+    RouterSessionRefused, RouterSessionServerHello, SessionChallenge, SessionRefusalReason,
+    TailnetAddress,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,

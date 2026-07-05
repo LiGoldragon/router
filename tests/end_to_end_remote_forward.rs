@@ -31,9 +31,9 @@ use kameo::actor::ActorRef;
 use router::ChannelLifetime;
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
-    ApplySignalMessage, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
-    InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace,
-    RegisterActor, RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterRuntime,
+    ApplySignalMessage, CriomeHostId, EndpointKind, EndpointTransport, GrantChannel,
+    GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress,
+    ReadRouterTrace, RegisterActor, RouterInput, RouterNetworkConfiguration, RouterRuntime,
     RouterTraceStep, SignalMessageInput, TailnetAddress,
 };
 use signal_frame::{NonEmpty, Reply, SubReply};
@@ -279,7 +279,7 @@ fn direct_forward_request_with_objects(
     );
     let nonce = signal_router::ReplayNonce::new(nonce);
     let issued_at = timestamp_now();
-    let verifier = router::AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
+    let verifier = router::AcceptFixedTestIdentity::new(CriomeHostId::new(
         RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
     ));
     let attestation =
@@ -347,7 +347,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     // to router B — so B's channel grant authorizes (owner -> target).
     let owner = ActorIdentifier::new("owner");
     let target = ActorIdentifier::new("responder");
-    let router_b_identity = RemoteRouterIdentity::new("router-b");
+    let router_b_identity = CriomeHostId::new("router-b");
 
     // Router B: a local harness witness, a listening tailnet ingress, the
     // target registered LOCALLY (home None), and the channel grant the
@@ -401,7 +401,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
         None,
         RouterNetworkConfiguration::offline_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-a"),
+            CriomeHostId::new("router-a"),
         ),
     )
     .await;
@@ -642,7 +642,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
 async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     let source = ActorIdentifier::new("spirit");
     let recipient = ActorIdentifier::new("spirit-peer");
-    let router_b_identity = RemoteRouterIdentity::new("router-b-origin");
+    let router_b_identity = CriomeHostId::new("router-b-origin");
 
     // Router B: the destination component socket, a listening ingress, the
     // recipient registered LOCALLY (home None), and the channel grant the
@@ -694,7 +694,7 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
         None,
         RouterNetworkConfiguration::offline_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-a-origin"),
+            CriomeHostId::new("router-a-origin"),
         ),
     )
     .await;
@@ -789,7 +789,7 @@ async fn session_capable_ingress_shuts_the_plaintext_forward_door() {
         None,
         RouterNetworkConfiguration::offline_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("mirror-alpha"),
+            CriomeHostId::new("mirror-alpha"),
         ),
     )
     .await;

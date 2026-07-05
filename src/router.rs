@@ -50,11 +50,11 @@ use signal_persona::{
     ConnectionClass as OriginConnectionClass,
 };
 use signal_router::{
-    Actor as BootstrapActor, EndpointKind as BootstrapEndpointKind,
+    Actor as BootstrapActor, CriomeHostId, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
-    MessageSlot as RouterMessageSlot, RemoteRouterIdentity, RoutedContractObject,
-    RouterBootstrapDocument, RouterBootstrapOperation, RouterDaemonConfiguration,
-    RouterForwardRefusalReason, RouterForwardRequest, RouterSessionData, SessionRefusalReason,
+    MessageSlot as RouterMessageSlot, RoutedContractObject, RouterBootstrapDocument,
+    RouterBootstrapOperation, RouterDaemonConfiguration, RouterForwardRefusalReason,
+    RouterForwardRequest, RouterSessionData, SessionRefusalReason,
 };
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
@@ -78,6 +78,7 @@ use crate::channel::{
     ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier, UseChannel,
 };
 use crate::criome_attestation::CriomeForwardAttestation;
+use crate::criome_client::CriomeSigningClient;
 use crate::daemon::RouterDaemonError;
 use crate::forward_attestation::{
     AcceptFixedTestIdentity, ForwardAdmissionInstant, ForwardAdmissionWindow,
@@ -1062,7 +1063,7 @@ struct ReceivedRouterObservationInput {
 #[derive(Clone)]
 pub struct RouterNetworkConfiguration {
     listen_address: Option<SocketAddr>,
-    identity: RemoteRouterIdentity,
+    identity: CriomeHostId,
     verifier: Arc<dyn ForwardAttestationVerifier>,
     /// The peer-session identity prover (primary-nbmq.6). `Some` selects the
     /// encrypted, mutually-authenticated session transport for peer forwards —
@@ -1076,7 +1077,7 @@ pub struct RouterNetworkConfiguration {
 impl RouterNetworkConfiguration {
     pub fn new(
         listen_address: Option<SocketAddr>,
-        identity: RemoteRouterIdentity,
+        identity: CriomeHostId,
         verifier: Arc<dyn ForwardAttestationVerifier>,
         identity_prover: Option<Arc<dyn PeerIdentityProver>>,
     ) -> Self {
@@ -1097,7 +1098,7 @@ impl RouterNetworkConfiguration {
     pub const OFFLINE_TEST_IDENTITY: &'static str = "router-offline-test";
 
     fn offline_verifier() -> Arc<dyn ForwardAttestationVerifier> {
-        Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
+        Arc::new(AcceptFixedTestIdentity::new(CriomeHostId::new(
             Self::OFFLINE_TEST_IDENTITY,
         )))
     }
@@ -1109,7 +1110,7 @@ impl RouterNetworkConfiguration {
     pub fn offline() -> Self {
         Self::new(
             None,
-            RemoteRouterIdentity::new("router-local"),
+            CriomeHostId::new("router-local"),
             Self::offline_verifier(),
             None,
         )
@@ -1119,7 +1120,7 @@ impl RouterNetworkConfiguration {
     /// router's own `identity`, signing/verifying with the shared offline
     /// verifier. The end-to-end witness builds each node this way: A signs
     /// with the shared test identity and B admits it, with no criome daemon.
-    pub fn offline_listening(listen_address: SocketAddr, identity: RemoteRouterIdentity) -> Self {
+    pub fn offline_listening(listen_address: SocketAddr, identity: CriomeHostId) -> Self {
         Self::new(
             Some(listen_address),
             identity,
@@ -1134,10 +1135,7 @@ impl RouterNetworkConfiguration {
     /// tunnel with a fixed-identity stand-in, so the encryption plumbing runs on
     /// single-host paths without a criome daemon. It does NOT exercise the real
     /// criome trust anchor.
-    pub fn offline_session_listening(
-        listen_address: SocketAddr,
-        identity: RemoteRouterIdentity,
-    ) -> Self {
+    pub fn offline_session_listening(listen_address: SocketAddr, identity: CriomeHostId) -> Self {
         let prover: Arc<dyn PeerIdentityProver> =
             Arc::new(AcceptFixedIdentityProver::new(identity.clone()));
         Self::new(
@@ -1155,15 +1153,33 @@ impl RouterNetworkConfiguration {
     /// digest, so the receiver's criome verifies content and origin together.
     pub fn criome_listening(
         listen_address: SocketAddr,
-        identity: RemoteRouterIdentity,
         criome_socket_path: std::path::PathBuf,
     ) -> Self {
+        let identity = Self::criome_host_id(&criome_socket_path);
         Self::new(
             Some(listen_address),
             identity.clone(),
             Arc::new(CriomeForwardAttestation::new(identity, criome_socket_path)),
             None,
         )
+    }
+
+    /// The sentinel a router carries as its Criome host ID when its co-resident
+    /// criome cannot be reached at startup. It matches no registered peer, so the
+    /// router's proofs are refused fail-closed rather than admitted under a wrong
+    /// identity.
+    const UNRESOLVED_CRIOME_HOST_ID: &'static str = "criome-host-id-unresolved";
+
+    /// This router's own Criome host ID: its co-resident criome's master public
+    /// key, sourced via `ObserveNodePublicKey` (primary-79z1.18). The fabric
+    /// identity the router stamps as the session-proof and forward-attestation
+    /// signer and routes peers by. A router does not author its own identity; it
+    /// reads it from the criome that holds the master key.
+    pub(crate) fn criome_host_id(criome_socket_path: &std::path::Path) -> CriomeHostId {
+        match CriomeSigningClient::new(criome_socket_path.to_path_buf()).observe_node_public_key() {
+            Ok(public_key) => CriomeHostId::new(public_key.as_str().to_string()),
+            Err(_error) => CriomeHostId::new(Self::UNRESOLVED_CRIOME_HOST_ID.to_string()),
+        }
     }
 
     /// A loopback/tailnet listener that runs the encrypted authenticated peer
@@ -1175,9 +1191,9 @@ impl RouterNetworkConfiguration {
     /// that one criome root.
     pub fn criome_session_listening(
         listen_address: SocketAddr,
-        identity: RemoteRouterIdentity,
         criome_socket_path: std::path::PathBuf,
     ) -> Self {
+        let identity = Self::criome_host_id(&criome_socket_path);
         let prover: Arc<dyn PeerIdentityProver> = Arc::new(CriomeIdentityProver::new(
             identity.clone(),
             criome_socket_path.clone(),
@@ -1194,7 +1210,7 @@ impl RouterNetworkConfiguration {
         self.listen_address
     }
 
-    pub fn identity(&self) -> &RemoteRouterIdentity {
+    pub fn identity(&self) -> &CriomeHostId {
         &self.identity
     }
 
@@ -1393,7 +1409,7 @@ impl RouterRuntime {
     async fn install_remote_route(
         &self,
         recipient: ActorIdentifier,
-        home: RemoteRouterIdentity,
+        home: CriomeHostId,
     ) -> RouterResult<()> {
         if let Some(remote_routers) = &self.remote_routers {
             remote_routers
@@ -1407,7 +1423,7 @@ impl RouterRuntime {
 
     async fn install_remote_peer(
         &self,
-        identity: RemoteRouterIdentity,
+        identity: CriomeHostId,
         address: crate::TailnetAddress,
     ) -> RouterResult<()> {
         if let Some(remote_routers) = &self.remote_routers {
@@ -1532,7 +1548,7 @@ pub struct ApplyMetaRouterPolicy {
 /// wire-claimed field. This is the inbound twin of `ApplySignalMessage`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyForwardedMessage {
-    pub verified_origin: RemoteRouterIdentity,
+    pub verified_origin: CriomeHostId,
     pub request: RouterForwardRequest,
 }
 
@@ -1548,7 +1564,7 @@ pub struct ReadRouterTailnetAddress;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRemoteRoute {
     pub recipient: ActorIdentifier,
-    pub home: RemoteRouterIdentity,
+    pub home: CriomeHostId,
 }
 
 /// Register a peer router's reachable address through the runtime — the
@@ -1556,7 +1572,7 @@ pub struct InstallRemoteRoute {
 /// `RegisterRemoteRouter` and the witness drive this.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRemotePeer {
-    pub identity: RemoteRouterIdentity,
+    pub identity: CriomeHostId,
     pub address: crate::TailnetAddress,
 }
 
@@ -2830,7 +2846,7 @@ impl RouterRoot {
     /// delivers locally and the channel-auth check runs identically.
     async fn apply_forwarded(
         &mut self,
-        verified_origin: RemoteRouterIdentity,
+        verified_origin: CriomeHostId,
         payload: ForwardedMessagePayload,
     ) -> RouterResult<ForwardApplied> {
         // The mirror gate (primary-nbmq.7) is scoped to mirror traffic: a

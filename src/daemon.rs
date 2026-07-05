@@ -19,7 +19,7 @@ use triad_runtime::{
 
 use std::sync::Arc;
 
-use signal_router::RemoteRouterIdentity;
+use signal_router::CriomeHostId;
 
 use crate::criome_attestation::CriomeForwardAttestation;
 use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
@@ -79,22 +79,32 @@ impl RouterEngine {
         // Absent the socket the daemon keeps the offline accept-fixed-test-identity
         // stand-in and no session prover (milestone 2 plaintext connect-per-forward),
         // so a single-host or pre-criome deployment still runs.
-        let (verifier, identity_prover): (
+        let (identity, verifier, identity_prover): (
+            CriomeHostId,
             Arc<dyn ForwardAttestationVerifier>,
             Option<Arc<dyn PeerIdentityProver>>,
         ) = match configuration.criome_socket_path() {
-            Some(criome_socket_path) => (
-                Arc::new(CriomeForwardAttestation::new(
-                    configuration.router_identity().clone(),
-                    criome_socket_path.to_path_buf(),
-                )),
-                Some(Arc::new(CriomeIdentityProver::new(
-                    configuration.router_identity().clone(),
-                    criome_socket_path.to_path_buf(),
-                ))),
-            ),
+            Some(criome_socket_path) => {
+                // The router sources its own Criome host ID from its co-resident
+                // criome (`ObserveNodePublicKey`), not from config: the fabric
+                // identity is the master public key criome holds, stamped as the
+                // attestation/proof signer (primary-79z1.18).
+                let identity = RouterNetworkConfiguration::criome_host_id(criome_socket_path);
+                (
+                    identity.clone(),
+                    Arc::new(CriomeForwardAttestation::new(
+                        identity.clone(),
+                        criome_socket_path.to_path_buf(),
+                    )),
+                    Some(Arc::new(CriomeIdentityProver::new(
+                        identity,
+                        criome_socket_path.to_path_buf(),
+                    ))),
+                )
+            }
             None => (
-                Arc::new(AcceptFixedTestIdentity::new(RemoteRouterIdentity::new(
+                configuration.router_identity().clone(),
+                Arc::new(AcceptFixedTestIdentity::new(CriomeHostId::new(
                     RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
                 ))),
                 None,
@@ -102,7 +112,7 @@ impl RouterEngine {
         };
         let network = RouterNetworkConfiguration::new(
             configuration.tailnet_listen_address(),
-            configuration.router_identity().clone(),
+            identity,
             verifier,
             identity_prover,
         );

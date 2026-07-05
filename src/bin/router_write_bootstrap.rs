@@ -5,8 +5,8 @@ use std::{
 
 use nota::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use signal_router::{
-    Actor, ActorIdentifier, Address, EndpointKind, EndpointTransport, GrantDirectMessage, Identity,
-    RegisterActor, RegisterRemoteRouter, RemoteRouterIdentity, RouterBootstrapDocument,
+    Actor, ActorIdentifier, Address, CriomeHostId, EndpointKind, EndpointTransport,
+    GrantDirectMessage, Identity, RegisterActor, RegisterRemoteRouter, RouterBootstrapDocument,
     RouterBootstrapOperation, TailnetAddress,
 };
 use thiserror::Error;
@@ -190,7 +190,7 @@ impl BootstrapWriteRequest {
         for peer in &self.remote_peers {
             operations.push(RouterBootstrapOperation::RegisterRemoteRouter(
                 RegisterRemoteRouter {
-                    identity: Identity::new(RemoteRouterIdentity::new(peer.identity.clone())),
+                    identity: Identity::new(CriomeHostId::new(peer.identity.clone())),
                     address: Address::new(TailnetAddress::new(peer.address.clone())),
                 },
             ));
@@ -205,7 +205,7 @@ impl BootstrapWriteRequest {
                         .clone()
                         .map(ActorEndpoint::into_transport),
                 ),
-                actor_home.home.clone().map(RemoteRouterIdentity::new),
+                actor_home.home.clone().map(CriomeHostId::new),
             )));
         }
         for grant in &self.direct_message_grants {

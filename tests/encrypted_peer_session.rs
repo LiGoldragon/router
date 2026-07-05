@@ -35,16 +35,15 @@ use criome::tables::StoreLocation;
 use criome::transport::CriomeClient;
 use kameo::actor::ActorRef;
 use router::{
-    Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, ChannelLifetime,
+    Actor, ActorIdentifier, ApplyRouterInput, ApplySignalMessage, ChannelLifetime, CriomeHostId,
     CriomeIdentityProver, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
     InstallRemotePeer, InstallRemoteRoute, PeerIdentityProver, ReadRouterPeerSessions,
-    ReadRouterTailnetAddress, RegisterActor, RemoteRouterIdentity, RouterInput,
-    RouterNetworkConfiguration, RouterRuntime, SignalMessageInput, TailnetAddress,
+    ReadRouterTailnetAddress, RegisterActor, RouterInput, RouterNetworkConfiguration,
+    RouterRuntime, SignalMessageInput, TailnetAddress,
 };
 use signal_criome::{
-    AuditContext, BlsPublicKey, ContentPurpose, ContentReference, CriomeReply, CriomeRequest,
-    Identity, IdentityRegistration, KeyPurpose, ObjectDigest, PrincipalName, PublicKeyFingerprint,
-    ReplayNonce as CriomeReplayNonce, SignRequest,
+    BlsPublicKey, CriomeReply, CriomeRequest, Identity, IdentityRegistration, KeyPurpose,
+    NodePublicKeyObservation, PublicKeyFingerprint,
 };
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
@@ -107,30 +106,6 @@ impl CriomeFixture {
     }
 }
 
-/// Discover a node's master public key by asking it to sign a fixture as itself;
-/// the attestation envelope carries that node's key.
-fn node_public_key(socket: &Path, identity: Identity) -> BlsPublicKey {
-    let request = SignRequest::new(
-        ContentReference {
-            digest: ObjectDigest::from_bytes(b"session-key-probe"),
-            purpose: ContentPurpose::SignedObject,
-            schema_version: PrincipalName::new("session-probe".to_string()),
-        },
-        identity,
-        AuditContext {
-            purpose: ContentPurpose::SignedObject,
-            audience: PrincipalName::new("session-probe-audience".to_string()),
-            policy_version: PrincipalName::new("session-probe-policy".to_string()),
-            nonce: CriomeReplayNonce::new("session-probe-nonce".to_string()),
-        },
-        None,
-    );
-    match ask(socket, CriomeRequest::Sign(request)) {
-        CriomeReply::SignReceipt(receipt) => receipt.attestation.envelope.public_key,
-        other => panic!("expected SignReceipt, got {other:?}"),
-    }
-}
-
 /// Seed `identity → public_key` into the criome at `socket` so it can verify
 /// proofs and attestations signed by that node — the mutual identity seed.
 fn register_peer(socket: &Path, identity: Identity, public_key: BlsPublicKey) {
@@ -151,6 +126,31 @@ fn ask(socket: &Path, request: CriomeRequest) -> CriomeReply {
     CriomeClient::new(socket)
         .send(request)
         .unwrap_or_else(|error| panic!("criome round-trip on {socket:?}: {error}"))
+}
+
+/// This node's Criome host ID — its master public key — read from the public
+/// `ObserveNodePublicKey` read-op. It is exactly the value the router sources as
+/// its own fabric identity, so the test keys the fabric on the same key.
+fn observe_host_id(socket: &Path) -> BlsPublicKey {
+    match ask(
+        socket,
+        CriomeRequest::ObserveNodePublicKey(NodePublicKeyObservation::new()),
+    ) {
+        CriomeReply::NodePublicKey(observed) => observed.public_key().clone(),
+        other => panic!("expected NodePublicKey, got {other:?}"),
+    }
+}
+
+/// The `Host(<public key>)` identity — the Criome host ID as a registry
+/// identity. A criome resolves and verifies a peer by this.
+fn host_id_identity(key: &BlsPublicKey) -> Identity {
+    Identity::host(key.as_str().to_string())
+}
+
+/// The fabric identity a router carries for itself and its peers: the Criome
+/// host ID (the master public key).
+fn criome_host_id(key: &BlsPublicKey) -> CriomeHostId {
+    CriomeHostId::new(key.as_str().to_string())
 }
 
 /// A local harness witness on router B: a Unix socket that accepts one
@@ -342,27 +342,26 @@ async fn open_and_read_server_hello(
 async fn two_routers_establish_a_mutual_criome_vouched_encrypted_session() {
     let criome_a = CriomeFixture::start("accept-a", "router-a");
     let criome_b = CriomeFixture::start("accept-b", "router-b");
-    let identity_a = Identity::host("router-a".to_string());
-    let identity_b = Identity::host("router-b".to_string());
 
-    // Mutual identity seed: each node holds the peer's identity → key, so each
-    // can verify the other's criome-signed proof.
-    let key_a = node_public_key(&criome_a.socket(), identity_a.clone());
-    let key_b = node_public_key(&criome_b.socket(), identity_b.clone());
-    register_peer(&criome_a.socket(), identity_b.clone(), key_b);
-    register_peer(&criome_b.socket(), identity_a.clone(), key_a);
+    // Each node's Criome host ID is its master public key. The router sources it
+    // via ObserveNodePublicKey; the mutual seed registers each peer's host ID by
+    // that key, so a criome verifies the peer's proof by the Criome host ID
+    // directly — no OS host name in the fabric.
+    let key_a = observe_host_id(&criome_a.socket());
+    let key_b = observe_host_id(&criome_b.socket());
+    register_peer(&criome_a.socket(), host_id_identity(&key_b), key_b.clone());
+    register_peer(&criome_b.socket(), host_id_identity(&key_a), key_a.clone());
 
     let operator = ActorIdentifier::new("operator");
     let owner = ActorIdentifier::new("owner");
     let target = ActorIdentifier::new("responder");
-    let router_b_identity = RemoteRouterIdentity::new("router-b");
+    let router_b_identity = criome_host_id(&key_b);
 
     let harness = HarnessWitness::new("router-b");
     let router_b = RouterRuntime::start_networked(
         None,
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            router_b_identity.clone(),
             criome_b.socket(),
         ),
     )
@@ -400,7 +399,6 @@ async fn two_routers_establish_a_mutual_criome_vouched_encrypted_session() {
         None,
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-a"),
             criome_a.socket(),
         ),
     )
@@ -489,17 +487,17 @@ async fn an_unregistered_peer_is_refused_fail_closed() {
         None,
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-b"),
             criome_b.socket(),
         ),
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
 
-    let stranger_prover = CriomeIdentityProver::new(
-        RemoteRouterIdentity::new("router-stranger"),
-        criome_stranger.socket(),
-    );
+    // The stranger proves as its own Criome host ID (its master public key),
+    // which B never registered — so B refuses it by that key, fail-closed.
+    let stranger_key = observe_host_id(&criome_stranger.socket());
+    let stranger_prover =
+        CriomeIdentityProver::new(criome_host_id(&stranger_key), criome_stranger.socket());
 
     let mut stream = dial(router_b_address).await;
     let (responder_challenge, _responder_ephemeral) =
@@ -534,25 +532,23 @@ async fn an_unregistered_peer_is_refused_fail_closed() {
 async fn a_replayed_proof_is_refused_on_the_nonce_freshness_check() {
     let criome_a = CriomeFixture::start("replay-a", "router-a");
     let criome_b = CriomeFixture::start("replay-b", "router-b");
-    let identity_a = Identity::host("router-a".to_string());
 
-    // A IS registered in B — so any refusal is the nonce check, not UnknownSigner.
-    let key_a = node_public_key(&criome_a.socket(), identity_a.clone());
-    register_peer(&criome_b.socket(), identity_a.clone(), key_a);
+    // A's Criome host ID IS registered in B — so any refusal is the nonce check,
+    // not UnknownSigner.
+    let key_a = observe_host_id(&criome_a.socket());
+    register_peer(&criome_b.socket(), host_id_identity(&key_a), key_a.clone());
 
     let router_b = RouterRuntime::start_networked(
         None,
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-b"),
             criome_b.socket(),
         ),
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
 
-    let prover_a =
-        CriomeIdentityProver::new(RemoteRouterIdentity::new("router-a"), criome_a.socket());
+    let prover_a = CriomeIdentityProver::new(criome_host_id(&key_a), criome_a.socket());
 
     // Handshake #1: capture B's first challenge and build a genuine proof for it.
     let mut first = dial(router_b_address).await;
@@ -599,26 +595,23 @@ async fn a_replayed_proof_is_refused_on_the_nonce_freshness_check() {
 async fn a_swapped_session_ephemeral_key_is_refused_fail_closed() {
     let criome_a = CriomeFixture::start("mitm-a", "router-a");
     let criome_b = CriomeFixture::start("mitm-b", "router-b");
-    let identity_a = Identity::host("router-a".to_string());
 
-    // A IS registered in B — so any refusal is the ephemeral-binding check, not
-    // UnknownSigner.
-    let key_a = node_public_key(&criome_a.socket(), identity_a.clone());
-    register_peer(&criome_b.socket(), identity_a.clone(), key_a);
+    // A's Criome host ID IS registered in B — so any refusal is the
+    // ephemeral-binding check, not UnknownSigner.
+    let key_a = observe_host_id(&criome_a.socket());
+    register_peer(&criome_b.socket(), host_id_identity(&key_a), key_a.clone());
 
     let router_b = RouterRuntime::start_networked(
         None,
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-b"),
             criome_b.socket(),
         ),
     )
     .await;
     let router_b_address = bound_tailnet_address(&router_b).await;
 
-    let prover_a =
-        CriomeIdentityProver::new(RemoteRouterIdentity::new("router-a"), criome_a.socket());
+    let prover_a = CriomeIdentityProver::new(criome_host_id(&key_a), criome_a.socket());
 
     assert_ne!(
         DUMMY_EPHEMERAL, SWAPPED_EPHEMERAL,
@@ -660,7 +653,6 @@ async fn the_responder_mints_fresh_ephemeral_key_material_per_session() {
         None,
         RouterNetworkConfiguration::criome_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new("router-b"),
             criome_b.socket(),
         ),
     )

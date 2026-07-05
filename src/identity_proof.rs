@@ -20,7 +20,7 @@ use signal_criome::{
     Identity, ObjectDigest, PrincipalName, SignRequest, SignatureEnvelope, VerificationDecision,
 };
 use signal_router::{
-    RemoteRouterIdentity, ReplayNonce, RouterIdentityProof, SessionRefusalReason, SignatureScheme,
+    CriomeHostId, ReplayNonce, RouterIdentityProof, SessionRefusalReason, SignatureScheme,
     TimestampNanos,
 };
 
@@ -33,7 +33,7 @@ use crate::criome_client::{CriomeSigningClient, CriomeSigningError};
 pub trait PeerIdentityProver: std::fmt::Debug + Send + Sync + 'static {
     /// This router's own stable identity — the signer of the proofs it emits
     /// and the identity a peer verifies it under.
-    fn identity(&self) -> &RemoteRouterIdentity;
+    fn identity(&self) -> &CriomeHostId;
 
     /// Attest this router's identity bound to `ephemeral_public_key`, answering
     /// the peer's `challenge` (the audit nonce). Infallible: a router that
@@ -52,7 +52,7 @@ pub trait PeerIdentityProver: std::fmt::Debug + Send + Sync + 'static {
         peer_ephemeral_public_key: &str,
         issued_challenge: &str,
         proof: &RouterIdentityProof,
-    ) -> Result<RemoteRouterIdentity, SessionRefusalReason>;
+    ) -> Result<CriomeHostId, SessionRefusalReason>;
 }
 
 /// The production identity prover: it asks a co-resident criome daemon to
@@ -61,7 +61,7 @@ pub trait PeerIdentityProver: std::fmt::Debug + Send + Sync + 'static {
 /// criome socket.
 #[derive(Debug, Clone)]
 pub struct CriomeIdentityProver {
-    identity: RemoteRouterIdentity,
+    identity: CriomeHostId,
     client: CriomeSigningClient,
 }
 
@@ -75,17 +75,17 @@ impl CriomeIdentityProver {
     /// Fixed audit policy version for the identity-proof mapping.
     const POLICY_VERSION: &'static str = "router-identity-proof-v1";
 
-    pub fn new(identity: RemoteRouterIdentity, criome_socket_path: std::path::PathBuf) -> Self {
+    pub fn new(identity: CriomeHostId, criome_socket_path: std::path::PathBuf) -> Self {
         Self {
             identity,
             client: CriomeSigningClient::new(criome_socket_path),
         }
     }
 
-    /// The criome signer identity of a node, derived from its router identity.
-    /// Each node signs as its own `Host(<node>)` identity — the same identity
-    /// the forward attestation uses, so one seed registers both.
-    fn criome_signer_identity(node: &RemoteRouterIdentity) -> Identity {
+    /// The criome signer identity of a node: `Host(<Criome host ID>)`, the node's
+    /// master public key (primary-79z1.18) — the same host ID the forward
+    /// attestation signs under, so one registration by key covers both.
+    fn criome_signer_identity(node: &CriomeHostId) -> Identity {
         Identity::host(node.payload().to_string())
     }
 
@@ -192,7 +192,7 @@ impl CriomeIdentityProver {
 }
 
 impl PeerIdentityProver for CriomeIdentityProver {
-    fn identity(&self) -> &RemoteRouterIdentity {
+    fn identity(&self) -> &CriomeHostId {
         &self.identity
     }
 
@@ -208,7 +208,7 @@ impl PeerIdentityProver for CriomeIdentityProver {
         peer_ephemeral_public_key: &str,
         issued_challenge: &str,
         proof: &RouterIdentityProof,
-    ) -> Result<RemoteRouterIdentity, SessionRefusalReason> {
+    ) -> Result<CriomeHostId, SessionRefusalReason> {
         // The router-owned freshness check criome's stateless verify does not
         // do: the proof must answer the challenge THIS node issued for this
         // session. A replayed proof carries a stale challenge and is refused
@@ -231,17 +231,17 @@ impl PeerIdentityProver for CriomeIdentityProver {
 /// against a real registry); that is the criome witness's job.
 #[derive(Debug, Clone)]
 pub struct AcceptFixedIdentityProver {
-    identity: RemoteRouterIdentity,
+    identity: CriomeHostId,
 }
 
 impl AcceptFixedIdentityProver {
-    pub fn new(identity: RemoteRouterIdentity) -> Self {
+    pub fn new(identity: CriomeHostId) -> Self {
         Self { identity }
     }
 }
 
 impl PeerIdentityProver for AcceptFixedIdentityProver {
-    fn identity(&self) -> &RemoteRouterIdentity {
+    fn identity(&self) -> &CriomeHostId {
         &self.identity
     }
 
@@ -264,7 +264,7 @@ impl PeerIdentityProver for AcceptFixedIdentityProver {
         peer_ephemeral_public_key: &str,
         issued_challenge: &str,
         proof: &RouterIdentityProof,
-    ) -> Result<RemoteRouterIdentity, SessionRefusalReason> {
+    ) -> Result<CriomeHostId, SessionRefusalReason> {
         if proof.challenge_nonce().payload() != issued_challenge {
             return Err(SessionRefusalReason::ChallengeMismatch);
         }
@@ -298,7 +298,7 @@ impl IdentityProofPreimage {
     /// digest or another use of the same hash over similar bytes.
     const DOMAIN: &'static [u8] = b"persona-router-identity-proof-v1";
 
-    fn bind(identity: &RemoteRouterIdentity, ephemeral_public_key: &str, challenge: &str) -> Self {
+    fn bind(identity: &CriomeHostId, ephemeral_public_key: &str, challenge: &str) -> Self {
         let mut preimage = Self {
             bytes: Self::DOMAIN.to_vec(),
         };

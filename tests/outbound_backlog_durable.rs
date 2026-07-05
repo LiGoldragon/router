@@ -38,9 +38,9 @@ use kameo::actor::ActorRef;
 use meta_signal_router::{Input as MetaInput, MirrorEnabled as MetaMirrorEnabled};
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
-    ChannelLifetime, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
-    InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress, RegisterActor,
-    RemoteRouterIdentity, RouterInput, RouterNetworkConfiguration, RouterOutput, RouterRuntime,
+    ChannelLifetime, CriomeHostId, EndpointKind, EndpointTransport, GrantChannel,
+    GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress,
+    RegisterActor, RouterInput, RouterNetworkConfiguration, RouterOutput, RouterRuntime,
     RouterTables, Status, TailnetAddress,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
@@ -128,7 +128,10 @@ impl MultiComponentSink {
                 )
                 .encode_signal_frame()
                 .expect("component sink reply encodes");
-                if codec.write_body(&mut stream, &FrameBody::new(reply)).is_err() {
+                if codec
+                    .write_body(&mut stream, &FrameBody::new(reply))
+                    .is_err()
+                {
                     break;
                 }
                 let _ = std::io::Write::flush(&mut stream);
@@ -223,7 +226,7 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
 }
 
 async fn install_route_to_peer(runtime: &ActorRef<RouterRuntime>, address: SocketAddr) {
-    let peer = RemoteRouterIdentity::new("router-b-outbox");
+    let peer = CriomeHostId::new("router-b-outbox");
     runtime
         .ask(InstallRemotePeer {
             identity: peer.clone(),
@@ -269,7 +272,7 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
             Some(tables.clone()),
             RouterNetworkConfiguration::offline_session_listening(
                 "127.0.0.1:0".parse().expect("loopback address"),
-                RemoteRouterIdentity::new(SESSION_IDENTITY),
+                CriomeHostId::new(SESSION_IDENTITY),
             ),
         )
         .await;
@@ -316,7 +319,7 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
         None,
         RouterNetworkConfiguration::offline_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new(SESSION_IDENTITY),
+            CriomeHostId::new(SESSION_IDENTITY),
         ),
     )
     .await;
@@ -353,7 +356,7 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
         Some(reopened.clone()),
         RouterNetworkConfiguration::offline_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            RemoteRouterIdentity::new(SESSION_IDENTITY),
+            CriomeHostId::new(SESSION_IDENTITY),
         ),
     )
     .await;

@@ -25,7 +25,7 @@ use meta_signal_router::{
 };
 use router::{
     AcceptFixedTestIdentity, ApplyForwardedMessage, ApplyMetaRouterPolicy,
-    ApplyRoutedObjectSubmission, ForwardApplied, ForwardAttestationVerifier, RemoteRouterIdentity,
+    ApplyRoutedObjectSubmission, CriomeHostId, ForwardApplied, ForwardAttestationVerifier,
     RouterForwardRefusalReason, RouterNetworkConfiguration, RouterRuntime, RouterTables,
 };
 use signal_router::{
@@ -95,7 +95,7 @@ fn timestamp_now() -> TimestampNanos {
 /// gate — `apply_forwarded` reads only the carried objects — but the request
 /// shape is the real wire type, so the witness exercises the production
 /// admission surface.
-fn inbound_mirror_forward(nonce: &str) -> (RemoteRouterIdentity, RouterForwardRequest) {
+fn inbound_mirror_forward(nonce: &str) -> (CriomeHostId, RouterForwardRequest) {
     let payload = ForwardedMessagePayload::new(
         signal_router::ActorIdentifier::new("spirit"),
         signal_router::ActorIdentifier::new("spirit-peer"),
@@ -103,7 +103,7 @@ fn inbound_mirror_forward(nonce: &str) -> (RemoteRouterIdentity, RouterForwardRe
         Vec::new(),
         vec![routed_object()],
     );
-    let identity = RemoteRouterIdentity::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY);
+    let identity = CriomeHostId::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY);
     let verifier = AcceptFixedTestIdentity::new(identity.clone());
     let nonce = ReplayNonce::new(nonce);
     let issued_at = timestamp_now();
@@ -307,7 +307,7 @@ async fn ordinary_message_forward_is_not_gated_by_the_mirror_switch() {
         Vec::new(),
         Vec::new(),
     );
-    let identity = RemoteRouterIdentity::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY);
+    let identity = CriomeHostId::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY);
     let verifier = AcceptFixedTestIdentity::new(identity.clone());
     let nonce = ReplayNonce::new("mirror-toggle-ordinary-1");
     let issued_at = timestamp_now();
