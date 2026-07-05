@@ -1055,6 +1055,73 @@ struct ReceivedRouterObservationInput {
     request: SignalRouterInput,
 }
 
+/// A bounded startup retry/backoff policy for resolving the co-resident
+/// criome's fabric identity (M1, primary-79z1.22). A should-participate
+/// router's process can win the race against its own co-resident criome's
+/// startup, so one failed `ObserveNodePublicKey` is not conclusive; this
+/// gate keeps retrying with doubling backoff for a bounded attempt budget,
+/// loud-logging every failed attempt, before it falls back to the
+/// fail-closed unresolved-identity sentinel — also loudly, so a router that
+/// never got a real identity is diagnosable rather than silently pinned for
+/// its whole process lifetime. Attempts and backoff are explicit fields
+/// (not baked into the method) so a test can exercise the same gate with a
+/// test-sized budget instead of the production timings.
+#[derive(Debug, Clone, Copy)]
+struct CriomeIdentityGate {
+    attempts: u32,
+    initial_backoff: std::time::Duration,
+}
+
+impl CriomeIdentityGate {
+    fn new(attempts: u32, initial_backoff: std::time::Duration) -> Self {
+        Self {
+            attempts,
+            initial_backoff,
+        }
+    }
+
+    /// Five attempts doubling from 200ms (200ms, 400ms, 800ms, 1.6s, 3.2s ≈
+    /// 6s worst case) — long enough for a co-resident criome started in the
+    /// same deploy wave to come up, short enough that a router daemon still
+    /// starts promptly when criome is genuinely absent (single-host/offline
+    /// deployments never call this gate at all).
+    fn production() -> Self {
+        Self::new(5, std::time::Duration::from_millis(200))
+    }
+
+    /// Resolve `criome_socket_path`'s fabric identity, retrying through this
+    /// gate's bounded budget. Every failed attempt is loud-logged; a router
+    /// that should participate never silently pins the sentinel — either it
+    /// gets a real identity, or the operator sees exactly why it didn't.
+    fn resolve(self, criome_socket_path: &std::path::Path) -> CriomeHostId {
+        let client = CriomeSigningClient::new(criome_socket_path.to_path_buf());
+        let mut backoff = self.initial_backoff;
+        let mut last_error = None;
+        for attempt in 1..=self.attempts {
+            match client.observe_node_public_key() {
+                Ok(public_key) => return CriomeHostId::new(public_key.as_str().to_string()),
+                Err(error) => {
+                    eprintln!(
+                        "router criome identity: attempt {attempt}/{} to observe the co-resident criome's public key at {criome_socket_path:?} failed: {error}",
+                        self.attempts,
+                    );
+                    last_error = Some(error);
+                    if attempt < self.attempts {
+                        std::thread::sleep(backoff);
+                        backoff *= 2;
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "router criome identity DEGRADED: co-resident criome at {criome_socket_path:?} never answered ObserveNodePublicKey after {} attempts (last error: {}); pinning the fail-closed unresolved-identity sentinel for this process — this router cannot sign or verify any session proof or attestation until it is restarted with a reachable criome",
+            self.attempts,
+            last_error.expect("the loop above runs at least one attempt before exhausting"),
+        );
+        CriomeHostId::new(RouterNetworkConfiguration::UNRESOLVED_CRIOME_HOST_ID.to_string())
+    }
+}
+
 /// The network parameters threaded into `RouterRuntime` at start so its
 /// own `on_start` can eagerly bind the tailnet TCP ingress. Absent
 /// `listen_address` ⇒ single-host operation, no TCP tier. The verifier is
@@ -1175,11 +1242,13 @@ impl RouterNetworkConfiguration {
     /// identity the router stamps as the session-proof and forward-attestation
     /// signer and routes peers by. A router does not author its own identity; it
     /// reads it from the criome that holds the master key.
+    ///
+    /// Goes through the bounded startup gate (M1, primary-79z1.22) rather than
+    /// a single silent attempt: a should-participate router that races its
+    /// co-resident criome's own startup gets a real retry window instead of
+    /// permanently pinning the fail-closed sentinel on one transient miss.
     pub(crate) fn criome_host_id(criome_socket_path: &std::path::Path) -> CriomeHostId {
-        match CriomeSigningClient::new(criome_socket_path.to_path_buf()).observe_node_public_key() {
-            Ok(public_key) => CriomeHostId::new(public_key.as_str().to_string()),
-            Err(_error) => CriomeHostId::new(Self::UNRESOLVED_CRIOME_HOST_ID.to_string()),
-        }
+        CriomeIdentityGate::production().resolve(criome_socket_path)
     }
 
     /// A loopback/tailnet listener that runs the encrypted authenticated peer
@@ -4419,5 +4488,77 @@ mod receiver_validation_tests {
             "expected granted channel reply after bad connection, got {output:?}"
         );
         let _ = std::fs::remove_file(socket);
+    }
+}
+
+#[cfg(test)]
+mod criome_identity_gate_tests {
+    use super::*;
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    /// A path no criome ever listens on, so every `observe_node_public_key`
+    /// attempt fails immediately (connection refused/not found) and only the
+    /// gate's own backoff sleeps add wall-clock time — letting the assertions
+    /// below isolate "did it retry" from "did the socket hang".
+    fn nonexistent_criome_socket_path() -> PathBuf {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "router-criome-identity-gate-absent-{}-{now}.sock",
+            std::process::id()
+        ))
+    }
+
+    /// M1 (primary-79z1.22): a should-participate router whose co-resident
+    /// criome never answers must still get a real bounded retry window
+    /// (not one silent miss) before it falls back to the fail-closed
+    /// sentinel identity.
+    #[test]
+    fn unresolved_identity_gate_retries_with_backoff_before_pinning_the_sentinel() {
+        let socket = nonexistent_criome_socket_path();
+        let gate = CriomeIdentityGate::new(3, Duration::from_millis(20));
+
+        let started = Instant::now();
+        let identity = gate.resolve(&socket);
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            identity,
+            CriomeHostId::new(RouterNetworkConfiguration::UNRESOLVED_CRIOME_HOST_ID.to_string()),
+            "an unreachable criome must still fail closed to the sentinel identity"
+        );
+        assert!(
+            elapsed >= Duration::from_millis(20 + 40),
+            "the gate must retry with backoff across its whole attempt budget rather than \
+             fail on the first miss: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the gate's retry budget must stay bounded rather than hang indefinitely: {elapsed:?}"
+        );
+    }
+
+    /// The gate must not sleep past its last attempt — a one-attempt budget
+    /// (e.g. a caller that wants an immediate fail-closed read) fails fast
+    /// rather than paying a dangling final backoff.
+    #[test]
+    fn a_single_attempt_gate_fails_closed_without_a_trailing_sleep() {
+        let socket = nonexistent_criome_socket_path();
+        let gate = CriomeIdentityGate::new(1, Duration::from_millis(500));
+
+        let started = Instant::now();
+        let identity = gate.resolve(&socket);
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            identity,
+            CriomeHostId::new(RouterNetworkConfiguration::UNRESOLVED_CRIOME_HOST_ID.to_string())
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "a one-attempt gate must not sleep after its only (and last) attempt: {elapsed:?}"
+        );
     }
 }
