@@ -3618,7 +3618,8 @@ impl kameo::message::Message<SettleRemoteForward> for RouterRoot {
                 // trace query reports `ForwardedRemote`.
                 if let Err(error) = self.clear_outbound_backlog(&pending.message.id) {
                     eprintln!(
-                        "router: an accepted forward's backlog row could not be cleared                          (idempotent redelivery will re-offer it): {error}"
+                        "router: an accepted forward's backlog row could not be cleared \
+                         (idempotent redelivery will re-offer it): {error}"
                     );
                 }
                 self.trace

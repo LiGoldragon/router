@@ -76,10 +76,16 @@ impl RouterPeerDelivery {
         verifier: Arc<dyn ForwardAttestationVerifier>,
         identity_prover: Option<Arc<dyn PeerIdentityProver>>,
     ) -> Self {
-        let nonce_instance = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or_default();
+        // A RANDOM per-instance token, never the wall clock: a pre-epoch or
+        // stalled clock collapsed the old nanos token to a constant 0, making
+        // every restart re-mint `(signer, nonce)` pairs the peers' replay
+        // windows had already admitted.
+        let nonce_instance = {
+            use rand_core::RngCore;
+            let mut bytes = [0u8; 16];
+            rand_core::OsRng.fill_bytes(&mut bytes);
+            u128::from_le_bytes(bytes)
+        };
         Self {
             verifier,
             identity_prover,
