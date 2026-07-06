@@ -112,7 +112,7 @@
             }
           );
           # Slice D (primary-79z1.23): two in-process criome hosts found ONE root
-          # ENTIRELY over the real router voice — real RouterQuorumVoice
+          # ENTIRELY over the real router — real RouterSubmission
           # origination (SubmitRoutedObjects -> apply_routed_object_submission)
           # over two real routers with real durable pubkey-keyed route stores.
           # Both hosts converge on the SAME founded anchor via the two-round
@@ -124,16 +124,16 @@
           # synchronizes across them with wall-clock polling (`wait_until`, up
           # to 20s). That is multi-process, socket-binding, thread-scheduling
           # behavior, not a pure evaluation — so it is a named, explicitly-run
-          # output (`nix build .#router-two-hosts-found-root-over-router-voice-test`),
+          # output (`nix build .#router-two-hosts-found-root-over-router-test`),
           # not a `checks.*` entry auto-swept by `nix flake check`. It still runs
           # inside the Nix build sandbox (loopback networking is available
           # there) and is kept runnable with real evidence; it is just not part
           # of the default pure-check gate.
-          router-two-hosts-found-root-over-router-voice-test = context.craneLib.cargoTest (
+          router-two-hosts-found-root-over-router-test = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test founding_over_router two_hosts_found_the_same_root_anchor_over_the_real_router_voice -- --exact";
+              cargoTestExtraArgs = "--test founding_over_router two_hosts_found_the_same_root_anchor_over_the_real_router -- --exact";
             }
           );
         }

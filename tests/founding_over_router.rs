@@ -1,5 +1,5 @@
 //! THE FOUNDING-OVER-ROUTER PROOF (Slice D, primary-79z1.23): two in-process
-//! criome hosts found ONE unanimous root ENTIRELY over the router voice — the
+//! criome hosts found ONE unanimous root ENTIRELY over the router — the
 //! router-mediated analogue of the direct-dial `founding_conveyance.rs`.
 //!
 //! Real throughout, no stub:
@@ -11,30 +11,30 @@
 //!     host ID, resolved through the reworked non-blocking identity gate
 //!     (`RouterNetworkConfiguration::criome_host_id`) AFTER the criome is ready,
 //!     so it is the master public key, never the fail-closed sentinel;
-//!   - two REAL criome daemons, each armed with a REAL `RouterQuorumVoice` that
+//!   - two REAL criome daemons, each armed with a REAL `RouterSubmission` that
 //!     originates over its local router via `SubmitRoutedObjects`
 //!     (`apply_routed_object_submission`), NOT a direct dial;
 //!   - the founding rides the two-round commit under the witness-clock gate,
 //!     owner-accepted on each node with no auto-approval.
 //!
 //! The composed route each conveyance walks (audit L3): quorum-recipient
-//! `Identity` -> voice `peer_routes` -> destination `ActorIdentifier` -> router
+//! `Identity` -> conveyance `peer_routes` -> destination `ActorIdentifier` -> router
 //! `homes` -> `CriomeHostId` -> router `peers` -> address -> peer router ->
 //! co-resident criome working socket.
 //!
 //! THE WITNESSED CLAIM: both hosts reach `RootFoundingState::Founded` on the
 //! SAME anchor and each seeds its registry from the founded cohort — the
-//! anchor-identical root, conveyed over the real router voice.
+//! anchor-identical root, conveyed over the real router.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use criome::conveyance::{PeerActorRoute, RouterSubmission};
 use criome::daemon::CriomeDaemon;
 use criome::tables::StoreLocation;
 use criome::transport::{CriomeClient, CriomeMetaClient};
-use criome::voice::{PeerActorRoute, RouterQuorumVoice};
 use kameo::actor::ActorRef;
 use meta_signal_criome::{
     Input as MetaInput, Output as MetaOutput, RootFoundingAcceptance, RootFoundingInitiation,
@@ -68,7 +68,7 @@ fn nanos() -> u128 {
 }
 
 /// A private directory holding one node's criome working/meta sockets, its sema
-/// store, and the local-router working-socket path the voice originates over.
+/// store, and the local-router working-socket path the conveyance originates over.
 struct NodePaths {
     working: PathBuf,
     meta: PathBuf,
@@ -101,7 +101,7 @@ impl NodePaths {
 /// reply) and relays a `SubmitRoutedObjects` origination to the real runtime as
 /// `ApplyRoutedObjectSubmission`. This is the standing daemon's own
 /// `handle_working_connection` origination path, stood up around the in-process
-/// runtime so the REAL `RouterQuorumVoice` originates over a REAL router.
+/// runtime so the REAL `RouterSubmission` originates over a REAL router.
 struct RouterWorkingSocket {
     _task: tokio::task::JoinHandle<()>,
 }
@@ -169,12 +169,12 @@ fn host(name: &str) -> Identity {
 
 /// The router destination-actor name a criome host is homed under. It names one
 /// concept but crosses two crate boundaries as two distinct newtypes: the criome
-/// voice speaks `signal_router::ActorIdentifier`, the router registry speaks
+/// conveyance speaks `signal_router::ActorIdentifier`, the router registry speaks
 /// `router::ActorIdentifier`.
 const CRIOME_ALPHA: &str = "criome-alpha";
 const CRIOME_BETA: &str = "criome-beta";
 
-/// Start a criome daemon armed with a `RouterQuorumVoice` that originates over
+/// Start a criome daemon armed with a `RouterSubmission` that originates over
 /// `router_socket`; serve it on a background thread and wait for its sockets.
 fn start_criome(
     identity: Identity,
@@ -183,7 +183,7 @@ fn start_criome(
     peer: Identity,
     peer_destination_name: &str,
 ) {
-    let voice = RouterQuorumVoice::new(
+    let conveyance = RouterSubmission::new(
         paths.router_socket.clone(),
         signal_router::ActorIdentifier::new(source_actor_name),
         vec![PeerActorRoute::new(
@@ -193,7 +193,7 @@ fn start_criome(
     );
     let daemon = CriomeDaemon::new(paths.working.clone(), paths.store.clone())
         .with_node_identity(identity)
-        .with_quorum_voice(Arc::new(voice));
+        .with_peer_conveyance(Arc::new(conveyance));
     thread::spawn(move || {
         let _ = daemon.run();
     });
@@ -396,7 +396,7 @@ async fn seed_peer_route(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn two_hosts_found_the_same_root_anchor_over_the_real_router_voice() {
+async fn two_hosts_found_the_same_root_anchor_over_the_real_router() {
     let alpha = host("founder-alpha");
     let beta = host("founder-beta");
     let paths_a = NodePaths::new("alpha");
@@ -408,7 +408,7 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router_voice() {
     let criome_beta = ActorIdentifier::new(CRIOME_BETA);
 
     // (1) Criome-ready FIRST: each host runs a real daemon armed with a real
-    //     RouterQuorumVoice that originates over its local router socket.
+    //     RouterSubmission that originates over its local router socket.
     start_criome(
         alpha.clone(),
         &paths_a,
@@ -474,7 +474,7 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router_voice() {
     let address_b = TailnetAddress::new(bound_tailnet_address(&router_b).await.to_string());
 
     // (4) Stand each router's working socket up at the path its co-resident
-    //     criome's voice originates over.
+    //     criome's conveyance originates over.
     let _front_a = RouterWorkingSocket::bind(&paths_a.router_socket, router_a.clone()).await;
     let _front_b = RouterWorkingSocket::bind(&paths_b.router_socket, router_b.clone()).await;
 
@@ -492,7 +492,7 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router_voice() {
     seed_peer_route(&router_a, &criome_beta, &host_id_b, &address_b).await;
     seed_peer_route(&router_b, &criome_alpha, &host_id_a, &address_a).await;
 
-    // (8) Drive the founding entirely over the router voice, then assert both
+    // (8) Drive the founding entirely over the router, then assert both
     //     hosts converged on the SAME anchor. Blocking meta/working client
     //     calls run off the async runtime.
     let working_a = paths_a.working.clone();
@@ -505,7 +505,7 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router_voice() {
         let anchor = genesis.anchor().expect("cohort anchor");
 
         // Initiate on A: A queues its own founding and conveys the proposal to B
-        // over the router voice. No root is founded yet (owner-accepted).
+        // over the router. No root is founded yet (owner-accepted).
         match meta(
             &meta_a,
             MetaInput::InitiateRootFounding(RootFoundingInitiation::new(genesis.clone())),
@@ -524,7 +524,7 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router_voice() {
         }
 
         // The proposal reaches B's pending queue — carried A -> router A ->
-        // router B -> criome B entirely over the router voice.
+        // router B -> criome B entirely over the router.
         wait_until(
             "the proposal to reach B's pending queue over the router",
             || {
@@ -560,12 +560,12 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router_voice() {
         // queued exactly it (the initiate check above), it reached B's pending
         // queue over the router (the wait above), and no other founding exists on
         // either node. So two `Founded` nodes founded that same anchor: the same
-        // root on both, conveyed over the real router voice.
+        // root on both, conveyed over the real router.
         for (label, socket) in [("A", &meta_a), ("B", &meta_b)] {
             assert_eq!(
                 observe_status(socket).state,
                 RootFoundingState::Founded,
-                "node {label} founded the shared anchor over the router voice"
+                "node {label} founded the shared anchor over the router"
             );
         }
 

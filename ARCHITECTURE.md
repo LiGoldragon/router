@@ -164,7 +164,12 @@ component traffic at the channel level.
 `RouterTables::open()` opens `router.sema` through
 `sema-engine::Engine`, which applies the schema-version guard per
 `~/primary/skills/rust/storage-and-wire.md` §"Schema discipline".
-Schema bumps land as coordinated upgrades.
+Schema bumps land as coordinated upgrades without migrations: a store stamped
+OLDER than the current `ROUTER_SCHEMA_VERSION` (or predating the version
+stamp) is wiped and reinitialized at open with a logged notice — psyche
+decision: the router persists no data worth migrating. A store stamped NEWER
+than the running build still fails open, so a downgrade cannot destroy a
+later deployment's data (witness: `tests/outdated_store_wipe.rs`).
 
 ## 2 · State and Ownership
 
@@ -741,6 +746,19 @@ So a session-capable router accepts real mirror traffic only over the
 encrypted, mutually-authenticated session; the plaintext path survives only as
 the single-host/offline witness transport, with no session prover configured.
 
+### Routing knowledge of component objects (psyche-noted)
+
+- The router knows a routed object's general type only — the `ContractName`
+  label (for example `signal-criome`) stamped on a `RoutedContractObject` — so
+  the receiving router can hand the octets to the right co-resident component.
+  It carries no further criome semantics: the router routes to the other
+  host's router, which passes the object to the owning component. Criome
+  concepts (quorum, founding, votes) must not appear in router vocabulary.
+- Pending (psyche-noted, low short-term priority, awaiting review and
+  implementation): criome messages should receive routing priority when
+  resources become constrained, given their time-sensitive nature. No
+  priority lane exists today; admission and delivery are order-of-arrival.
+
 ## 3 · Boundaries
 
 This repo owns:
@@ -849,7 +867,9 @@ This repo does not own:
   surface returns typed Signal replies, not in-memory coincidence.
 - Channel and adjudication records persisted under one router schema
   version do not deserialise under a different version. `RouterTables::open`
-  hard-fails on schema mismatch.
+  wipes and reinitializes a store older than the running build (logged, no
+  migration — the router persists no data worth migrating) and hard-fails on
+  a store newer than the running build.
 - Router bootstrap records come from `signal-router`; the router
   accepts only binary rkyv `RouterBootstrapDocument` archives and converts
   contract `RouterBootstrapOperation` values into internal actor inputs.

@@ -10,8 +10,8 @@ use rkyv::validation::shared::SharedValidator;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema_engine::{
     Assertion, CommitSequence, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan,
-    RecordKey, Retraction, SchemaHash, SchemaVersion, TableDescriptor, TableName, TableReference,
-    VersionedStoreName, VersioningPolicy,
+    RecordKey, Retraction, SchemaHash, SchemaVersion, StorageKernelError, TableDescriptor,
+    TableName, TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_message::{MessageOrigin, MessageSlot};
 use signal_persona::ChannelIdentifier;
@@ -71,7 +71,21 @@ impl std::fmt::Debug for RouterTables {
 
 impl RouterTables {
     pub fn open(path: impl AsRef<Path>) -> RouterResult<Self> {
-        let mut engine = Engine::open(Self::engine_open(path.as_ref()))?;
+        let path = path.as_ref();
+        let mut engine = match Engine::open(Self::engine_open(path)) {
+            Ok(engine) => engine,
+            Err(error) if Self::store_is_outdated(&error) => {
+                eprintln!(
+                    "router store at {} is outdated ({error}); wiping and reinitializing at \
+                     schema v{} — the router persists no data worth migrating",
+                    path.display(),
+                    ROUTER_SCHEMA_VERSION.value()
+                );
+                std::fs::remove_file(path)?;
+                Engine::open(Self::engine_open(path))?
+            }
+            Err(error) => return Err(error.into()),
+        };
         let channels = engine.register_table(Self::family_descriptor(CHANNELS, CHANNELS_FAMILY))?;
         let adjudication_pending = engine.register_table(Self::family_descriptor(
             ADJUDICATION_PENDING,
@@ -112,6 +126,26 @@ impl RouterTables {
     fn engine_open(path: &Path) -> EngineOpen {
         EngineOpen::new(path.to_path_buf(), ROUTER_SCHEMA_VERSION)
             .with_versioning(Self::versioning_policy())
+    }
+
+    /// Whether an open failure means the on-disk store is OLDER than this
+    /// build: an earlier `ROUTER_SCHEMA_VERSION`, a legacy file that predates
+    /// the version stamp, or an older engine storage layout. The router's
+    /// durable state is reconstructible operational bookkeeping, so an
+    /// outdated store is wiped and reinitialized at the current schema rather
+    /// than migrated (psyche decision). A store NEWER than this build still
+    /// fails open — wiping it would silently destroy a later deployment's
+    /// data on downgrade.
+    fn store_is_outdated(error: &sema_engine::Error) -> bool {
+        match error {
+            sema_engine::Error::Sema(StorageKernelError::SchemaVersionMismatch {
+                expected,
+                found,
+            }) => found.value() < expected.value(),
+            sema_engine::Error::Sema(StorageKernelError::LegacyFileLacksSchema { .. }) => true,
+            sema_engine::Error::StorageLayoutMismatch { stored, expected } => stored < expected,
+            _ => false,
+        }
     }
 
     fn versioning_policy() -> VersioningPolicy {
