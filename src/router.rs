@@ -52,7 +52,7 @@ use signal_persona::{
 use signal_router::{
     Actor as BootstrapActor, CriomeHostId, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
-    MessageSlot as RouterMessageSlot, RoutedContractObject, RouterBootstrapDocument,
+    MessageSlot as RouterMessageSlot, RouterBootstrapDocument,
     RouterBootstrapOperation, RouterDaemonConfiguration, RouterForwardRefusalReason,
     RouterForwardRequest, RouterSessionData, SessionRefusalReason,
 };
@@ -94,7 +94,7 @@ use crate::observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
     RouterObservationPlane, RouterObservationPlaneStatus,
 };
-use crate::peer_delivery::{DeliverRemote, RouterPeerDelivery};
+use crate::peer_delivery::{DeliverRemote, RemoteForwardOutcome, RouterPeerDelivery};
 use crate::peer_session::{PeerSession, PeerSessionEstablished, SessionResponder};
 use crate::remote_router::{
     RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute, RemoteRouterRegistry,
@@ -2734,38 +2734,48 @@ impl RouterRoot {
                 if pending.may_resolve_remote()
                     && let Some(route) = self.resolve_remote_route(&message.to).await?
                 {
-                    match self
-                        .forward_to_remote(&message, pending.routed_objects.clone(), route)
-                        .await
-                    {
-                        Ok(true) => {
-                            // The message left for a peer: drop it from
-                            // pending (via `continue` without re-queueing)
-                            // but keep its signal slot so the trace query
-                            // can report `ForwardedRemote` for it. The peer
-                            // accepted it, so the durable backlog row is now
-                            // terminal — clear it (primary-nbmq.5) so a restart
-                            // does not redeliver a forward the peer already has.
-                            if let Err(error) = self.clear_outbound_backlog(&message.id) {
-                                self.restore_pending_after_error(next, None, messages);
-                                return Err(error);
-                            }
-                            self.trace
-                                .record(message.id.clone(), RouterTraceStep::ForwardedRemote);
-                            delivered += 1;
-                            continue;
+                    // Dispatch the remote forward OFF this mailbox. Two
+                    // routers forwarding toward each other at once must never
+                    // cross-deadlock: the peer's accept requires ITS mailbox
+                    // turn, which may itself be forwarding toward us — so the
+                    // network exchange runs in a spawned task and its outcome
+                    // comes back as a `SettleRemoteForward` push. The durable
+                    // backlog row (primary-nbmq.5) stands until the settle
+                    // clears it, so a crash mid-flight redelivers
+                    // idempotently rather than losing the forward.
+                    match &self.self_reference {
+                        Some(self_reference) => {
+                            let root = self_reference.clone();
+                            let peer_delivery = self.peer_delivery.clone();
+                            tokio::spawn(async move {
+                                let (result, session_established) = match peer_delivery
+                                    .ask(DeliverRemote {
+                                        remote_address: route.address,
+                                        message: pending.message.clone(),
+                                        routed_objects: pending.routed_objects.clone(),
+                                    })
+                                    .await
+                                {
+                                    Ok(reply) => reply.into_parts(),
+                                    Err(error) => {
+                                        (Err(Error::ActorCall(error.to_string())), None)
+                                    }
+                                };
+                                let _ = root
+                                    .tell(SettleRemoteForward {
+                                        pending,
+                                        result,
+                                        session_established,
+                                    })
+                                    .await;
+                            });
                         }
-                        Ok(false) => {
-                            // The peer refused (or replied unexpectedly):
-                            // park for adjudication rather than dropping.
-                            next.push(pending);
-                            continue;
-                        }
-                        Err(error) => {
-                            self.restore_pending_after_error(next, Some(pending), messages);
-                            return Err(error);
-                        }
+                        // No self handle (never started as an actor): the
+                        // message stays parked and the durable row keeps it
+                        // for the next drain.
+                        None => next.push(pending),
                     }
+                    continue;
                 }
                 next.push(pending);
                 continue;
@@ -2900,33 +2910,6 @@ impl RouterRoot {
             })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))
-    }
-
-    /// The forward half of the seam: hand the message to `RouterPeerDelivery`
-    /// for one outbound TCP forward. Returns `Ok(true)` when the peer
-    /// accepted, `Ok(false)` when it refused (park for adjudication),
-    /// `Err` on a transport/actor failure (restore pending).
-    async fn forward_to_remote(
-        &mut self,
-        message: &Message,
-        routed_objects: Vec<RoutedContractObject>,
-        route: RemoteRoute,
-    ) -> RouterResult<bool> {
-        let (result, session_established) = self
-            .peer_delivery
-            .ask(DeliverRemote {
-                remote_address: route.address,
-                message: message.clone(),
-                routed_objects,
-            })
-            .await
-            .map_err(|error| Error::ActorCall(error.to_string()))?
-            .into_parts();
-        if let Some(event) = session_established {
-            self.on_peer_session_established(event);
-        }
-        let outcome = result?;
-        Ok(outcome.is_accepted())
     }
 
     /// The push seam bead `.5` extends (primary-nbmq.6): an authenticated
@@ -3598,6 +3581,59 @@ impl RouterInboxEntry {
 /// reconsiders the whole live queue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DrainOutboundBacklog;
+
+/// The completion push of one spawned remote forward (the network exchange
+/// ran OFF the root mailbox so two routers forwarding toward each other can
+/// never cross-deadlock). Accepted clears the durable backlog row and records
+/// the trace step; refused re-parks the message for adjudication; a transport
+/// failure re-parks it for the next session-up drain — the same postures the
+/// synchronous path had, settled one mailbox turn later.
+pub(crate) struct SettleRemoteForward {
+    pending: PendingRouterMessage,
+    result: RouterResult<RemoteForwardOutcome>,
+    session_established: Option<PeerSessionEstablished>,
+}
+
+impl kameo::message::Message<SettleRemoteForward> for RouterRoot {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        message: SettleRemoteForward,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let SettleRemoteForward {
+            pending,
+            result,
+            session_established,
+        } = message;
+        if let Some(event) = session_established {
+            self.on_peer_session_established(event);
+        }
+        match result {
+            Ok(outcome) if outcome.is_accepted() => {
+                // The peer accepted: the durable backlog row is terminal —
+                // clear it (primary-nbmq.5) so a restart does not redeliver a
+                // forward the peer already has. The signal slot stays so the
+                // trace query reports `ForwardedRemote`.
+                if let Err(error) = self.clear_outbound_backlog(&pending.message.id) {
+                    eprintln!(
+                        "router: an accepted forward's backlog row could not be cleared                          (idempotent redelivery will re-offer it): {error}"
+                    );
+                }
+                self.trace
+                    .record(pending.message.id.clone(), RouterTraceStep::ForwardedRemote);
+            }
+            // The peer refused (or replied unexpectedly): park for
+            // adjudication rather than dropping.
+            Ok(_refused) => self.pending.push(pending),
+            // Transport failure — the peer is unreachable: the durable row
+            // stands and the message re-parks for the session-established
+            // drain. Never dropped, never busy-retried.
+            Err(_transport) => self.pending.push(pending),
+        }
+    }
+}
 
 /// How many items the drain delivered. The fire-and-forget seam callers ignore
 /// it; it exists so the drain has a typed reply and a future observation could

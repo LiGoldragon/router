@@ -400,12 +400,17 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
 
     // (5) The delivered row was cleared from the durable backlog — a further
     // restart would redeliver nothing. Terminal outcomes remove their rows, so
-    // a redelivery after a crash cannot double-apply.
-    assert_eq!(
-        backlog_len(&reopened),
-        0,
-        "the delivered forward is cleared from the durable backlog"
-    );
+    // a redelivery after a crash cannot double-apply. The clear settles one
+    // mailbox turn after the peer's accept (the forward runs off the root
+    // mailbox), so it is awaited rather than assumed synchronous.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while backlog_len(&reopened) != 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the delivered forward is cleared from the durable backlog"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 
     let _ = router_a.stop_gracefully().await;
     router_a.wait_for_shutdown().await;

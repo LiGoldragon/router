@@ -457,13 +457,30 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     assert_eq!(witnessed.sender, "owner");
     assert_eq!(witnessed.body, "relay across the tailnet");
 
-    // (d) Router A's trace shows the message left for a peer.
-    let trace = router_a
-        .ask(ReadRouterTrace { since: 0 })
-        .await
-        .expect("read router A trace")
-        .into_result()
-        .expect("router A trace is readable");
+    // (d) Router A's trace shows the message left for a peer. The forward's
+    // network exchange settles one mailbox turn after the submission reply,
+    // so the step is awaited rather than assumed synchronous.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let trace = loop {
+        let trace = router_a
+            .ask(ReadRouterTrace { since: 0 })
+            .await
+            .expect("read router A trace")
+            .into_result()
+            .expect("router A trace is readable");
+        if trace
+            .events()
+            .iter()
+            .any(|event| event.step() == RouterTraceStep::ForwardedRemote)
+        {
+            break trace;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "router A trace never recorded ForwardedRemote"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
     let forwarded = trace
         .events()
         .iter()
@@ -745,13 +762,29 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     assert_eq!(notice.store, signal_mirror::StoreName::new("spirit"));
     assert_eq!(notice.head.sequence, signal_mirror::CommitSequence::new(1));
 
-    // Router A's trace records that the origination left for a peer.
-    let trace = router_a
-        .ask(ReadRouterTrace { since: 0 })
-        .await
-        .expect("read router A trace")
-        .into_result()
-        .expect("router A trace is readable");
+    // Router A's trace records that the origination left for a peer — awaited,
+    // since the forward settles one mailbox turn after the submission reply.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let trace = loop {
+        let trace = router_a
+            .ask(ReadRouterTrace { since: 0 })
+            .await
+            .expect("read router A trace")
+            .into_result()
+            .expect("router A trace is readable");
+        if trace
+            .events()
+            .iter()
+            .any(|event| event.step() == RouterTraceStep::ForwardedRemote)
+        {
+            break trace;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "router A trace never recorded ForwardedRemote for the origination"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
     assert!(
         trace
             .events()

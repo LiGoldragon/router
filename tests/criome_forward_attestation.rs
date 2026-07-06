@@ -469,25 +469,36 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
     assert_eq!(witnessed.sender, "owner");
     assert_eq!(witnessed.body, "relay under real criome");
 
-    // Router A's durable trace records the remote forward.
-    let trace = router_a
-        .ask(ReadRouterTrace { since: 0 })
-        .await
-        .expect("read router A trace")
-        .into_result()
-        .expect("router A trace is readable");
-    assert!(
-        trace
+    // Router A's durable trace records the remote forward. The forward's
+    // network exchange runs off the root mailbox and its outcome settles one
+    // mailbox turn later, so the step is awaited rather than assumed
+    // synchronous with the submission reply.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let trace = router_a
+            .ask(ReadRouterTrace { since: 0 })
+            .await
+            .expect("read router A trace")
+            .into_result()
+            .expect("router A trace is readable");
+        if trace
             .events()
             .iter()
-            .any(|event| event.step() == RouterTraceStep::ForwardedRemote),
-        "router A trace should record ForwardedRemote, got {:?}",
-        trace
-            .events()
-            .iter()
-            .map(|event| event.step())
-            .collect::<Vec<_>>()
-    );
+            .any(|event| event.step() == RouterTraceStep::ForwardedRemote)
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "router A trace should record ForwardedRemote, got {:?}",
+            trace
+                .events()
+                .iter()
+                .map(|event| event.step())
+                .collect::<Vec<_>>()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 
     let _ = router_a.stop_gracefully().await;
     router_a.wait_for_shutdown().await;

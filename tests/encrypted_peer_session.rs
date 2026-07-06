@@ -452,13 +452,27 @@ async fn two_routers_establish_a_mutual_criome_vouched_encrypted_session() {
     assert_eq!(witnessed.sender, "owner");
     assert_eq!(witnessed.body, "mirror over the encrypted session");
 
-    // The session-up seam reached RouterRoot: `.5` drains its outbox from here.
-    let sessions = router_a
-        .ask(ReadRouterPeerSessions)
-        .await
-        .expect("read router A peer sessions")
-        .into_result()
-        .expect("router A peer sessions are readable");
+    // The session-up seam reached RouterRoot: `.5` drains its outbox from
+    // here. The forward's network exchange settles one mailbox turn after the
+    // submission reply, so the event is awaited rather than assumed
+    // synchronous.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let sessions = loop {
+        let sessions = router_a
+            .ask(ReadRouterPeerSessions)
+            .await
+            .expect("read router A peer sessions")
+            .into_result()
+            .expect("router A peer sessions are readable");
+        if !sessions.established.is_empty() {
+            break sessions;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "an encrypted session to the peer never registered"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
     assert_eq!(
         sessions.established.len(),
         1,
