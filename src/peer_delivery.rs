@@ -60,6 +60,11 @@ pub struct RouterPeerDelivery {
     sessions: HashMap<PeerAddressKey, PeerSessionSlot>,
     attempted_forward_count: u64,
     nonce_sequence: u64,
+    /// A per-instance boot token folded into every minted nonce, so a
+    /// RESTARTED router never re-mints a `(signer, nonce)` pair its peer's
+    /// replay window already admitted — a plain pid+sequence nonce would lock
+    /// a restarted router out of its peers for the whole freshness window.
+    nonce_instance: u128,
     /// Monotonic identifier stamped on each newly-established session, so a
     /// re-established session is distinguishable and the seam consumer (`.5`)
     /// can dedupe.
@@ -71,12 +76,17 @@ impl RouterPeerDelivery {
         verifier: Arc<dyn ForwardAttestationVerifier>,
         identity_prover: Option<Arc<dyn PeerIdentityProver>>,
     ) -> Self {
+        let nonce_instance = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
         Self {
             verifier,
             identity_prover,
             sessions: HashMap::new(),
             attempted_forward_count: 0,
             nonce_sequence: 0,
+            nonce_instance,
             session_epoch: 0,
         }
     }
@@ -154,8 +164,9 @@ impl RouterPeerDelivery {
     fn next_nonce(&mut self) -> ReplayNonce {
         self.nonce_sequence = self.nonce_sequence.saturating_add(1);
         ReplayNonce::new(format!(
-            "router-forward-{}-{}",
+            "router-forward-{}-{}-{}",
             std::process::id(),
+            self.nonce_instance,
             self.nonce_sequence
         ))
     }
