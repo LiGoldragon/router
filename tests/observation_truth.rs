@@ -223,8 +223,8 @@ async fn meta_revoke_disables_channel_visible_to_working_observation() {
 
     let revoke = router
         .apply_meta(MetaInput::revoke(MetaChannelRevocation {
-            channel: channel.clone(),
-            reason: "operator closed the channel".to_string().into(),
+            channel_identifier: channel.clone(),
+            text_body: "operator closed the channel".to_string().into(),
         }))
         .await
         .expect("meta revoke passes through router runtime");
@@ -273,8 +273,8 @@ async fn meta_extend_updates_channel_lifetime_in_router_tables() {
 
     let extend = router
         .apply_meta(MetaInput::extend(MetaChannelExtension {
-            channel: channel.clone(),
-            duration: MetaChannelDuration::time_bound(21_000_000_000),
+            channel_identifier: channel.clone(),
+            channel_duration: MetaChannelDuration::time_bound(21_000_000_000),
         }))
         .await
         .expect("meta extend passes through router runtime");
@@ -336,8 +336,8 @@ async fn meta_deny_clears_pending_adjudication_from_runtime_and_tables() {
 
     let deny = router
         .apply_meta(MetaInput::deny(MetaAdjudicationDenial {
-            request: message.id.as_str().to_string().into(),
-            reason: "meta policy refused the delivery".to_string().into(),
+            adjudication_request_identifier: message.id.as_str().to_string().into(),
+            text_body: "meta policy refused the delivery".to_string().into(),
         }))
         .await
         .expect("meta deny passes through router runtime");

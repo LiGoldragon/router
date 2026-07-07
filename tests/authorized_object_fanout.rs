@@ -140,9 +140,9 @@ async fn criome_reference_projects_to_router_reference_only_pulse() {
     assert!(subscriber.references.is_empty());
 
     let criome_reference = signal_criome::AuthorizedObjectReference {
-        component: signal_criome::ComponentKind::Spirit,
-        digest: signal_criome::ObjectDigest::new("spirit-head-digest"),
-        kind: signal_criome::AuthorizedObjectKind::Head,
+        component_kind: signal_criome::ComponentKind::Spirit,
+        object_digest: signal_criome::ObjectDigest::new("spirit-head-digest"),
+        authorized_object_kind: signal_criome::AuthorizedObjectKind::Head,
     };
     let publication = router
         .ask(PublishAuthorizedObjectReference {
@@ -157,11 +157,11 @@ async fn criome_reference_projects_to_router_reference_only_pulse() {
         ActorIdentifier::new("spirit-replica")
     );
     assert_eq!(
-        publication.deliveries[0].reference.digest.as_str(),
+        publication.deliveries[0].reference.object_digest.as_str(),
         "spirit-head-digest"
     );
     assert_eq!(
-        publication.deliveries[0].reference.kind,
+        publication.deliveries[0].reference.authorized_object_kind,
         AuthorizedObjectKind::Head
     );
     router

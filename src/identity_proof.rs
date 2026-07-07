@@ -91,18 +91,18 @@ impl CriomeIdentityProver {
 
     fn content_reference(&self, digest: ObjectDigest) -> ContentReference {
         ContentReference {
-            digest,
-            purpose: ContentPurpose::SignedObject,
-            schema_version: PrincipalName::new(Self::SCHEMA_VERSION.to_string()),
+            object_digest: digest,
+            content_purpose: ContentPurpose::SignedObject,
+            principal_name: PrincipalName::new(Self::SCHEMA_VERSION.to_string()),
         }
     }
 
     fn audit_context(&self, challenge: &str) -> AuditContext {
         AuditContext {
-            purpose: ContentPurpose::SignedObject,
+            content_purpose: ContentPurpose::SignedObject,
             audience: PrincipalName::new(Self::AUDIENCE.to_string()),
             policy_version: PrincipalName::new(Self::POLICY_VERSION.to_string()),
-            nonce: signal_criome::ReplayNonce::new(challenge.to_string()),
+            replay_nonce: signal_criome::ReplayNonce::new(challenge.to_string()),
         }
     }
 
@@ -130,11 +130,19 @@ impl CriomeIdentityProver {
         Ok(RouterIdentityProof::new(
             self.identity.clone(),
             SignatureScheme::Bls12_381MinPk,
-            attestation.envelope.public_key.as_str().to_string(),
-            attestation.envelope.signature.as_str().to_string(),
+            attestation
+                .signature_envelope
+                .bls_public_key
+                .as_str()
+                .to_string(),
+            attestation
+                .signature_envelope
+                .bls_signature
+                .as_str()
+                .to_string(),
             digest.as_str().to_string(),
             ReplayNonce::new(challenge),
-            TimestampNanos::new(attestation.issued_at.into_u64()),
+            TimestampNanos::new(attestation.timestamp_nanos.into_u64()),
         ))
     }
 
@@ -157,9 +165,9 @@ impl CriomeIdentityProver {
     fn reconstruct_attestation(&self, proof: &RouterIdentityProof) -> Attestation {
         let signed_digest = ObjectDigest::new(proof.digest().to_string());
         let envelope = SignatureEnvelope {
-            scheme: Self::criome_scheme(proof.scheme()),
-            public_key: BlsPublicKey::new(proof.public_key().to_string()),
-            signature: BlsSignature::new(proof.signature().to_string()),
+            signature_scheme: Self::criome_scheme(proof.scheme()),
+            bls_public_key: BlsPublicKey::new(proof.public_key().to_string()),
+            bls_signature: BlsSignature::new(proof.signature().to_string()),
         };
         let criome_issued_at =
             signal_criome::TimestampNanos::new(*proof.attestation_issued_at().payload());

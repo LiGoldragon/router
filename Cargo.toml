@@ -79,7 +79,8 @@ nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
 witness = ["dep:signal-mirror", "nota-text"]
 
 [build-dependencies]
-schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
+schema = { git = "https://github.com/LiGoldragon/schema.git", rev = "4a8aaf1de3aaf476577d5b4e93691ef47c135d1a" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", rev = "255823ab3d0d6c5cab26e26a8b1d60c63c52c7b4" }
 
 [dev-dependencies]
 criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "main", default-features = false }

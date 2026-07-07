@@ -117,13 +117,16 @@ impl MultiComponentSink {
                 let signal_mirror::Input::NotifyObject(notice) = input else {
                     break;
                 };
-                if sender.send(*notice.head.sequence.payload()).is_err() {
+                if sender
+                    .send(*notice.head_mark.commit_sequence.payload())
+                    .is_err()
+                {
                     break;
                 }
                 let reply = signal_mirror::Output::ObjectNoticeAccepted(
                     signal_mirror::ObjectNoticeReceipt {
-                        store: notice.store,
-                        head: notice.head,
+                        store_name: notice.store_name,
+                        head_mark: notice.head_mark,
                     },
                 )
                 .encode_signal_frame()
@@ -173,8 +176,8 @@ fn mirror_origination(sequence: u64) -> signal_router::ForwardedMessagePayload {
     let payload = signal_mirror::Input::NotifyObject(signal_mirror::ObjectNotice::new(
         signal_mirror::StoreName::new("spirit"),
         signal_mirror::HeadMark {
-            sequence: signal_mirror::CommitSequence::new(sequence),
-            digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new(
+            commit_sequence: signal_mirror::CommitSequence::new(sequence),
+            entry_digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new(
                 [digest_byte; 32],
             )),
         },

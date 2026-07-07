@@ -52,9 +52,9 @@ use signal_persona::{
 use signal_router::{
     Actor as BootstrapActor, CriomeHostId, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
-    MessageSlot as RouterMessageSlot, RouterBootstrapDocument,
-    RouterBootstrapOperation, RouterDaemonConfiguration, RouterForwardRefusalReason,
-    RouterForwardRequest, RouterSessionData, SessionRefusalReason,
+    MessageSlot as RouterMessageSlot, RouterBootstrapDocument, RouterBootstrapOperation,
+    RouterDaemonConfiguration, RouterForwardRefusalReason, RouterForwardRequest, RouterSessionData,
+    SessionRefusalReason,
 };
 use signal_router::{
     Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
@@ -2326,12 +2326,12 @@ impl RouterRoot {
         &mut self,
         extension: MetaChannelExtension,
     ) -> RouterResult<MetaOutput> {
-        let channel = extension.channel;
+        let channel = extension.channel_identifier;
         let extended = self
             .channels
             .ask(ExtendChannel::new(
                 OriginChannelIdentifier::new(channel.payload().clone()),
-                Self::meta_channel_lifetime(extension.duration),
+                Self::meta_channel_lifetime(extension.channel_duration),
             ))
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
@@ -2352,7 +2352,7 @@ impl RouterRoot {
         &mut self,
         revocation: MetaChannelRevocation,
     ) -> RouterResult<MetaOutput> {
-        let channel = revocation.channel;
+        let channel = revocation.channel_identifier;
         let revoked = self
             .channels
             .ask(RetractChannelByIdentifier::new(
@@ -2377,11 +2377,11 @@ impl RouterRoot {
         &mut self,
         denial: MetaAdjudicationDenial,
     ) -> RouterResult<MetaOutput> {
-        let request = denial.request;
+        let request = denial.adjudication_request_identifier;
         let rejected = self
             .deny_adjudication(&MindAdjudicationDeny {
                 request: AdjudicationRequestIdentifier::new(request.payload().clone()),
-                reason: MindTextBody::new(denial.reason.into_payload()),
+                reason: MindTextBody::new(denial.text_body.into_payload()),
             })
             .await?;
         if rejected > 0 {
@@ -2405,7 +2405,7 @@ impl RouterRoot {
         Ok(GrantChannel::direct_message(
             Self::meta_endpoint_actor_identifier(&grant.source),
             Self::meta_endpoint_actor_identifier(&grant.destination),
-            Self::meta_channel_lifetime(grant.duration),
+            Self::meta_channel_lifetime(grant.channel_duration),
         ))
     }
 
@@ -2468,7 +2468,7 @@ impl RouterRoot {
             MetaConnectionClass::OtherPersona(engine) => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
                 engine.engine_identifier.payload(),
-                engine.host.payload()
+                engine.host_name.payload()
             )),
             MetaConnectionClass::Network(peer) => {
                 ActorIdentifier::new(format!("network-{}", peer.payload()))
@@ -2480,7 +2480,10 @@ impl RouterRoot {
         operation: MetaOperationKind,
         reason: MetaChannelOrderRejectionReason,
     ) -> MetaOutput {
-        MetaOutput::channel_order_rejected(MetaRejectedChannelOrder { operation, reason })
+        MetaOutput::channel_order_rejected(MetaRejectedChannelOrder {
+            operation_kind: operation,
+            channel_order_rejection_reason: reason,
+        })
     }
 
     async fn apply_stamped_message_submission(
@@ -2757,9 +2760,7 @@ impl RouterRoot {
                                     .await
                                 {
                                     Ok(reply) => reply.into_parts(),
-                                    Err(error) => {
-                                        (Err(Error::ActorCall(error.to_string())), None)
-                                    }
+                                    Err(error) => (Err(Error::ActorCall(error.to_string())), None),
                                 };
                                 let _ = root
                                     .tell(SettleRemoteForward {

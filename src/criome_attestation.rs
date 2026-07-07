@@ -103,9 +103,9 @@ impl CriomeForwardAttestation {
     /// purpose and schema version both sides reproduce.
     fn content_reference(&self, digest: ObjectDigest) -> ContentReference {
         ContentReference {
-            digest,
-            purpose: ContentPurpose::SignedObject,
-            schema_version: PrincipalName::new(Self::SCHEMA_VERSION.to_string()),
+            object_digest: digest,
+            content_purpose: ContentPurpose::SignedObject,
+            principal_name: PrincipalName::new(Self::SCHEMA_VERSION.to_string()),
         }
     }
 
@@ -114,10 +114,10 @@ impl CriomeForwardAttestation {
     /// preimage matches.
     fn audit_context(&self, nonce: &ReplayNonce) -> AuditContext {
         AuditContext {
-            purpose: ContentPurpose::SignedObject,
+            content_purpose: ContentPurpose::SignedObject,
             audience: PrincipalName::new(Self::AUDIENCE.to_string()),
             policy_version: PrincipalName::new(Self::POLICY_VERSION.to_string()),
-            nonce: signal_criome::ReplayNonce::new(nonce.payload().clone()),
+            replay_nonce: signal_criome::ReplayNonce::new(nonce.payload().clone()),
         }
     }
 
@@ -147,12 +147,22 @@ impl CriomeForwardAttestation {
             None,
         );
         let attestation = self.client.sign(sign_request)?;
-        let criome_issued_at = TimestampNanos::new(attestation.issued_at.into_u64());
+        let criome_issued_at = TimestampNanos::new(attestation.timestamp_nanos.into_u64());
         Ok(RouterPeerAttestation {
             signer: self.router_identity.clone().into(),
             scheme: SignatureScheme::Bls12_381MinPk.into(),
-            public_key: attestation.envelope.public_key.as_str().to_string().into(),
-            signature: attestation.envelope.signature.as_str().to_string().into(),
+            public_key: attestation
+                .signature_envelope
+                .bls_public_key
+                .as_str()
+                .to_string()
+                .into(),
+            signature: attestation
+                .signature_envelope
+                .bls_signature
+                .as_str()
+                .to_string()
+                .into(),
             content_digest: digest.as_str().to_string().into(),
             issued_at: issued_at.clone().into(),
             nonce: nonce.clone().into(),
@@ -188,9 +198,9 @@ impl CriomeForwardAttestation {
     ) -> Result<Attestation, CriomeSigningError> {
         let signed_digest = ObjectDigest::new(attestation.content_digest.payload().clone());
         let envelope = SignatureEnvelope {
-            scheme: self.criome_scheme(attestation.scheme.payload()),
-            public_key: BlsPublicKey::new(attestation.public_key.payload().clone()),
-            signature: BlsSignature::new(attestation.signature.payload().clone()),
+            signature_scheme: self.criome_scheme(attestation.scheme.payload()),
+            bls_public_key: BlsPublicKey::new(attestation.public_key.payload().clone()),
+            bls_signature: BlsSignature::new(attestation.signature.payload().clone()),
         };
         let criome_issued_at = signal_criome::TimestampNanos::new(
             *attestation.attestation_issued_at.payload().payload(),

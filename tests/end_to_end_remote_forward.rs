@@ -171,8 +171,8 @@ impl ComponentSignalWitness {
             };
             let reply =
                 signal_mirror::Output::ObjectNoticeAccepted(signal_mirror::ObjectNoticeReceipt {
-                    store: notice.store,
-                    head: notice.head,
+                    store_name: notice.store_name,
+                    head_mark: notice.head_mark,
                 })
                 .encode_signal_frame()
                 .expect("component witness reply encodes");
@@ -297,8 +297,10 @@ fn spirit_mirror_notice_object() -> signal_router::RoutedContractObject {
     let payload = signal_mirror::Input::NotifyObject(signal_mirror::ObjectNotice::new(
         signal_mirror::StoreName::new("spirit"),
         signal_mirror::HeadMark {
-            sequence: signal_mirror::CommitSequence::new(1),
-            digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new([0x42; 32])),
+            commit_sequence: signal_mirror::CommitSequence::new(1),
+            entry_digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new(
+                [0x42; 32],
+            )),
         },
         None,
     ))
@@ -614,8 +616,11 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     let signal_mirror::Input::NotifyObject(notice) = mirror_socket.received() else {
         panic!("expected mirror object notice");
     };
-    assert_eq!(notice.store, signal_mirror::StoreName::new("spirit"));
-    assert_eq!(notice.head.sequence, signal_mirror::CommitSequence::new(1));
+    assert_eq!(notice.store_name, signal_mirror::StoreName::new("spirit"));
+    assert_eq!(
+        notice.head_mark.commit_sequence,
+        signal_mirror::CommitSequence::new(1)
+    );
 
     // A validly attested frame with the same verified signer and nonce is
     // refused on the second arrival before it reaches routing policy. The
@@ -759,8 +764,11 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     let signal_mirror::Input::NotifyObject(notice) = mirror_socket.received() else {
         panic!("expected mirror object notice delivered to router B");
     };
-    assert_eq!(notice.store, signal_mirror::StoreName::new("spirit"));
-    assert_eq!(notice.head.sequence, signal_mirror::CommitSequence::new(1));
+    assert_eq!(notice.store_name, signal_mirror::StoreName::new("spirit"));
+    assert_eq!(
+        notice.head_mark.commit_sequence,
+        signal_mirror::CommitSequence::new(1)
+    );
 
     // Router A's trace records that the origination left for a peer — awaited,
     // since the forward settles one mailbox turn after the submission reply.

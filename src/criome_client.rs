@@ -57,9 +57,9 @@ impl CriomeSigningClient {
     ) -> Result<VerificationDecision, CriomeSigningError> {
         match self.exchange(CriomeRequest::VerifyAttestation(VerifyRequest {
             attestation,
-            content,
+            content_reference: content,
         }))? {
-            CriomeReply::VerificationResult(result) => Ok(result.decision),
+            CriomeReply::VerificationResult(result) => Ok(result.verification_decision),
             other => Err(CriomeSigningError::UnexpectedReply(format!("{other:?}"))),
         }
     }

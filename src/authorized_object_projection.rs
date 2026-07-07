@@ -16,9 +16,9 @@ impl From<signal_criome::AuthorizedObjectReference> for StandardReference {
     fn from(reference: signal_criome::AuthorizedObjectReference) -> Self {
         Self {
             inner: AuthorizedObjectReference::new(
-                StandardComponentKind::from(reference.component).into_inner(),
-                ObjectDigest::new(reference.digest.as_str()),
-                StandardAuthorizedObjectKind::from(reference.kind).into_inner(),
+                StandardComponentKind::from(reference.component_kind).into_inner(),
+                ObjectDigest::new(reference.object_digest.as_str()),
+                StandardAuthorizedObjectKind::from(reference.authorized_object_kind).into_inner(),
             ),
         }
     }

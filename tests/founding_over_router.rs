@@ -511,12 +511,12 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router() {
             MetaInput::InitiateRootFounding(RootFoundingInitiation::new(genesis.clone())),
         ) {
             MetaOutput::RootFoundingStatus(status) => {
-                assert_eq!(status.state, RootFoundingState::Unfounded);
+                assert_eq!(status.root_founding_state, RootFoundingState::Unfounded);
                 assert!(
                     status
-                        .pending
+                        .pending_founding_vector
                         .iter()
-                        .any(|pending| pending.anchor == anchor),
+                        .any(|pending| pending.root_anchor_digest == anchor),
                     "the initiator queues its own founding pending its accept"
                 );
             }
@@ -529,9 +529,9 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router() {
             "the proposal to reach B's pending queue over the router",
             || {
                 observe_status(&meta_b)
-                    .pending
+                    .pending_founding_vector
                     .iter()
-                    .any(|pending| pending.anchor == anchor)
+                    .any(|pending| pending.root_anchor_digest == anchor)
             },
         );
 
@@ -540,18 +540,18 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router() {
         // finished root to B over the router.
         accept(&meta_a, &anchor, &genesis);
         assert_eq!(
-            observe_status(&meta_a).state,
+            observe_status(&meta_a).root_founding_state,
             RootFoundingState::Gathering,
             "the initiator's lone signature is one short of the 2-member unanimity"
         );
         accept(&meta_b, &anchor, &genesis);
 
         wait_until("A to reach a founded root over the router", || {
-            observe_status(&meta_a).state == RootFoundingState::Founded
+            observe_status(&meta_a).root_founding_state == RootFoundingState::Founded
         });
         wait_until(
             "B to reach a founded root from the router-distributed root",
-            || observe_status(&meta_b).state == RootFoundingState::Founded,
+            || observe_status(&meta_b).root_founding_state == RootFoundingState::Founded,
         );
 
         // THE WITNESSED CLAIM (anchor-identical): BOTH nodes reached `Founded`.
@@ -563,7 +563,7 @@ async fn two_hosts_found_the_same_root_anchor_over_the_real_router() {
         // root on both, conveyed over the real router.
         for (label, socket) in [("A", &meta_a), ("B", &meta_b)] {
             assert_eq!(
-                observe_status(socket).state,
+                observe_status(socket).root_founding_state,
                 RootFoundingState::Founded,
                 "node {label} founded the shared anchor over the router"
             );

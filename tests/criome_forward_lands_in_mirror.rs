@@ -219,7 +219,7 @@ impl MirrorBehindComponentSocket {
             .landed_entries(&StoreName::new(store.to_string()))
             .expect("read the mirror's landed entries")
             .into_iter()
-            .find(|entry| entry.sequence.clone().into_u64() == sequence)
+            .find(|entry| entry.commit_sequence.clone().into_u64() == sequence)
     }
 }
 
@@ -542,12 +542,12 @@ async fn criome_verified_forward_lands_an_append_in_the_co_resident_mirror() {
         .await
         .expect("the mirror head advanced — the verified forward's Append landed durably");
     assert_eq!(
-        head.sequence,
+        head.commit_sequence,
         CommitSequence::new(1),
         "the genesis Append advanced the head to sequence 1"
     );
     assert_eq!(
-        head.digest, landed_digest,
+        head.entry_digest, landed_digest,
         "the landed head digest is the forwarded entry digest"
     );
 
@@ -576,7 +576,7 @@ async fn criome_verified_forward_lands_the_real_record_body_which_rehashes_to_th
     // The REAL content-addressed genesis entry and the store head it produces —
     // Spirit's own content-addressing, sourced through the production shipper.
     let (envelope, real_head) = real_genesis_entry(store_name);
-    let shipped_body = envelope.payload.as_slice().to_vec();
+    let shipped_body = envelope.payload_bytes.as_slice().to_vec();
     let landed_digest = EntryDigest::new(FixedBytes::new(*real_head.bytes()));
     assert_ne!(
         shipped_body,
@@ -660,12 +660,12 @@ async fn criome_verified_forward_lands_the_real_record_body_which_rehashes_to_th
         .await
         .expect("the mirror head advanced — the verified forward's Append landed durably");
     assert_eq!(
-        head.sequence,
+        head.commit_sequence,
         CommitSequence::new(1),
         "genesis advanced to sequence 1"
     );
     assert_eq!(
-        head.digest, landed_digest,
+        head.entry_digest, landed_digest,
         "the landed head is the genesis entry's real content address"
     );
 
@@ -675,13 +675,14 @@ async fn criome_verified_forward_lands_the_real_record_body_which_rehashes_to_th
         .await
         .expect("the mirror durably committed the entry body");
     assert_eq!(
-        landed.payload.as_slice(),
+        landed.payload_bytes.as_slice(),
         shipped_body.as_slice(),
         "the mirror committed the EXACT forwarded body — the real entry, intact"
     );
-    let decoded =
-        rkyv::from_bytes::<VersionedCommitLogEntry, rkyv::rancor::Error>(landed.payload.as_slice())
-            .expect("the landed body is a genuine rkyv VersionedCommitLogEntry");
+    let decoded = rkyv::from_bytes::<VersionedCommitLogEntry, rkyv::rancor::Error>(
+        landed.payload_bytes.as_slice(),
+    )
+    .expect("the landed body is a genuine rkyv VersionedCommitLogEntry");
     // Re-hash through sema-engine's own content-addressing: `new` recomputes the
     // digest from the decoded fields, never trusting the body's stored digest.
     let rederived = VersionedCommitLogEntry::new(
@@ -698,7 +699,7 @@ async fn criome_verified_forward_lands_the_real_record_body_which_rehashes_to_th
         "re-deriving the digest from the LANDED body reproduces the record's real head — the value ObserveHead returns"
     );
     assert_eq!(
-        landed.digest.as_bytes(),
+        landed.entry_digest.as_bytes(),
         rederived.entry_digest().bytes(),
         "the carried head digest is the genuine content address of the body the mirror landed"
     );
