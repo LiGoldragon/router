@@ -671,15 +671,17 @@ connect-per-forward with a persistent, per-peer session:
 - **Session-up event.** Freshly establishing (or re-establishing) a session to
   a peer produces a `PeerSessionEstablished { peer, epoch }`, returned
   alongside the ordinary delivery outcome and recorded by
-  `RouterRoot::on_peer_session_established`. This is the sole trigger for the
-  outbound-backlog drain below — no polling.
+  `RouterRoot::on_peer_session_established`. Together with the route-install
+  push and the accepted-settle push (per-destination lanes, below), these are
+  the outbound-backlog drain triggers — every one an event, no polling.
 
 ### Durable outbound backlog and push redial
 
 `RouterRoot.pending` (the live, in-memory forward queue) is backed by a
 durable `outbound_backlog` SEMA table (family `router-outbound-backlog`, keyed
 by message identifier; its addition raised `ROUTER_SCHEMA_VERSION` to 2
-alongside `mirror_switch`, below):
+alongside `mirror_switch`, below; the `BacklogSequence` enqueue stamp on each
+row raised it to 4):
 
 - every pending item — a local submission, a routed-object origination, or an
   accepted inbound forward parked for further routing — is written to
@@ -698,6 +700,40 @@ alongside `mirror_switch`, below):
   `retry_pending`), which re-runs `retry_pending` over the whole live queue.
   The reconnection itself is the "peer is back" push; there is no liveness
   poll.
+
+### Per-destination delivery lanes — forward order is a routing property
+
+Remote forwards dispatch OFF the root mailbox (a spawned task per forward,
+settled by a `SettleRemoteForward` push), so two routers forwarding toward
+each other can never cross-deadlock. Unconstrained, those spawned exchanges
+would race and reorder pushes to one destination — fatal for a chained-log
+consumer (mirroring) that refuses gaps. Order is therefore enforced as a
+property of routing, never of any payload:
+
+- every admitted pending item carries a `BacklogSequence` enqueue stamp
+  (router-global, monotonic, persisted on its `outbound_backlog` row);
+  `RouterRoot.pending` stays sorted by it, rehydration restores it
+  (`outbound_forward_records` returns rows sorted at the storage boundary),
+  so the queue IS the total delivery order and per-destination order falls
+  out of filtering it;
+- `RemoteForwardLanes` admits at most ONE in-flight remote forward per
+  destination actor: `retry_pending` walks the queue in stamp order and
+  dispatches only a free lane's first message; followers park in place;
+- within one walk, a parked message HOLDS its destination (`HeldBacklog`):
+  route resolution is an ask, so topology can change mid-walk, and a later
+  message whose resolution suddenly succeeds must not overtake its parked
+  predecessor;
+- the settle frees the lane: an accepted settle clears the durable row and
+  pushes a fresh drain (the lane-freed event) so the destination's
+  next-in-order forward leaves immediately; a refused or transport-failed
+  settle re-parks the message at its stamp position — the head of its own
+  lane — so the retry happens in order (head-of-line blocking per
+  destination, exactly the chained-log semantics) and waits for the next
+  session-up or topology push, never a busy retry;
+- different destinations stay concurrent: a hung exchange occupies only its
+  own lane and never a mailbox turn (`tests/forward_ordering.rs` witnesses
+  both properties; `tests/outbound_backlog_durable.rs` witnesses that the
+  order survives a restart).
 
 ### Off-by-default mirror toggle (`SetMirrorEnabled`)
 

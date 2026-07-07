@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::io::{BufReader, Read, Write};
 use std::net::SocketAddr;
@@ -102,8 +103,8 @@ use crate::remote_router::{
 };
 use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 use crate::{
-    Actor, ActorIdentifier, EndpointKind, EndpointTransport, Error, Message, MessageIdentifier,
-    RouterResult, RouterTables, StoredOutboundForward, ThreadIdentifier,
+    Actor, ActorIdentifier, BacklogSequence, EndpointKind, EndpointTransport, Error, Message,
+    MessageIdentifier, RouterResult, RouterTables, StoredOutboundForward, ThreadIdentifier,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream as TokioTcpStream;
@@ -2103,6 +2104,85 @@ pub struct RouterRoot {
     /// mailbox rather than re-entering `retry_pending` mid-forward — a fresh
     /// mailbox turn, not a recursive drain, and never a poll.
     self_reference: Option<ActorRef<RouterRoot>>,
+    /// The last minted enqueue stamp (the per-destination-ordering
+    /// prerequisite). Every admitted pending item carries the next value, so
+    /// `pending` — always kept sorted by it — is the total delivery order the
+    /// lanes drain in. Restored from the durable rows on rehydration so
+    /// ordering survives a restart.
+    backlog_sequence: BacklogSequence,
+    /// The per-destination remote-forward lanes: which destinations have a
+    /// forward in flight right now. See `RemoteForwardLanes`.
+    remote_forward_lanes: RemoteForwardLanes,
+}
+
+/// The per-destination remote-forward lanes (the chained-log-mirroring
+/// prerequisite; security finding F4). At most one remote forward is in
+/// flight per destination actor: `retry_pending` walks the backlog in
+/// enqueue order and dispatches only a free lane's first message, so pushes
+/// to one destination leave — and therefore arrive — in submission order,
+/// while different destinations dispatch concurrently. Only occupancy lives
+/// here; the order itself lives in the sequence-sorted pending queue, so a
+/// re-parked forward naturally blocks its own lane (head-of-line blocking
+/// per destination — exactly the chained-log semantics) without touching any
+/// other. The network exchange still runs OFF the root mailbox, so the
+/// cross-forward deadlock fix stands: a busy lane parks followers, it never
+/// blocks a mailbox turn.
+#[derive(Debug, Default)]
+struct RemoteForwardLanes {
+    occupied: HashSet<ActorIdentifier>,
+}
+
+impl RemoteForwardLanes {
+    fn is_occupied(&self, destination: &ActorIdentifier) -> bool {
+        self.occupied.contains(destination)
+    }
+
+    fn occupy(&mut self, destination: ActorIdentifier) {
+        self.occupied.insert(destination);
+    }
+
+    fn release(&mut self, destination: &ActorIdentifier) {
+        self.occupied.remove(destination);
+    }
+}
+
+/// The messages held back during one `retry_pending` walk, in walk (enqueue)
+/// order, plus the FIFO consequence of each park: once a message to a
+/// destination parks — lane busy, no route, adjudication, endpoint miss —
+/// that destination is HELD for the rest of the walk, and no later message
+/// to it may dispatch. Route resolution and channel checks are asks, so
+/// topology can change between two messages of ONE walk; without the hold, a
+/// later message whose resolution suddenly succeeds would overtake its parked
+/// predecessor and break per-destination order.
+struct HeldBacklog {
+    parked: Vec<PendingRouterMessage>,
+    held_destinations: HashSet<ActorIdentifier>,
+}
+
+impl HeldBacklog {
+    fn new() -> Self {
+        Self {
+            parked: Vec::new(),
+            held_destinations: HashSet::new(),
+        }
+    }
+
+    /// Park one message for the rest of this walk and hold its destination so
+    /// no later message overtakes it.
+    fn park(&mut self, pending: PendingRouterMessage) {
+        self.held_destinations.insert(pending.message.to.clone());
+        self.parked.push(pending);
+    }
+
+    fn holds(&self, destination: &ActorIdentifier) -> bool {
+        self.held_destinations.contains(destination)
+    }
+
+    /// The parked messages, still in walk order, ready to become the live
+    /// queue again.
+    fn into_parked(self) -> Vec<PendingRouterMessage> {
+        self.parked
+    }
 }
 
 impl RouterRoot {
@@ -2135,6 +2215,8 @@ impl RouterRoot {
             mirror_enabled,
             peer_sessions: Vec::new(),
             self_reference: None,
+            backlog_sequence: BacklogSequence::new(0),
+            remote_forward_lanes: RemoteForwardLanes::default(),
         }
     }
 
@@ -2149,7 +2231,10 @@ impl RouterRoot {
                 Ok(RouterOutput::Registered(Registered { actors }))
             }
             RouterInput::RouteMessage(input) => {
-                let pending = PendingRouterMessage::internal_router(input.message);
+                let pending = PendingRouterMessage::internal_router(
+                    self.next_backlog_sequence(),
+                    input.message,
+                );
                 let message_identifier = pending.message.id.clone();
                 self.persist_message(&pending.message, &pending.origin, None)?;
                 self.persist_outbound_backlog(&pending)?;
@@ -2500,7 +2585,8 @@ impl RouterRoot {
         let slot = self.next_signal_message_slot();
         let message = self.signal_message(sender, stamped.message_submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
-        let pending = PendingRouterMessage::new(message.clone(), origin);
+        let pending =
+            PendingRouterMessage::new(self.next_backlog_sequence(), message.clone(), origin);
         self.persist_outbound_backlog(&pending)?;
         self.pending.push(pending);
         self.signal_slots
@@ -2548,8 +2634,12 @@ impl RouterRoot {
         };
         let message = self.signal_message(sender, message_submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
-        let pending =
-            PendingRouterMessage::origin_with_objects(message.clone(), origin, routed_objects);
+        let pending = PendingRouterMessage::origin_with_objects(
+            self.next_backlog_sequence(),
+            message.clone(),
+            origin,
+            routed_objects,
+        );
         self.persist_outbound_backlog(&pending)?;
         self.pending.push(pending);
         self.signal_slots
@@ -2579,6 +2669,14 @@ impl RouterRoot {
     fn next_delivery_sequence(&mut self) -> u64 {
         self.delivery_sequence = self.delivery_sequence.saturating_add(1);
         self.delivery_sequence
+    }
+
+    /// Mint the enqueue stamp for one newly admitted pending item. Monotonic
+    /// per root, so pushing new admissions at the queue tail keeps `pending`
+    /// sorted by stamp — the total order the per-destination lanes drain in.
+    fn next_backlog_sequence(&mut self) -> BacklogSequence {
+        self.backlog_sequence = self.backlog_sequence.next();
+        self.backlog_sequence
     }
 
     fn signal_message(
@@ -2653,6 +2751,13 @@ impl RouterRoot {
         };
         match tables.outbound_forward_records() {
             Ok(rows) => {
+                // Rows arrive in backlog-sequence order (the storage boundary
+                // sorts), so the rehydrated queue keeps its sorted invariant
+                // and new admissions stamp AFTER every parked row — ordering
+                // survives the restart.
+                if let Some(last) = rows.last() {
+                    self.backlog_sequence = self.backlog_sequence.max(last.backlog_sequence);
+                }
                 self.pending = rows
                     .into_iter()
                     .map(PendingRouterMessage::from_stored)
@@ -2711,7 +2816,7 @@ impl RouterRoot {
 
     async fn retry_pending(&mut self) -> RouterResult<u64> {
         let mut delivered = 0;
-        let mut next = Vec::new();
+        let mut next = HeldBacklog::new();
         let mut messages = std::mem::take(&mut self.pending).into_iter();
         while let Some(pending) = messages.next() {
             let message = pending.message.clone();
@@ -2724,7 +2829,7 @@ impl RouterRoot {
             {
                 Ok(target) => target,
                 Err(error) => {
-                    self.restore_pending_after_error(next, Some(pending), messages);
+                    self.restore_pending_after_error(next.into_parked(), Some(pending), messages);
                     return Err(Error::ActorCall(error.to_string()));
                 }
             };
@@ -2737,6 +2842,22 @@ impl RouterRoot {
                 if pending.may_resolve_remote()
                     && let Some(route) = self.resolve_remote_route(&message.to).await?
                 {
+                    // Per-destination FIFO lane (the chained-log-mirroring
+                    // prerequisite): the queue is walked in backlog order, so
+                    // the first message seen for a destination is its lane
+                    // head. A lane with a forward already in flight holds its
+                    // followers in place — order kept, nothing blocked — and
+                    // the settle push frees the lane for the next in order.
+                    // The held-destination check closes the mid-walk race:
+                    // route resolution is an ask, so topology can change
+                    // between two resolutions in ONE walk — an earlier message
+                    // parked unroutable must not be overtaken by a later one
+                    // whose resolution suddenly succeeds.
+                    if self.remote_forward_lanes.is_occupied(&message.to) || next.holds(&message.to)
+                    {
+                        next.park(pending);
+                        continue;
+                    }
                     // Dispatch the remote forward OFF this mailbox. Two
                     // routers forwarding toward each other at once must never
                     // cross-deadlock: the peer's accept requires ITS mailbox
@@ -2748,6 +2869,7 @@ impl RouterRoot {
                     // idempotently rather than losing the forward.
                     match &self.self_reference {
                         Some(self_reference) => {
+                            self.remote_forward_lanes.occupy(message.to.clone());
                             let root = self_reference.clone();
                             let peer_delivery = self.peer_delivery.clone();
                             tokio::spawn(async move {
@@ -2774,11 +2896,11 @@ impl RouterRoot {
                         // No self handle (never started as an actor): the
                         // message stays parked and the durable row keeps it
                         // for the next drain.
-                        None => next.push(pending),
+                        None => next.park(pending),
                     }
                     continue;
                 }
-                next.push(pending);
+                next.park(pending);
                 continue;
             };
             let decision = self
@@ -2800,17 +2922,17 @@ impl RouterRoot {
                     })
                     .await
                 {
-                    self.restore_pending_after_error(next, Some(pending), messages);
+                    self.restore_pending_after_error(next.into_parked(), Some(pending), messages);
                     return Err(Error::ActorCall(error.to_string()));
                 }
-                next.push(pending);
+                next.park(pending);
                 continue;
             }
             let delivery_sequence = self.next_delivery_sequence();
             if let Some(tables) = &self.tables
                 && let Err(error) = tables.insert_delivery_attempt(delivery_sequence, &message.id)
             {
-                self.restore_pending_after_error(next, Some(pending), messages);
+                self.restore_pending_after_error(next.into_parked(), Some(pending), messages);
                 return Err(error);
             }
             self.trace
@@ -2831,14 +2953,14 @@ impl RouterRoot {
             {
                 Ok(reply) => reply,
                 Err(error) => {
-                    self.restore_pending_after_error(next, Some(pending), messages);
+                    self.restore_pending_after_error(next.into_parked(), Some(pending), messages);
                     return Err(Error::ActorCall(error.to_string()));
                 }
             };
             let delivery_result = match delivery_reply.into_result() {
                 Ok(result) => result,
                 Err(error) => {
-                    self.restore_pending_after_error(next, Some(pending), messages);
+                    self.restore_pending_after_error(next.into_parked(), Some(pending), messages);
                     return Err(error);
                 }
             };
@@ -2846,7 +2968,7 @@ impl RouterRoot {
                 && let Err(error) =
                     tables.insert_delivery_result(delivery_sequence, &message.id, delivery_result)
             {
-                self.restore_pending_after_error(next, Some(pending), messages);
+                self.restore_pending_after_error(next.into_parked(), Some(pending), messages);
                 return Err(error);
             }
             if delivery_result {
@@ -2866,7 +2988,7 @@ impl RouterRoot {
                     })
                     .await
                 {
-                    self.restore_pending_after_error(next, None, messages);
+                    self.restore_pending_after_error(next.into_parked(), None, messages);
                     return Err(Error::ActorCall(error.to_string()));
                 }
                 delivered += 1;
@@ -2874,15 +2996,28 @@ impl RouterRoot {
                     .record(message.id.clone(), RouterTraceStep::DeliveryMarked);
                 // Delivered locally — the durable backlog row is terminal.
                 if let Err(error) = self.clear_outbound_backlog(&message.id) {
-                    self.restore_pending_after_error(next, None, messages);
+                    self.restore_pending_after_error(next.into_parked(), None, messages);
                     return Err(error);
                 }
             } else {
-                next.push(pending);
+                next.park(pending);
             }
         }
-        self.pending = next;
+        self.pending = next.into_parked();
         Ok(delivered)
+    }
+
+    /// Re-park one pending item at its backlog-order position, NOT the tail.
+    /// The queue's sort by enqueue stamp IS the per-destination FIFO: a
+    /// re-parked forward carries the lowest stamp of its destination's
+    /// messages, so it re-enters at the head of its own lane and the next
+    /// attempt retries it first — head-of-line blocking per destination,
+    /// exactly the chained-log semantics.
+    fn park_pending_in_order(&mut self, pending: PendingRouterMessage) {
+        let position = self
+            .pending
+            .partition_point(|queued| queued.backlog_sequence <= pending.backlog_sequence);
+        self.pending.insert(position, pending);
     }
 
     fn restore_pending_after_error(
@@ -2969,6 +3104,7 @@ impl RouterRoot {
         let message = self.signal_message(sender, submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
         let pending = PendingRouterMessage::forwarded_with_objects(
+            self.next_backlog_sequence(),
             message.clone(),
             origin,
             payload.routed_objects().to_vec(),
@@ -3030,6 +3166,10 @@ impl RouterRoot {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingRouterMessage {
+    /// The enqueue stamp fixing this item's place in the total delivery
+    /// order. `RouterRoot::pending` stays sorted by it, so a re-parked
+    /// forward re-enters at the head of its own destination's lane.
+    backlog_sequence: BacklogSequence,
     message: Message,
     origin: SignalMessageOrigin,
     routed_objects: Vec<signal_router::RoutedContractObject>,
@@ -3044,8 +3184,13 @@ struct PendingRouterMessage {
 }
 
 impl PendingRouterMessage {
-    fn new(message: Message, origin: SignalMessageOrigin) -> Self {
+    fn new(
+        backlog_sequence: BacklogSequence,
+        message: Message,
+        origin: SignalMessageOrigin,
+    ) -> Self {
         Self {
+            backlog_sequence,
             message,
             origin,
             routed_objects: Vec::new(),
@@ -3053,8 +3198,9 @@ impl PendingRouterMessage {
         }
     }
 
-    fn internal_router(message: Message) -> Self {
+    fn internal_router(backlog_sequence: BacklogSequence, message: Message) -> Self {
         Self::new(
+            backlog_sequence,
             message,
             SignalMessageOrigin::Internal(SignalComponentName::Router),
         )
@@ -3065,11 +3211,13 @@ impl PendingRouterMessage {
     /// standing-daemon twin of `forwarded_with_objects`. The message body still
     /// drives router policy; the opaque objects ride to the peer unread.
     fn origin_with_objects(
+        backlog_sequence: BacklogSequence,
         message: Message,
         origin: SignalMessageOrigin,
         routed_objects: Vec<signal_router::RoutedContractObject>,
     ) -> Self {
         Self {
+            backlog_sequence,
             message,
             origin,
             routed_objects,
@@ -3081,11 +3229,13 @@ impl PendingRouterMessage {
     /// objects. The message body still drives router policy; the opaque
     /// objects ride to component-socket delivery without router decode.
     fn forwarded_with_objects(
+        backlog_sequence: BacklogSequence,
         message: Message,
         origin: SignalMessageOrigin,
         routed_objects: Vec<signal_router::RoutedContractObject>,
     ) -> Self {
         Self {
+            backlog_sequence,
             message,
             origin,
             routed_objects,
@@ -3103,6 +3253,7 @@ impl PendingRouterMessage {
     /// against the append-only `messages` log.
     fn to_stored(&self) -> StoredOutboundForward {
         StoredOutboundForward::new(
+            self.backlog_sequence,
             self.message.clone(),
             self.origin.clone(),
             self.routed_objects.clone(),
@@ -3111,10 +3262,12 @@ impl PendingRouterMessage {
     }
 
     /// Rebuild a pending item from a rehydrated backlog row after a restart.
-    /// The reconstruction is lossless: the same message identity, objects, and
-    /// loop guard the daemon parked before it went away.
+    /// The reconstruction is lossless: the same enqueue stamp, message
+    /// identity, objects, and loop guard the daemon parked before it went
+    /// away — so the delivery order survives the restart too.
     fn from_stored(stored: StoredOutboundForward) -> Self {
         Self {
+            backlog_sequence: stored.backlog_sequence,
             message: stored.message,
             origin: stored.origin,
             routed_objects: stored.routed_objects,
@@ -3608,6 +3761,10 @@ impl kameo::message::Message<SettleRemoteForward> for RouterRoot {
             result,
             session_established,
         } = message;
+        // Whatever the outcome, this destination's lane is free again: the
+        // in-flight forward just settled. On failure the item re-parks at the
+        // head of its own lane below, so the next attempt retries it first.
+        self.remote_forward_lanes.release(&pending.message.to);
         if let Some(event) = session_established {
             self.on_peer_session_established(event);
         }
@@ -3625,14 +3782,21 @@ impl kameo::message::Message<SettleRemoteForward> for RouterRoot {
                 }
                 self.trace
                     .record(pending.message.id.clone(), RouterTraceStep::ForwardedRemote);
+                // The lane just freed with its head delivered: push a drain so
+                // the destination's next-in-order forward leaves now. The
+                // settle IS the event — a push seam like session-established,
+                // never a poll. A failed settle schedules nothing: the parked
+                // head waits for the next session-up or topology push, as it
+                // always did.
+                self.schedule_outbound_backlog_drain();
             }
             // The peer refused (or replied unexpectedly): park for
             // adjudication rather than dropping.
-            Ok(_refused) => self.pending.push(pending),
+            Ok(_refused) => self.park_pending_in_order(pending),
             // Transport failure — the peer is unreachable: the durable row
             // stands and the message re-parks for the session-established
             // drain. Never dropped, never busy-retried.
-            Err(_transport) => self.pending.push(pending),
+            Err(_transport) => self.park_pending_in_order(pending),
         }
     }
 }

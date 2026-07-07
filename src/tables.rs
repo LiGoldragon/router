@@ -23,7 +23,7 @@ use crate::{
     MessageIdentifier, RouterResult,
 };
 
-const ROUTER_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(3);
+const ROUTER_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(4);
 const CHANNELS: TableName = TableName::new("channels");
 const ADJUDICATION_PENDING: TableName = TableName::new("adjudication_pending");
 const MESSAGES: TableName = TableName::new("messages");
@@ -365,16 +365,19 @@ impl RouterTables {
         }
     }
 
-    /// The full durable outbound backlog, in no particular order. The root reads
-    /// this once on start to rehydrate its live pending queue before it admits
-    /// new work.
+    /// The full durable outbound backlog, in backlog-sequence (enqueue) order.
+    /// The engine returns rows unordered, so the enqueue order is restored here
+    /// at the storage boundary — the root reads this once on start to rehydrate
+    /// its live pending queue, already sorted, before it admits new work.
     pub fn outbound_forward_records(&self) -> RouterResult<Vec<StoredOutboundForward>> {
-        Ok(self
+        let mut records = self
             .store
             .engine
             .match_records(QueryPlan::all(self.store.outbound_backlog))?
             .records()
-            .to_vec())
+            .to_vec();
+        records.sort_by_key(|record| record.backlog_sequence);
+        Ok(records)
     }
 
     /// Durably record one Criome-host-ID-keyed route (Slice A2,
@@ -629,16 +632,44 @@ impl EngineRecord for StoredMirrorSwitch {
     }
 }
 
+/// The per-router monotonic enqueue stamp on one outbound forward (the
+/// per-destination-ordering prerequisite of chained-log mirroring; security
+/// finding F4). It is the total order the delivery lanes drain in: the live
+/// queue stays sorted by it, rehydration restores it, and a re-parked forward
+/// re-enters the queue at its original position — the head of its own
+/// destination's lane. Router-global, which is sufficient: per-destination
+/// order falls out of filtering one destination's messages from a total order.
+#[derive(
+    Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord,
+)]
+pub struct BacklogSequence(u64);
+
+impl BacklogSequence {
+    pub fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+
+    pub fn next(&self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+}
+
 /// One waiting outbound forward, the durable twin of a `PendingRouterMessage`
 /// held in `RouterRoot`'s in-memory backlog (primary-nbmq.5, design piece 2).
 /// It carries everything needed to reconstruct that pending item after a
-/// restart: the whole message, its stamped origin, the opaque contract objects
-/// riding alongside the body, and the `forward_marker` loop guard that decides
+/// restart: the enqueue stamp that fixes its place in the delivery order, the
+/// whole message, its stamped origin, the opaque contract objects riding
+/// alongside the body, and the `forward_marker` loop guard that decides
 /// whether the rehydrated item may still resolve to a remote route. The row is
 /// removed the moment the forward reaches a terminal outcome, so this table is
 /// the live queue, distinct from the append-only `messages` audit log.
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct StoredOutboundForward {
+    pub backlog_sequence: BacklogSequence,
     pub message: Message,
     pub origin: MessageOrigin,
     pub routed_objects: Vec<RoutedContractObject>,
@@ -647,12 +678,14 @@ pub struct StoredOutboundForward {
 
 impl StoredOutboundForward {
     pub fn new(
+        backlog_sequence: BacklogSequence,
         message: Message,
         origin: MessageOrigin,
         routed_objects: Vec<RoutedContractObject>,
         forward_marker: ForwardMarker,
     ) -> Self {
         Self {
+            backlog_sequence,
             message,
             origin,
             routed_objects,

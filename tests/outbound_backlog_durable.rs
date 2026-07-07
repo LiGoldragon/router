@@ -5,19 +5,21 @@
 //! The story this proves, end to end over real loopback TCP and a real SEMA
 //! file on disk:
 //!
-//!   1. Router A originates a mirror (routed-object) forward for a peer that is
-//!      DOWN. The connect is refused, so A parks the forward — and the park is
-//!      now written to a durable `outbound_backlog` table, not just an in-memory
-//!      `Vec`.
+//!   1. Router A originates TWO mirror (routed-object) forwards for a peer
+//!      that is DOWN. The connect is refused, so A parks both — and the parks
+//!      are written to a durable `outbound_backlog` table, not just an
+//!      in-memory `Vec`.
 //!   2. Router A is torn down (the daemon "restarts"). The only channel between
-//!      the two lives is the SEMA file, so a reopened backlog row proves the
-//!      waiting letter survived the process going away.
+//!      the two lives is the SEMA file, so the reopened backlog rows prove the
+//!      waiting letters survived the process going away.
 //!   3. Router A comes back over the reopened store. `on_start` rehydrates the
-//!      backlog into its live pending queue before it admits new work.
-//!   4. The peer (router B) is now up. A second origination drives delivery: A
-//!      dials B, the encrypted session (primary-nbmq.6) establishes — the
-//!      "peer is back" push — and BOTH the rehydrated letter and the new one
-//!      leave for B. The reconnection is the trigger; nothing polled.
+//!      backlog into its live pending queue — sorted by enqueue stamp — before
+//!      it admits new work.
+//!   4. The peer (router B) is now up. Re-installing its route is the "I can
+//!      reach it now" push: A dials B, the encrypted session (primary-nbmq.6)
+//!      establishes, and both rehydrated letters leave for B IN SUBMISSION
+//!      ORDER — the per-destination lane serializes them. The reconnection is
+//!      the trigger; nothing polled.
 //!   5. Every delivered row is cleared from the durable backlog, so a further
 //!      restart would redeliver nothing — the drain is idempotent and the
 //!      terminal outcomes remove their rows.
@@ -147,9 +149,11 @@ impl MultiComponentSink {
         self.path.to_string_lossy().into_owned()
     }
 
-    /// Collect exactly `count` delivered head sequences, failing if fewer arrive
-    /// within the timeout.
-    fn collect(&self, count: usize) -> Vec<u64> {
+    /// Collect exactly `count` delivered head sequences IN ARRIVAL ORDER,
+    /// failing if fewer arrive within the timeout. No sorting: per-destination
+    /// delivery order is part of the contract under proof (the chained-log
+    /// mirroring prerequisite), so the order the sink saw is the evidence.
+    fn collect_in_order(&self, count: usize) -> Vec<u64> {
         let mut sequences = Vec::with_capacity(count);
         for _ in 0..count {
             sequences.push(
@@ -158,7 +162,6 @@ impl MultiComponentSink {
                     .expect("component sink receives a delivery"),
             );
         }
-        sequences.sort_unstable();
         sequences
     }
 }
@@ -283,21 +286,25 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
         enable_mirror(&router_a).await;
         install_route_to_peer(&router_a, refused_peer_address()).await;
 
-        // The origination is accepted into router state but cannot be delivered
-        // (peer down); the submission surfaces the transport error while the
-        // forward stays parked. Either way the durable row must exist.
-        let _ = router_a
-            .ask(ApplyRoutedObjectSubmission {
-                submission: mirror_origination(1),
-            })
-            .await
-            .expect("origination submission reaches router A")
-            .into_result();
+        // The originations are accepted into router state but cannot be
+        // delivered (peer down); the submissions surface the transport error
+        // while the forwards stay parked. Either way the durable rows must
+        // exist. TWO letters to the one destination, so the rehydrated drain
+        // can prove it preserves their submission order.
+        for sequence in [1, 2] {
+            let _ = router_a
+                .ask(ApplyRoutedObjectSubmission {
+                    submission: mirror_origination(sequence),
+                })
+                .await
+                .expect("origination submission reaches router A")
+                .into_result();
+        }
 
         assert_eq!(
             backlog_len(&tables),
-            1,
-            "a peer-down mirror forward is written to the durable outbound backlog"
+            2,
+            "both peer-down mirror forwards are written to the durable outbound backlog"
         );
 
         let _ = router_a.stop_gracefully().await;
@@ -305,12 +312,12 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
     }
 
     // (2) Restart survival: a fresh handle on the same SEMA file — the only
-    // channel across the "restart" — still sees the waiting forward.
+    // channel across the "restart" — still sees the waiting forwards.
     let reopened = RouterTables::open(store.path()).expect("router tables reopen");
     assert_eq!(
         backlog_len(&reopened),
-        1,
-        "the parked forward survives the daemon going away (durable, on disk)"
+        2,
+        "the parked forwards survive the daemon going away (durable, on disk)"
     );
 
     // (3)+(4) Peer UP. Router B listens with a component sink for the recipient;
@@ -372,13 +379,16 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
     // was persisted ON in phase 1, so nothing re-enables it here.
     install_route_to_peer(&router_a, router_b_address).await;
 
-    // (4) The rehydrated forward reached B's component socket on its own — the
-    // durable backlog drained when the peer became reachable, driven by the
-    // route-install and session-up pushes, not by any polling or new work.
+    // (4) Both rehydrated forwards reached B's component socket on their own —
+    // the durable backlog drained when the peer became reachable, driven by
+    // the route-install and session-up pushes, not by any polling or new work.
+    // IN SUBMISSION ORDER: the rows rehydrate sorted by their enqueue stamps
+    // and the per-destination lane serializes the two forwards, so the sink
+    // must see 1 then 2 — asserted in arrival order, not sorted away.
     assert_eq!(
-        sink.collect(1),
-        vec![1],
-        "the rehydrated forward drains to the peer with no new work submitted"
+        sink.collect_in_order(2),
+        vec![1, 2],
+        "the rehydrated forwards drain to the peer in their submission order"
     );
 
     // A root round-trip serialises behind the drain's mailbox turn, so once it
