@@ -143,6 +143,7 @@ fn generated_daemon_answers_working_signal_message_frame() {
                 message_recipient: MessageRecipient::new("designer".to_string()),
                 message_kind: MessageKind::Send,
                 message_body: MessageBody::new("hello through emitted router daemon".to_string()),
+                thread_selection: signal_message::ThreadSelection::None,
             },
             message_origin: SignalMessageOrigin::Internal(ComponentName::Message),
             stamped_at: SignalTimestampNanos::new(1).into(),

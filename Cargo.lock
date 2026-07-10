@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "router"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "blake3",
  "chacha20poly1305",
@@ -1005,8 +1005,8 @@ dependencies = [
 
 [[package]]
 name = "signal-message"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#43c1d5b873c4c4298ec4a1929948518b31210343"
+version = "0.4.0"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#95343930c2bc91c0d6473a410b47745079dbc907"
 dependencies = [
  "nota",
  "rkyv",

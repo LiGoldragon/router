@@ -40,6 +40,7 @@ use signal_message::{
     Output as SignalMessageContractOutput, StampedMessageSubmission,
     SubmissionAcceptance as SignalSubmissionAcceptance,
     SubmissionRejectionReason as SignalSubmissionRejectionReason,
+    ThreadSelection as SignalThreadSelection,
 };
 use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration as MindChannelDuration,
@@ -2627,6 +2628,7 @@ impl RouterRoot {
             message_recipient: SignalMessageRecipient::new(recipient.as_str().to_string()),
             message_kind: MessageKind::Send,
             message_body: SignalMessageBody::new(submission.body.payload().clone()),
+            thread_selection: SignalThreadSelection::None,
         };
         let message = self.signal_message(sender, message_submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;
@@ -2683,8 +2685,15 @@ impl RouterRoot {
     ) -> Message {
         let recipient = ActorIdentifier::new(submission.message_recipient.payload().as_str());
         let body = submission.message_body.payload().to_string();
-        let thread =
-            ThreadIdentifier::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str()));
+        // The thread is the sender's explicit choice when named, taken verbatim;
+        // otherwise it falls back to the derived direct-thread for the pair. Same
+        // name means the same thread deliberately — a collision is convergence.
+        let thread = match &submission.thread_selection {
+            SignalThreadSelection::Named(name) => ThreadIdentifier::new(name.as_str()),
+            SignalThreadSelection::None => {
+                ThreadIdentifier::new(format!("direct-{}-{}", sender.as_str(), recipient.as_str()))
+            }
+        };
         let id = MessageIdentifier::from_parts(
             slot.into_u64(),
             &thread,
@@ -3078,6 +3087,7 @@ impl RouterRoot {
             message_recipient: SignalMessageRecipient::new(recipient.as_str().to_string()),
             message_kind: MessageKind::Send,
             message_body: SignalMessageBody::new(payload.body.payload().clone()),
+            thread_selection: SignalThreadSelection::None,
         };
         let message = self.signal_message(sender, submission, slot.clone());
         self.persist_message(&message, &origin, Some(slot.clone()))?;

@@ -436,6 +436,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
                         message_recipient: MessageRecipient::new(target.as_str().to_string()),
                         message_kind: MessageKind::Send,
                         message_body: MessageBody::new("relay across the tailnet".to_string()),
+                        thread_selection: signal_message::ThreadSelection::None,
                     },
                     message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
                     stamped_at: SignalTimestampNanos::new(1).into(),

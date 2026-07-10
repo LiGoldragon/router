@@ -452,6 +452,7 @@ async fn router_accepts_forward_under_real_criome_bls_attestation() {
                         message_recipient: MessageRecipient::new(target.as_str().to_string()),
                         message_kind: MessageKind::Send,
                         message_body: MessageBody::new("relay under real criome".to_string()),
+                        thread_selection: signal_message::ThreadSelection::None,
                     },
                     message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
                     stamped_at: SignalTimestampNanos::new(1).into(),

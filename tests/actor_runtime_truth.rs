@@ -550,6 +550,7 @@ async fn local_delivery_emits_no_mind_adjudication_request() {
                     message_recipient: MessageRecipient::new(responder.as_str().to_string()),
                     message_kind: MessageKind::Send,
                     message_body: MessageBody::new("please answer".to_string()),
+                    thread_selection: signal_message::ThreadSelection::None,
                 },
                 message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
                 stamped_at: SignalTimestampNanos::new(1).into(),
@@ -590,6 +591,86 @@ async fn local_delivery_emits_no_mind_adjudication_request() {
         second_snapshot.last_reader,
         Some(ActorIdentifier::new("reviewer"))
     );
+
+    router.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_thread_name_is_used_verbatim_while_absent_thread_derives_direct() {
+    // An explicit thread name is a plain sender-chosen token taken verbatim as
+    // the message thread; an absent thread (`ThreadSelection::None`) falls back
+    // to the derived direct-thread for the sender/recipient pair. Same explicit
+    // name means the same thread deliberately — collision is convergence.
+    let operator = ActorIdentifier::new("operator");
+    let responder = ActorIdentifier::new("responder");
+    let store = TemporaryRouterStore::new("explicit-thread");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+    router
+        .apply(RouterInput::RegisterActor(RegisterActor {
+            actor: Actor {
+                name: responder.clone(),
+                pid: 42,
+                endpoint: None,
+            },
+        }))
+        .await
+        .expect("register request passes through router actor");
+
+    router
+        .apply_signal(SignalMessageInput::with_origin(
+            operator.clone(),
+            SignalMessageOrigin::External(SignalConnectionClass::Owner),
+            SignalInput::SubmitStamped(StampedMessageSubmission {
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new(responder.as_str().to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: MessageBody::new("named body".to_string()),
+                    thread_selection: signal_message::ThreadSelection::Named(
+                        signal_message::ThreadName::new("launch-plan"),
+                    ),
+                },
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
+            }),
+        ))
+        .await
+        .expect("named-thread submission passes through router actors");
+
+    router
+        .apply_signal(SignalMessageInput::with_origin(
+            operator.clone(),
+            SignalMessageOrigin::External(SignalConnectionClass::Owner),
+            SignalInput::SubmitStamped(StampedMessageSubmission {
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new(responder.as_str().to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: MessageBody::new("derived body".to_string()),
+                    thread_selection: signal_message::ThreadSelection::None,
+                },
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(2).into(),
+            }),
+        ))
+        .await
+        .expect("absent-thread submission passes through router actors");
+
+    let records = inspection
+        .message_records()
+        .expect("stored message records read");
+    let named = records
+        .iter()
+        .find(|record| record.body == "named body")
+        .expect("named-thread message stored");
+    assert_eq!(named.thread, "launch-plan");
+    let derived = records
+        .iter()
+        .find(|record| record.body == "derived body")
+        .expect("derived-thread message stored");
+    // The sender is resolved from the stamped Owner origin (an owner submission
+    // is "owner"), so the derived direct-thread names owner -> responder.
+    assert_eq!(derived.thread, "direct-owner-responder");
 
     router.stop().await;
 }
@@ -1325,6 +1406,7 @@ async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
                     message_recipient: MessageRecipient::new("responder".to_string()),
                     message_kind: MessageKind::Send,
                     message_body: MessageBody::new("hello".to_string()),
+                    thread_selection: signal_message::ThreadSelection::None,
                 },
                 message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
                 stamped_at: SignalTimestampNanos::new(1).into(),
@@ -1365,6 +1447,7 @@ async fn router_root_persists_accepted_signal_message_before_delivery_attempt() 
                     message_recipient: MessageRecipient::new("responder".to_string()),
                     message_kind: MessageKind::Send,
                     message_body: MessageBody::new("durable router message".to_string()),
+                    thread_selection: signal_message::ThreadSelection::None,
                 },
                 message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
                 stamped_at: SignalTimestampNanos::new(1).into(),
@@ -1419,6 +1502,7 @@ async fn stamped_component_instance_origin_becomes_message_sender_actor() {
                     message_recipient: MessageRecipient::new("responder".to_string()),
                     message_kind: MessageKind::Send,
                     message_body: MessageBody::new("from component instance".to_string()),
+                    thread_selection: signal_message::ThreadSelection::None,
                 },
                 message_origin: origin.clone(),
                 stamped_at: SignalTimestampNanos::new(1).into(),
@@ -1450,6 +1534,7 @@ async fn unstamped_message_submission_is_not_router_ingress_payload() {
                 message_recipient: MessageRecipient::new("responder".to_string()),
                 message_kind: MessageKind::Send,
                 message_body: MessageBody::new("hello".to_string()),
+                thread_selection: signal_message::ThreadSelection::None,
             }),
         ))
         .await

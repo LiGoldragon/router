@@ -434,6 +434,7 @@ async fn two_routers_establish_a_mutual_criome_vouched_encrypted_session() {
                         message_body: MessageBody::new(
                             "mirror over the encrypted session".to_string(),
                         ),
+                        thread_selection: signal_message::ThreadSelection::None,
                     },
                     message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
                     stamped_at: SignalTimestampNanos::new(1).into(),
