@@ -261,18 +261,25 @@
               cargoTestExtraArgs = "--test actor_runtime_truth unstamped_message_submission_is_not_router_ingress_payload -- --exact";
             }
           );
-          router-unknown-channel-parks-for-adjudication = context.craneLib.cargoTest (
+          router-local-recipient-delivers-without-grant = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_runtime_truth unknown_channel_cannot_reach_delivery_actor -- --exact";
+              cargoTestExtraArgs = "--test actor_runtime_truth local_recipient_without_grant_reaches_delivery_actor -- --exact";
             }
           );
-          router-unknown-channel-emits-typed-mind-adjudication-request = context.craneLib.cargoTest (
+          router-local-delivery-emits-no-mind-adjudication = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_runtime_truth unknown_channel_emits_typed_mind_adjudication_request -- --exact";
+              cargoTestExtraArgs = "--test actor_runtime_truth local_delivery_emits_no_mind_adjudication_request -- --exact";
+            }
+          );
+          router-component-socket-actor-receives-locally-authorized-delivery = context.craneLib.cargoTest (
+            context.commonArgs
+            // {
+              inherit (context) cargoArtifacts;
+              cargoTestExtraArgs = "--test component_socket_delivery component_socket_actor_receives_locally_authorized_delivery -- --exact";
             }
           );
           router-one-shot-channel-cannot-authorize-second-message = context.craneLib.cargoTest (
@@ -331,18 +338,18 @@
               cargoTestExtraArgs = "--test actor_runtime_truth router_installs_structural_channels_for_engine_setup -- --exact";
             }
           );
-          mind-channel-grant-installs-row-before-parked-message-delivers = context.craneLib.cargoTest (
+          router-mind-grant-machinery-intact-under-local-default-authorization = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_runtime_truth mind_channel_grant_installs_row_before_parked_message_delivers -- --exact";
+              cargoTestExtraArgs = "--test actor_runtime_truth mind_channel_grant_still_installs_row_though_local_delivery_needs_none -- --exact";
             }
           );
-          mind-adjudication-deny-removes-parked-message-without-delivery = context.craneLib.cargoTest (
+          router-mind-deny-removes-stuck-pending-message = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_runtime_truth mind_adjudication_deny_removes_parked_message_without_delivery -- --exact";
+              cargoTestExtraArgs = "--test actor_runtime_truth mind_deny_removes_a_stuck_pending_message -- --exact";
             }
           );
           router-daemon-answers-router-summary-query = context.craneLib.cargoTest (
@@ -366,11 +373,11 @@
               cargoTestExtraArgs = "--test observation_truth router_summary_query_counts_accepted_pending_and_failed_messages -- --exact";
             }
           );
-          router-message-trace-query-reports-deferred-status-for-parked-message = context.craneLib.cargoTest (
+          router-message-trace-query-reports-routed-status-for-attempted-message = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test observation_truth router_message_trace_query_reports_deferred_status_for_parked_message -- --exact";
+              cargoTestExtraArgs = "--test observation_truth router_message_trace_query_reports_routed_status_for_attempted_message -- --exact";
             }
           );
           router-channel-state-query-reads-router-tables = context.craneLib.cargoTest (

@@ -130,7 +130,7 @@ fn router_bootstrap_constructs_direct_message_channel_grant() {
 fn router_bootstrap_constructs_registered_pty_endpoint() {
     let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
         signal_router::Actor::new(
-            signal_router::ActorIdentifier::new("responder").into(),
+            signal_router::ActorIdentifier::new("responder"),
             42,
             Some(signal_router::EndpointTransport::new(
                 signal_router::EndpointKind::PtySocket,
@@ -154,7 +154,7 @@ fn router_bootstrap_constructs_registered_pty_endpoint() {
 fn router_bootstrap_constructs_registered_harness_socket_endpoint() {
     let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
         signal_router::Actor::new(
-            signal_router::ActorIdentifier::new("responder").into(),
+            signal_router::ActorIdentifier::new("responder"),
             42,
             Some(signal_router::EndpointTransport::new(
                 signal_router::EndpointKind::HarnessSocket,

@@ -216,10 +216,10 @@ projection of the first stack (`message`, `system`, `router`, `harness`,
 `terminal`, `mind`, and `owner`) until the full endpoint/kind channel model is
 wired through the signal contracts. The first witnesses are actor traces and
 table reads: `MessageCommitted` must appear for a message before any
-`DeliveryAttempted` event for that same message; a message without an active
-channel records `AdjudicationRequested` without reaching `HarnessDelivery`; a
-named table test writes channel and adjudication records through `RouterTables`
-and reads them back from router-owned SEMA.
+`DeliveryAttempted` event for that same message; a message to a locally-resolved
+recipient reaches `HarnessDelivery` under local default-authorization (§2.5.1)
+without a channel grant; a named table test writes channel and adjudication
+records through `RouterTables` and reads them back from router-owned SEMA.
 
 The current router can consume a typed `signal-mind::ChannelGrant` and
 project it into the temporary `ActorIdentifier` channel table. The grant is installed
@@ -249,11 +249,14 @@ Every accepted message carries a typed `signal-message::MessageOrigin` from
 the accepted socket relation. Origin is provenance, not an auth proof. The
 production daemon default is the internal `message -> router` relation; owner/operator
 origin is only a named test fixture, never hidden in frame decoding. Router
-policy is the authorized-channel table: messages on an active channel flow;
-messages without one are parked and queued for mind adjudication. In
-current code that queue is in `ChannelAuthority`, and `MindAdjudicationOutbox`
-projects parked messages into typed `signal-mind::AdjudicationRequest`
-records. It is an outbox actor, not the final live mind socket transport.
+policy is local default-authorization (§2.5.1): a message whose recipient
+resolves in the local harness registry is authorized by locality and flows
+without a channel grant. The authorized-channel table, `ChannelAuthority`, and
+the `MindAdjudicationOutbox` (an outbox actor that projects parked messages into
+typed `signal-mind::AdjudicationRequest` records — not the final live mind
+socket transport) stay wired for the `meta-signal-router` channel orders and for
+a future policy that re-tightens local delivery, but they no longer gate the
+normal local-delivery path.
 
 Future development may add router garbage collection. GC is a router-state
 operation, not an external delete loop: the router decides which delivered or
@@ -305,6 +308,27 @@ in it.
 system) — a peer-direction write, not an authority order. Routing /
 delivery is the router's decision; that's why message ingress is
 `Assert` and channel changes are `Mutate`.
+
+## 2.5.1 · Local default-authorization
+
+Local traffic is default-authorized: a message whose recipient resolves in the
+local harness registry is delivered without a per-agent-pair channel grant. In
+`RouterRoot::retry_pending` the harness lookup returns a delivery target for a
+local recipient, and the decision path proceeds straight to `HarnessDelivery` —
+it does not consult `ChannelAuthority` for a locally-resolved recipient, and it
+records no `AdjudicationRequested` step and no mind-outbox entry for local
+delivery. The rationale: a locally-registered actor is already an admitted
+resident of this router's engine, so co-resident delivery needs no further
+channel ceremony. The whole grant/adjudication/attestation apparatus is reserved
+for network-crossing delivery, where the remote branch resolves a peer route and
+the receiving peer verifies a criome attestation on its ingress before this same
+local-delivery path runs (§2.9). The channel authority, its adjudication
+requests, the mind outbox, and the `meta-signal-router` `Grant`/`Extend`/
+`Revoke`/`Deny` orders (§2.5) stay intact and wired, so a future policy can
+re-tighten local delivery by re-introducing the channel check; under the current
+policy no live path parks a local message for adjudication or populates the mind
+outbox from local delivery. This is the psyche decision for the
+orchestrator-messaging build.
 
 ## 2.6 · Channel kinds
 
@@ -389,12 +413,15 @@ transition of that record.
 A router-traversing message may be rejected (rather than
 delivered) for a closed set of reasons. Today's set:
 
-- **Channel inactive** — the channel matching `(source,
-  destination, kind)` is not present in the channel table. The
-  router parks the message and emits an
-  `AdjudicationRequest` to `mind` for the missed channel.
-  After mind adjudication: a `ChannelGrant` results in delivery;
-  an `AdjudicationDeny` retires the message without delivery.
+- **Channel inactive** — a retained (non-local) rejection reason:
+  the channel matching `(source, destination, kind)` is not present
+  in the channel table, so the router parks the message and emits an
+  `AdjudicationRequest` to `mind` for the missed channel; after mind
+  adjudication a `ChannelGrant` results in delivery and an
+  `AdjudicationDeny` retires the message. Under the current local
+  default-authorization policy (§2.5.1) a locally-resolved recipient
+  is never rejected for this reason; the reason and its machinery are
+  retained for a future re-tightening of local policy.
 - **Recipient not found** — the destination has no registered
   delivery target (no harness registered for the named
   destination, no terminal cell available). Replied as
@@ -841,10 +868,10 @@ This repo does not own:
   attestation as the peer-identity proof.
 - Router engine setup can install first-stack structural channels through the
   actor tree.
-- A typed mind channel grant can install a channel before a parked message is
-  retried for delivery.
-- A typed mind adjudication deny can remove a parked message without attempting
-  delivery.
+- A typed mind channel grant installs a channel row through the actor tree
+  (retained machinery); local delivery no longer depends on it (§2.5.1).
+- A typed mind (or `meta-signal-router`) adjudication deny removes a stuck
+  pending message by identifier without attempting delivery.
 - `signal-message` frames enter through `RouterRuntime` and
   `RouterRoot`; they do not bypass the actor tree.
 - Message provenance for submissions comes from
@@ -855,17 +882,22 @@ This repo does not own:
 - Router frame decoding does not stamp hidden `operator` or `Owner` origin.
 - Owner/operator origin may appear only as explicit fixture ingress in tests or
   as an explicit external endpoint in channel records.
-- Router authorization is channel-table authorization plus mind
-  adjudication for misses.
+- Router authorization for a locally-resolved recipient is by locality
+  (local default-authorization, §2.5.1); the channel table plus mind
+  adjudication is retained for `meta-signal-router` orders and a future
+  re-tightening of local policy, not as the local delivery gate.
 - Router observation queries (`signal-router::Input`)
   are answered by `RouterObservationPlane`, which reads `RouterRoot`
   observation facts through its mailbox and reads channel records from
   router-owned Sema tables when present.
 - Router observation replies are typed `signal-router::Output` records; no caller
   reads `router.sema` directly to assemble an observation answer.
-- A message with no active channel does not reach `HarnessDelivery`.
-- A message with no active channel emits a typed `signal-mind`
-  adjudication request.
+- A message whose recipient resolves in the local harness registry reaches
+  `HarnessDelivery` without a channel grant (local default-authorization,
+  §2.5.1).
+- Local delivery emits no `signal-mind` adjudication request and populates no
+  mind outbox entry; the channel-adjudication apparatus is retained for
+  `meta-signal-router` orders and a future re-tightening of local policy.
 - Accepted Signal messages persist to router-owned Sema before delivery retry.
 - One-shot and retracted channels cannot keep authorizing messages.
 - Expired time-bound channels cannot authorize messages.
@@ -979,8 +1011,9 @@ tests/                  router smoke and actor-density truth tests
 | Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix build .#checks.x86_64-linux.router-runtime-cannot-reference-retired-terminal-brand` |
 | Stamped Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
 | Unstamped Signal message submissions cannot commit on the router socket. | `nix build .#checks.x86_64-linux.unstamped-message-submission-is-not-router-ingress-payload` |
-| A message without an active channel parks for adjudication and does not reach delivery. | `nix build .#checks.x86_64-linux.router-unknown-channel-parks-for-adjudication` |
-| A message without an active channel emits a typed mind adjudication request. | `nix build .#checks.x86_64-linux.router-unknown-channel-emits-typed-mind-adjudication-request` |
+| A locally-registered recipient with no channel grant reaches the delivery actor (local default-authorization). | `nix build .#checks.x86_64-linux.router-local-recipient-delivers-without-grant` |
+| Local delivery emits no typed mind adjudication request. | `nix build .#checks.x86_64-linux.router-local-delivery-emits-no-mind-adjudication` |
+| A ComponentSocket-registered actor receives a locally-authorized delivery as the exact length-prefixed frame the router writes. | `nix build .#checks.x86_64-linux.router-component-socket-actor-receives-locally-authorized-delivery` |
 | A one-shot channel cannot authorize a second message after use. | `nix build .#checks.x86_64-linux.router-one-shot-channel-cannot-authorize-second-message` |
 | A retracted channel cannot authorize messages. | `nix build .#checks.x86_64-linux.router-retracted-channel-cannot-authorize-message` |
 | An expired time-bound channel cannot authorize messages. | `nix build .#checks.x86_64-linux.router-expired-channel-cannot-authorize-message` |
@@ -990,13 +1023,13 @@ tests/                  router smoke and actor-density truth tests
 | RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix build .#checks.x86_64-linux.router-root-persists-delivery-attempt-and-result-records` |
 | Router engine setup can install first-stack structural channels through the actor tree. | `nix build .#checks.x86_64-linux.router-installs-structural-channels-for-engine-setup` |
 | Router bootstrap startup vocabulary is owned by `signal-router`, not by private local parser records. | `cargo test --test smoke router_bootstrap_decodes_registered_harness_socket_endpoint` and `signal-router`'s `bootstrap_document_owns_line_vocabulary_for_manager_and_router` witness. |
-| A typed mind channel grant installs a row before a parked message is retried for delivery. | `nix build .#checks.x86_64-linux.mind-channel-grant-installs-row-before-parked-message-delivers` |
-| A typed mind adjudication deny removes a parked message without delivery. | `nix build .#checks.x86_64-linux.mind-adjudication-deny-removes-parked-message-without-delivery` |
+| The mind channel-grant machinery still installs a channel row through the actor tree though local delivery needs no grant. | `nix build .#checks.x86_64-linux.router-mind-grant-machinery-intact-under-local-default-authorization` |
+| A typed mind adjudication deny removes a stuck pending message by identifier without delivery. | `nix build .#checks.x86_64-linux.router-mind-deny-removes-stuck-pending-message` |
 | Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 | Router daemon answers `signal-router::RouterSummaryQuery` from the observation plane actor. | `nix build .#checks.x86_64-linux.router-daemon-answers-router-summary-query` |
 | Router daemon connection path accepts length-prefixed generated `signal-router::Frame` requests and writes typed `signal_router::Output` replies without bypassing `RouterObservationPlane`. | `nix build .#checks.x86_64-linux.router-daemon-accepts-router-observation-frames` |
 | Router summary counts derive from RouterRoot's accepted/pending/failed facts. | `nix build .#checks.x86_64-linux.router-summary-query-counts-accepted-pending-and-failed-messages` |
-| Router message trace replies report `Deferred` for parked messages and `MessageTraceMissing` for unknown slots — no `Unknown` sentinel. | `nix build .#checks.x86_64-linux.router-message-trace-query-reports-deferred-status-for-parked-message` |
+| Router message trace replies report `Routed` for a delivery-attempted message and `MessageTraceMissing` for unknown slots — no `Unknown` sentinel. | `nix build .#checks.x86_64-linux.router-message-trace-query-reports-routed-status-for-attempted-message` |
 | Router channel state replies read installed-vs-missing-vs-disabled from router-owned Sema tables. | `nix build .#checks.x86_64-linux.router-channel-state-query-reads-router-tables` |
 | Router channel state without tables surfaces `RouterStoreUnavailable` instead of fabricating an answer. | `nix build .#checks.x86_64-linux.router-channel-state-query-without-tables-reports-router-store-unavailable` |
 | Router observation plane query counts increment in lockstep with mailbox calls — proves observation does not bypass `RouterRoot`. | `nix build .#checks.x86_64-linux.router-observation-path-cannot-bypass-router-root-facts` |

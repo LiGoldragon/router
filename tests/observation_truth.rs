@@ -297,7 +297,7 @@ async fn meta_extend_updates_channel_lifetime_in_router_tables() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn meta_deny_clears_pending_adjudication_from_runtime_and_tables() {
+async fn meta_deny_removes_a_stuck_pending_message() {
     let store = TemporaryRouterStore::new("meta-deny-adjudication");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let router = ObservationFixture::start_with_tables(tables.clone()).await;
@@ -325,13 +325,16 @@ async fn meta_deny_clears_pending_adjudication_from_runtime_and_tables() {
             message: message.clone(),
         }))
         .await
-        .expect("unknown channel parks for adjudication");
-    assert_eq!(
+        .expect("local delivery is attempted and the message stays pending");
+    // Local default-authorization records no adjudication: the message is
+    // pending because its endpoint-less harness could not deliver, not because
+    // a channel gate parked it. The meta Deny order still removes a stuck
+    // pending message by identifier through the same runtime path.
+    assert!(
         tables
             .adjudication_records()
             .expect("adjudication records read")
-            .len(),
-        1
+            .is_empty()
     );
 
     let deny = router
@@ -536,7 +539,12 @@ async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn router_message_trace_query_reports_deferred_status_for_parked_message() {
+async fn router_message_trace_query_reports_routed_status_for_attempted_message() {
+    // Under local default-authorization a submission to a locally-registered
+    // recipient is delivery-attempted (reaches the delivery actor) rather than
+    // parked at a channel gate. This recipient has no endpoint, so the attempt
+    // does not complete — the trace reports `Routed` (attempted, not yet
+    // marked delivered), never the pre-policy `Deferred` (parked) status.
     let router = ObservationFixture::start().await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
@@ -563,7 +571,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
             }),
         ))
         .await
-        .expect("submission parks for adjudication");
+        .expect("submission reaches the delivery actor without a grant");
 
     let reply = router
         .observe(SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
@@ -579,7 +587,7 @@ async fn router_message_trace_query_reports_deferred_status_for_parked_message()
     assert_eq!(trace.message_slot, message_slot(1));
     assert_eq!(
         trace.delivery_status.into_payload(),
-        RouterDeliveryStatus::Deferred
+        RouterDeliveryStatus::Routed
     );
 
     let missing_reply = router

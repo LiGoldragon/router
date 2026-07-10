@@ -64,7 +64,7 @@ use signal_router::{
 
 use crate::adjudication::{
     ClearMindAdjudication, MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot,
-    ReadMindAdjudicationOutbox, RecordMindAdjudication,
+    ReadMindAdjudicationOutbox,
 };
 use crate::authorized_object::{
     AttendAuthorizedObjects, AuthorizedObjectAttendanceSnapshot,
@@ -73,10 +73,10 @@ use crate::authorized_object::{
     ReadAuthorizedObjectFanoutStatus, WithdrawAuthorizedObjects,
 };
 use crate::channel::{
-    ChannelAuthority, ChannelDecision, ChannelEpochSeconds, ChannelLifetime,
-    ChannelPersistenceSnapshot, CheckChannel, ClearAdjudicationRequest, EngineStructuralChannels,
-    ExtendChannel, GrantChannel, InstallStructuralChannels, ReadChannelAuthorityStatus,
-    ReadChannelPersistence, RetractChannel, RetractChannelByIdentifier, UseChannel,
+    ChannelAuthority, ChannelEpochSeconds, ChannelLifetime, ChannelPersistenceSnapshot,
+    ClearAdjudicationRequest, EngineStructuralChannels, ExtendChannel, GrantChannel,
+    InstallStructuralChannels, ReadChannelAuthorityStatus, ReadChannelPersistence, RetractChannel,
+    RetractChannelByIdentifier,
 };
 use crate::criome_attestation::CriomeForwardAttestation;
 use crate::criome_client::CriomeSigningClient;
@@ -320,13 +320,9 @@ impl RouterMetaServer {
 
     fn run(self) -> RouterResult<()> {
         for stream in self.listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    if let Err(error) = self.handle_stream(stream) {
-                        eprintln!("router-meta connection failed: {error}");
-                    }
-                }
-                Err(error) => return Err(error.into()),
+            let stream = stream?;
+            if let Err(error) = self.handle_stream(stream) {
+                eprintln!("router-meta connection failed: {error}");
             }
         }
         Ok(())
@@ -2903,31 +2899,16 @@ impl RouterRoot {
                 next.park(pending);
                 continue;
             };
-            let decision = self
-                .channels
-                .ask(CheckChannel {
-                    message: message.clone(),
-                })
-                .await
-                .map_err(|error| Error::ActorCall(error.to_string()))?
-                .into_result()?;
-            if matches!(decision, ChannelDecision::NeedsAdjudication(_)) {
-                self.trace
-                    .record(message.id.clone(), RouterTraceStep::AdjudicationRequested);
-                if let Err(error) = self
-                    .mind_adjudication
-                    .ask(RecordMindAdjudication {
-                        message: message.clone(),
-                        origin: pending.origin.clone(),
-                    })
-                    .await
-                {
-                    self.restore_pending_after_error(next.into_parked(), Some(pending), messages);
-                    return Err(Error::ActorCall(error.to_string()));
-                }
-                next.park(pending);
-                continue;
-            }
+            // Local default-authorization: the harness lookup above resolved
+            // this recipient in the LOCAL registry, so delivery is authorized
+            // by locality — a locally-registered actor needs no per-pair
+            // channel grant. The channel authority, its adjudication requests,
+            // and the mind outbox stay wired (meta grants still install
+            // channels; a future policy could re-tighten local delivery) but no
+            // longer gate the normal local-delivery path. Network-crossing
+            // forwarding keeps its own ceremony: the remote branch above
+            // resolves a peer route, and the receiving peer verifies the
+            // criome attestation on its ingress before this same path runs.
             let delivery_sequence = self.next_delivery_sequence();
             if let Some(tables) = &self.tables
                 && let Err(error) = tables.insert_delivery_attempt(delivery_sequence, &message.id)
@@ -2972,14 +2953,9 @@ impl RouterRoot {
                 return Err(error);
             }
             if delivery_result {
-                let _ = self
-                    .channels
-                    .ask(UseChannel::direct_message(
-                        message.from.clone(),
-                        message.to.clone(),
-                    ))
-                    .await
-                    .map_err(|error| Error::ActorCall(error.to_string()))?;
+                // No channel-use accounting on the local path: local delivery
+                // is authorized by locality, not by a consumable channel grant,
+                // so there is no one-shot channel to retire here.
                 self.mark_signal_delivered(&message.id);
                 if let Err(error) = self
                     .registry
@@ -3068,7 +3044,9 @@ impl RouterRoot {
     /// field); the message is marked `Forwarded` so the loop guard prevents
     /// any further remote resolution, then it runs the SAME local
     /// persist/enqueue/retry path — so a forward targeting a local harness
-    /// delivers locally and the channel-auth check runs identically.
+    /// delivers locally under the same local default-authorization as any
+    /// other local recipient (the network-crossing ceremony was the criome
+    /// attestation this ingress already verified).
     async fn apply_forwarded(
         &mut self,
         verified_origin: CriomeHostId,

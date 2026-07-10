@@ -34,10 +34,7 @@ use signal_message::{
 use signal_mind::{
     AdjudicationRequestIdentifier, ChannelDuration, ChannelEndpoint, ChannelMessageKind, TextBody,
 };
-use signal_persona::{
-    ComponentName as MindComponentName, ConnectionClass as MindConnectionClass,
-    MessageOrigin as MindMessageOrigin,
-};
+use signal_persona::ComponentName as MindComponentName;
 
 struct SourceFile {
     path: PathBuf,
@@ -456,7 +453,14 @@ async fn router_cannot_emit_delivery_before_commit() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn unknown_channel_cannot_reach_delivery_actor() {
+async fn local_recipient_without_grant_reaches_delivery_actor() {
+    // Local default-authorization: a recipient registered in the LOCAL harness
+    // registry is authorized by locality, so a message with no channel grant
+    // reaches the delivery actor instead of parking for mind adjudication.
+    // This actor carries no delivery endpoint, so the attempt itself fails and
+    // the message stays pending — but the DeliveryAttempted trace (and the
+    // absence of AdjudicationRequested) proves the channel gate no longer
+    // blocks a local recipient.
     let operator = ActorIdentifier::new("operator");
     let responder = ActorIdentifier::new("responder");
     let message_identifier = MessageIdentifier::new("m-channel");
@@ -484,7 +488,7 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
             },
         }))
         .await
-        .expect("route request parks for adjudication");
+        .expect("route request reaches delivery without a grant");
 
     let RouterOutput::DeliveryChanged(delivery) = output else {
         panic!("expected delivery changed output");
@@ -500,8 +504,8 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
         .map(|event| event.step())
         .collect::<Vec<_>>();
     assert!(message_steps.contains(&RouterTraceStep::MessageCommitted));
-    assert!(message_steps.contains(&RouterTraceStep::AdjudicationRequested));
-    assert!(!message_steps.contains(&RouterTraceStep::DeliveryAttempted));
+    assert!(message_steps.contains(&RouterTraceStep::DeliveryAttempted));
+    assert!(!message_steps.contains(&RouterTraceStep::AdjudicationRequested));
 
     let output = router
         .apply(RouterInput::Status(Status {
@@ -512,13 +516,18 @@ async fn unknown_channel_cannot_reach_delivery_actor() {
     let RouterOutput::Status(status) = output else {
         panic!("expected router status output");
     };
-    assert_eq!(status.adjudication_pending, 1);
+    assert_eq!(status.adjudication_pending, 0);
 
     router.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn unknown_channel_emits_typed_mind_adjudication_request() {
+async fn local_delivery_emits_no_mind_adjudication_request() {
+    // Under local default-authorization a locally-registered recipient is
+    // authorized by locality, so a delivery to it emits NO mind adjudication
+    // request — the outbox stays empty. The mind outbox machinery is retained
+    // (readable, and available to the meta/deny paths) but the local delivery
+    // path no longer parks a message for adjudication.
     let operator = ActorIdentifier::new("operator");
     let responder = ActorIdentifier::new("responder");
     let router = RouterFixture::start().await;
@@ -553,21 +562,14 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
         .mind_adjudication_outbox()
         .await
         .expect("mind adjudication outbox is readable");
-    assert_eq!(outbox.requests.len(), 1);
-    assert_eq!(
-        outbox.requests[0].origin,
-        MindMessageOrigin::local_connection(MindConnectionClass::Owner)
+    assert!(
+        outbox.requests.is_empty(),
+        "local delivery is default-authorized and records no adjudication request"
     );
-    assert_eq!(outbox.requests[0].kind, ChannelMessageKind::MessageDelivery);
-    assert_eq!(outbox.requests[0].body_summary.as_str(), "please answer");
     // Counter-field witnesses per actor-systems.md §"Counter-only state":
-    // recorded_count, read_count, and last_reader are part of
-    // MindAdjudicationOutbox's state; at least one test must read them
-    // so the fields stay load-bearing rather than dead. recorded_count = 1
-    // (one parked message reached the outbox); read_count = 1 (this
-    // snapshot read); last_reader names the requester of the most recent
-    // snapshot.
-    assert_eq!(outbox.recorded_count, 1);
+    // recorded_count stays 0 (no local park reached the outbox) while the read
+    // counters still advance, so the fields remain load-bearing.
+    assert_eq!(outbox.recorded_count, 0);
     assert_eq!(outbox.read_count, 1);
     assert_eq!(outbox.last_reader, Some(ActorIdentifier::new("operator")));
 
@@ -582,7 +584,7 @@ async fn unknown_channel_emits_typed_mind_adjudication_request() {
         .expect("second mind adjudication outbox read")
         .into_result()
         .expect("second outbox snapshot");
-    assert_eq!(second_snapshot.recorded_count, 1);
+    assert_eq!(second_snapshot.recorded_count, 0);
     assert_eq!(second_snapshot.read_count, 2);
     assert_eq!(
         second_snapshot.last_reader,
@@ -929,14 +931,18 @@ async fn router_runtime_wires_channel_authority_to_router_tables() {
             },
         }))
         .await
-        .expect("route request parks for adjudication");
+        .expect("local recipient delivers without a grant");
 
+    // The grant the runtime routed to ChannelAuthority persisted a channel row
+    // through the actor tree — the wiring this test witnesses. The reviewer
+    // message reached a locally-registered recipient, so under local default-
+    // authorization it did NOT park for adjudication: no adjudication row.
     let persisted = router
         .channel_persistence()
         .await
         .expect("runtime exposes channel authority persistence");
     assert_eq!(persisted.channels, 1);
-    assert_eq!(persisted.adjudication_pending, 1);
+    assert_eq!(persisted.adjudication_pending, 0);
 
     router.stop().await;
 }
@@ -1051,7 +1057,12 @@ async fn router_installs_structural_channels_for_engine_setup() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
+async fn mind_channel_grant_still_installs_row_though_local_delivery_needs_none() {
+    // Local default-authorization: a message to a locally-registered harness
+    // delivers on the first attempt with NO channel grant and NO adjudication.
+    // The mind-grant machinery stays intact and available — applying a grant
+    // still installs a durable channel row — but local delivery no longer
+    // depends on it.
     let store = TemporaryRouterStore::new("mind-grant");
     let terminal_socket = TerminalAcceptanceSocket::new("mind-grant");
     let tables = RouterTables::open(store.path()).expect("router tables open");
@@ -1074,31 +1085,47 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
         .await
         .expect("harness registration passes through router actors");
 
-    let parked = router
+    let delivered = router
         .apply(RouterInput::RouteMessage(RouteMessage {
             message: Message {
                 id: message_identifier.clone(),
                 thread: ThreadIdentifier::new("direct-router-harness"),
                 from: ActorIdentifier::new("router"),
                 to: ActorIdentifier::new("harness"),
-                body: "deliver after mind grant".to_string(),
+                body: "deliver without a grant".to_string(),
                 attachments: Vec::new(),
             },
         }))
         .await
-        .expect("unknown channel parks before mind grant");
-    let RouterOutput::DeliveryChanged(delivery) = parked else {
-        panic!("expected delivery output for parked message");
+        .expect("local recipient delivers without a grant");
+    let RouterOutput::DeliveryChanged(delivery) = delivered else {
+        panic!("expected delivery output for local message");
     };
-    assert_eq!(delivery.delivered, 0);
-    assert_eq!(delivery.pending, 1);
+    assert_eq!(delivery.delivered, 1);
+    assert_eq!(delivery.pending, 0);
+
+    let attempts = inspection
+        .delivery_attempt_records()
+        .expect("delivery attempt records read");
+    let results = inspection
+        .delivery_result_records()
+        .expect("delivery result records read");
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].message, message_identifier.as_str());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].message, message_identifier.as_str());
+    assert!(results[0].delivered);
+    // No channel was consulted for the local delivery, so none was installed.
     assert!(
         inspection
-            .delivery_attempt_records()
-            .expect("delivery attempts read before grant")
+            .channel_records()
+            .expect("channel records read before grant")
             .is_empty()
     );
 
+    // The mind-grant machinery is intact: applying a grant still installs a
+    // durable channel row through the actor tree, even though nothing was
+    // parked waiting on it.
     let applied = router
         .apply(RouterInput::ApplyMindChannelGrant(ApplyMindChannelGrant {
             grant: MindChannelGrant {
@@ -1115,24 +1142,13 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
         panic!("expected mind channel grant output");
     };
     assert_eq!(applied.channels, 1);
-    assert_eq!(applied.delivered, 1);
+    assert_eq!(applied.delivered, 0);
     assert_eq!(applied.pending, 0);
 
     let channels = inspection.channel_records().expect("channel records read");
-    let attempts = inspection
-        .delivery_attempt_records()
-        .expect("delivery attempt records read");
-    let results = inspection
-        .delivery_result_records()
-        .expect("delivery result records read");
     assert_eq!(channels.len(), 1);
     assert_eq!(channels[0].from, "router");
     assert_eq!(channels[0].to, "harness");
-    assert_eq!(attempts.len(), 1);
-    assert_eq!(attempts[0].message, message_identifier.as_str());
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].message, message_identifier.as_str());
-    assert!(results[0].delivered);
 
     let trace = router.trace().await.expect("router trace is readable");
     let message_steps = trace
@@ -1141,17 +1157,21 @@ async fn mind_channel_grant_installs_row_before_parked_message_delivers() {
         .filter(|event| event.message() == &message_identifier)
         .map(|event| event.step())
         .collect::<Vec<_>>();
-    let adjudication_index = message_steps
+    assert!(
+        !message_steps.contains(&RouterTraceStep::AdjudicationRequested),
+        "local delivery does not park for adjudication: {message_steps:?}"
+    );
+    let delivery_marked_index = message_steps
         .iter()
-        .position(|step| *step == RouterTraceStep::AdjudicationRequested)
-        .expect("adjudication request is traced");
+        .position(|step| *step == RouterTraceStep::DeliveryMarked)
+        .expect("delivery marked is traced");
     let delivery_index = message_steps
         .iter()
         .position(|step| *step == RouterTraceStep::DeliveryAttempted)
         .expect("delivery attempt is traced");
     assert!(
-        adjudication_index < delivery_index,
-        "delivery cannot happen before mind grant unblocks adjudication: {message_steps:?}"
+        delivery_index < delivery_marked_index,
+        "local delivery attempt precedes the delivered mark, with no adjudication step: {message_steps:?}"
     );
 
     router.stop().await;
@@ -1211,7 +1231,13 @@ async fn router_delivers_to_harness_daemon_socket_through_signal_contract() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
+async fn mind_deny_removes_a_stuck_pending_message() {
+    // Local default-authorization means the message is NOT parked for
+    // adjudication — it is delivered-attempted immediately. This harness has a
+    // Human endpoint, so the attempt fails and the message stays pending. The
+    // mind-deny machinery remains intact and can still remove such a stuck
+    // pending message by identifier (an operator/mind escalation), witnessed
+    // here without any adjudication step.
     let store = TemporaryRouterStore::new("mind-deny");
     let tables = RouterTables::open(store.path()).expect("router tables open");
     let inspection = tables.clone();
@@ -1240,12 +1266,12 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
                 thread: ThreadIdentifier::new("direct-router-harness"),
                 from: ActorIdentifier::new("router"),
                 to: ActorIdentifier::new("harness"),
-                body: "deny this adjudication".to_string(),
+                body: "stuck without a delivery endpoint".to_string(),
                 attachments: Vec::new(),
             },
         }))
         .await
-        .expect("unknown channel parks before mind deny");
+        .expect("local delivery is attempted and the message stays pending");
 
     let denied = router
         .apply(RouterInput::ApplyMindAdjudicationDeny(
@@ -1263,11 +1289,15 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
     };
     assert_eq!(denied.rejected, 1);
     assert_eq!(denied.pending, 0);
-    assert!(
+    // Local delivery was attempted (and failed against the Human endpoint), so
+    // an attempt record exists — the message reached the delivery actor rather
+    // than parking for adjudication.
+    assert_eq!(
         inspection
             .delivery_attempt_records()
             .expect("delivery attempts read after deny")
-            .is_empty()
+            .len(),
+        1
     );
 
     let trace = router.trace().await.expect("router trace is readable");
@@ -1277,9 +1307,9 @@ async fn mind_adjudication_deny_removes_parked_message_without_delivery() {
         .filter(|event| event.message() == &message_identifier)
         .map(|event| event.step())
         .collect::<Vec<_>>();
-    assert!(message_steps.contains(&RouterTraceStep::AdjudicationRequested));
+    assert!(message_steps.contains(&RouterTraceStep::DeliveryAttempted));
     assert!(message_steps.contains(&RouterTraceStep::AdjudicationDenied));
-    assert!(!message_steps.contains(&RouterTraceStep::DeliveryAttempted));
+    assert!(!message_steps.contains(&RouterTraceStep::AdjudicationRequested));
 
     router.stop().await;
 }

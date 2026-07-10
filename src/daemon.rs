@@ -106,6 +106,7 @@ impl RouterEngine {
     ///     transport — the ingress serves the mutual-proof + ECDH handshake and,
     ///     being session-capable, SHUTS the plaintext door so real mirror content
     ///     only crosses the encrypted channel (M1).
+    ///
     /// Absent the socket the daemon keeps the offline accept-fixed-test-identity
     /// stand-in and no session prover (milestone 2 plaintext connect-per-forward),
     /// so a single-host or pre-criome deployment still runs.
