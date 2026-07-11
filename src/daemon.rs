@@ -28,9 +28,10 @@ use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVeri
 use crate::identity_proof::{CriomeIdentityProver, PeerIdentityProver};
 use crate::router::RouterNetworkConfiguration;
 use crate::{
-    ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterObservation, ApplySignalMessage,
-    Configuration, ConfigurationError, Error as RouterError, RouterBootstrap, RouterIngressContext,
-    RouterResult, RouterRuntime, RouterTables, SignalMessageInput, schema::daemon::ComponentDaemon,
+    ApplyActorRegistration, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission,
+    ApplyRouterObservation, ApplySignalMessage, Configuration, ConfigurationError,
+    Error as RouterError, RouterBootstrap, RouterIngressContext, RouterResult, RouterRuntime,
+    RouterTables, SignalMessageInput, schema::daemon::ComponentDaemon,
 };
 
 #[derive(Debug)]
@@ -190,6 +191,11 @@ impl RouterEngine {
                 let output = match request {
                     SignalRouterInput::SubmitRoutedObjects(submission) => runtime
                         .ask(ApplyRoutedObjectSubmission { submission })
+                        .await
+                        .map_err(|error| RouterError::ActorCall(error.to_string()))?
+                        .into_result()?,
+                    SignalRouterInput::RegisterActor(actor) => runtime
+                        .ask(ApplyActorRegistration { actor })
                         .await
                         .map_err(|error| RouterError::ActorCall(error.to_string()))?
                         .into_result()?,

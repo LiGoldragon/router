@@ -52,7 +52,9 @@ use signal_persona::{
     ConnectionClass as OriginConnectionClass,
 };
 use signal_router::{
-    Actor as BootstrapActor, CriomeHostId, EndpointKind as BootstrapEndpointKind,
+    Actor as BootstrapActor, ActorIdentifier as SignalActorIdentifier, ActorRegistered,
+    ActorRegistrationDisposition, ActorRegistrationRefusalReason, ActorRegistrationRefused,
+    CriomeHostId, EndpointKind as BootstrapEndpointKind,
     EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
     MessageSlot as RouterMessageSlot, RouterBootstrapDocument, RouterBootstrapOperation,
     RouterDaemonConfiguration, RouterForwardRefusalReason, RouterForwardRequest, RouterSessionData,
@@ -88,8 +90,8 @@ use crate::forward_attestation::{
 };
 use crate::harness_delivery::{DeliverHarness, HarnessDelivery};
 use crate::harness_registry::{
-    HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget, ReadHarnessRegistryStatus,
-    RegisterHarness,
+    HarnessRegistrationOutcome, HarnessRegistry, MarkHarnessDelivered, ReadHarnessDeliveryTarget,
+    ReadHarnessRegistryStatus, RegisterHarness,
 };
 use crate::identity_proof::{AcceptFixedIdentityProver, CriomeIdentityProver, PeerIdentityProver};
 use crate::observation::{
@@ -1641,6 +1643,18 @@ pub struct ApplyRoutedObjectSubmission {
     pub submission: ForwardedMessagePayload,
 }
 
+/// A runtime actor registration arriving on the working socket: a co-resident
+/// owner component (orchestrate) asks its own router to register one `Actor` so
+/// the minted identity becomes a local delivery target. The working-tier twin
+/// of the boot-time `RegisterActor` bootstrap operation, lowered by the daemon
+/// from a `signal-router` `RegisterActor` request. It carries only the wire
+/// `Actor` — a runtime registrant is always local, so there is no bootstrap
+/// `Home`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyActorRegistration {
+    pub actor: BootstrapActor,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyMetaRouterPolicy {
     pub input: MetaInput,
@@ -1719,6 +1733,26 @@ pub struct RoutedObjectSubmissionOutcome {
 }
 
 impl RoutedObjectSubmissionOutcome {
+    fn new(result: RouterResult<SignalRouterOutput>) -> Self {
+        Self { result }
+    }
+
+    pub fn into_result(self) -> RouterResult<SignalRouterOutput> {
+        self.result
+    }
+}
+
+/// The reply of `ApplyActorRegistration`: the router registered the actor
+/// (returning the `signal-router` `ActorRegistered` output naming whether the
+/// row was created or its endpoint replaced), refused it with a typed
+/// `ActorRegistrationRefused` output, or failed with a typed router error. A
+/// refusal is a committed reply, not an error — only a runtime fault is `Err`.
+#[derive(Debug, kameo::Reply)]
+pub struct ActorRegistrationOutcome {
+    result: RouterResult<SignalRouterOutput>,
+}
+
+impl ActorRegistrationOutcome {
     fn new(result: RouterResult<SignalRouterOutput>) -> Self {
         Self { result }
     }
@@ -1856,6 +1890,27 @@ impl kameo::message::Message<ApplyRoutedObjectSubmission> for RouterRuntime {
             Err(error) => Err(error),
         };
         RoutedObjectSubmissionOutcome::new(result)
+    }
+}
+
+impl kameo::message::Message<ApplyActorRegistration> for RouterRuntime {
+    type Reply = ActorRegistrationOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyActorRegistration,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.applied_input_count = self.applied_input_count.saturating_add(1);
+        let result = match self.root() {
+            Ok(root) => root
+                .ask(message)
+                .await
+                .map_err(|error| Error::ActorCall(error.to_string()))
+                .and_then(ActorRegistrationOutcome::into_result),
+            Err(error) => Err(error),
+        };
+        ActorRegistrationOutcome::new(result)
     }
 }
 
@@ -2220,12 +2275,14 @@ impl RouterRoot {
     async fn apply(&mut self, input: RouterInput) -> RouterResult<RouterOutput> {
         match input {
             RouterInput::RegisterActor(input) => {
-                let actors = self
+                let outcome = self
                     .registry
                     .ask(RegisterHarness { actor: input.actor })
                     .await
                     .map_err(|error| Error::ActorCall(error.to_string()))?;
-                Ok(RouterOutput::Registered(Registered { actors }))
+                Ok(RouterOutput::Registered(Registered {
+                    actors: outcome.registered_count,
+                }))
             }
             RouterInput::RouteMessage(input) => {
                 let pending = PendingRouterMessage::internal_router(
@@ -2604,6 +2661,94 @@ impl RouterRoot {
     /// whole resolve → forward → attest path; the only change from an ordinary
     /// body submission is that the origin path now carries the routed objects
     /// through to the peer instead of dropping them.
+    /// Register one actor arriving over the working socket, the runtime twin of
+    /// the boot-time `RegisterActor` bootstrap operation. The wire `Actor` is
+    /// lowered into the internal registry actor (a refused lowering becomes a
+    /// committed `ActorRegistrationRefused` reply, never an error), then handed
+    /// to the harness registry, whose last-wins insert reports whether a prior
+    /// registration was replaced so the reply names `Registered` vs
+    /// `EndpointUpdated`.
+    async fn apply_actor_registration(
+        &mut self,
+        actor: BootstrapActor,
+    ) -> RouterResult<SignalRouterOutput> {
+        let actor_identifier: SignalActorIdentifier = actor.name.payload().clone();
+        let registry_actor = match Self::lower_registration_actor(actor) {
+            Ok(registry_actor) => registry_actor,
+            Err(reason) => {
+                return Ok(SignalRouterOutput::actor_registration_refused(
+                    ActorRegistrationRefused::new(actor_identifier, reason),
+                ));
+            }
+        };
+        let outcome = self
+            .registry
+            .ask(RegisterHarness {
+                actor: registry_actor,
+            })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?;
+        Ok(SignalRouterOutput::actor_registered(ActorRegistered::new(
+            actor_identifier,
+            Self::registration_disposition(outcome),
+        )))
+    }
+
+    fn registration_disposition(
+        outcome: HarnessRegistrationOutcome,
+    ) -> ActorRegistrationDisposition {
+        if outcome.replaced_existing {
+            ActorRegistrationDisposition::EndpointUpdated
+        } else {
+            ActorRegistrationDisposition::Registered
+        }
+    }
+
+    /// Lower a wire `Actor` into the internal registry `Actor`, enforcing the
+    /// same two admission checks as the bootstrap actor lowering — a process
+    /// identifier that fits the 32-bit registry slot and a locally-deliverable
+    /// endpoint kind — but as a typed refusal reason rather than a
+    /// bootstrap-halting error.
+    fn lower_registration_actor(
+        actor: BootstrapActor,
+    ) -> std::result::Result<Actor, ActorRegistrationRefusalReason> {
+        let pid = u32::try_from(*actor.process.payload())
+            .map_err(|_| ActorRegistrationRefusalReason::ProcessIdentifierOutOfRange)?;
+        let endpoint = actor
+            .endpoint()
+            .cloned()
+            .map(Self::lower_registration_endpoint)
+            .transpose()?;
+        Ok(Actor {
+            name: ActorIdentifier::new(actor.name.into_payload().into_payload()),
+            pid,
+            endpoint,
+        })
+    }
+
+    fn lower_registration_endpoint(
+        endpoint: BootstrapEndpointTransport,
+    ) -> std::result::Result<EndpointTransport, ActorRegistrationRefusalReason> {
+        let aux = endpoint.auxiliary().cloned();
+        let kind = match endpoint.kind.into_payload() {
+            BootstrapEndpointKind::Human => EndpointKind::Human,
+            BootstrapEndpointKind::HarnessSocket => EndpointKind::HarnessSocket,
+            BootstrapEndpointKind::PtySocket => EndpointKind::PtySocket,
+            BootstrapEndpointKind::ComponentSocket => EndpointKind::ComponentSocket,
+            // A `RemoteRouter` endpoint is never a local delivery target;
+            // remote reachability is carried through a bootstrap
+            // `RegisterActor.home`, never a runtime registration endpoint.
+            BootstrapEndpointKind::RemoteRouter => {
+                return Err(ActorRegistrationRefusalReason::RemoteRouterEndpointNotLocal);
+            }
+        };
+        Ok(EndpointTransport {
+            kind,
+            target: endpoint.target.into_payload(),
+            aux,
+        })
+    }
+
     async fn apply_routed_object_submission(
         &mut self,
         submission: ForwardedMessagePayload,
@@ -3869,6 +4014,18 @@ impl kameo::message::Message<ApplyRoutedObjectSubmission> for RouterRoot {
             self.apply_routed_object_submission(message.submission)
                 .await,
         )
+    }
+}
+
+impl kameo::message::Message<ApplyActorRegistration> for RouterRoot {
+    type Reply = ActorRegistrationOutcome;
+
+    async fn handle(
+        &mut self,
+        message: ApplyActorRegistration,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        ActorRegistrationOutcome::new(self.apply_actor_registration(message.actor).await)
     }
 }
 

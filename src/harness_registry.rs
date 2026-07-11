@@ -24,11 +24,16 @@ impl HarnessRegistry {
         }
     }
 
-    fn register(&mut self, actor: Actor) -> u64 {
-        self.actors
-            .insert(actor.name.clone(), HarnessRegistration::new(actor));
+    fn register(&mut self, actor: Actor) -> HarnessRegistrationOutcome {
+        let replaced_existing = self
+            .actors
+            .insert(actor.name.clone(), HarnessRegistration::new(actor))
+            .is_some();
         self.registered_actor_count = self.actors.len() as u64;
-        self.registered_actor_count
+        HarnessRegistrationOutcome {
+            registered_count: self.registered_actor_count,
+            replaced_existing,
+        }
     }
 
     fn delivery_target(&self, recipient: &ActorIdentifier) -> Option<HarnessDeliveryTarget> {
@@ -74,6 +79,17 @@ pub struct RegisterHarness {
     pub actor: Actor,
 }
 
+/// The result of registering an actor: the registry's total actor count and
+/// whether the name was already present. `replaced_existing` is the last-wins
+/// fact the runtime lowers into the wire `ActorRegistrationDisposition` —
+/// `EndpointUpdated` when a prior registration was replaced, `Registered`
+/// otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, kameo::Reply)]
+pub struct HarnessRegistrationOutcome {
+    pub registered_count: u64,
+    pub replaced_existing: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadHarnessDeliveryTarget {
     pub recipient: ActorIdentifier,
@@ -107,7 +123,7 @@ impl kameo::actor::Actor for HarnessRegistry {
 }
 
 impl kameo::message::Message<RegisterHarness> for HarnessRegistry {
-    type Reply = u64;
+    type Reply = HarnessRegistrationOutcome;
 
     async fn handle(
         &mut self,

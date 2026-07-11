@@ -57,6 +57,15 @@ impl RouterObservationPlane {
                             .to_string(),
                 })
             }
+            // `RegisterActor` is the runtime actor-registration write; the
+            // daemon lowers it to the write plane (RouterRoot) before it can
+            // reach the read-only observation plane, exactly as it does
+            // `SubmitRoutedObjects`. If one arrives here the routing invariant
+            // broke — refuse it fail-closed rather than treating it as a query.
+            SignalRouterInput::RegisterActor(_) => Err(Error::UnexpectedRouterObservationFrame {
+                got: "RegisterActor is an actor-registration write, not an observation query"
+                    .to_string(),
+            }),
             // The peer-session handshake and its sealed data frames are
             // transport-tier: they cross the tailnet TCP ingress inside an
             // encrypted session, never the working observation surface. The
