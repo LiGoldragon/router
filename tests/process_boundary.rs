@@ -20,7 +20,7 @@ use signal_frame::{
 use signal_message::{
     ComponentName, Frame as SignalMessageFrame, FrameBody as SignalMessageFrameBody,
     Input as SignalInput, MessageBody, MessageKind, MessageOrigin as SignalMessageOrigin,
-    MessageRecipient, MessageSlot, MessageSubmission, Output as SignalOutput,
+    MessageRecipient, MessageSubmission, Output as SignalOutput,
     StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
 };
 #[cfg(feature = "nota-text")]
@@ -150,11 +150,17 @@ fn generated_daemon_answers_working_signal_message_frame() {
         }),
     );
 
+    // Packet 3.2b: a local recipient (no installed remote route) refuses
+    // typed over the real socket — the witness is the complete reply frame,
+    // never a dropped connection.
     match output {
-        SignalOutput::SubmissionAccepted(acceptance) => {
-            assert_eq!(*acceptance.payload(), MessageSlot::new(1));
+        SignalOutput::MessageRequestUnimplemented(refusal) => {
+            assert_eq!(
+                refusal.message_operation_kind,
+                signal_message::MessageOperationKind::SubmitStamped
+            );
         }
-        other => panic!("expected SubmissionAccepted, got {other:?}"),
+        other => panic!("expected typed refusal for a local submission, got {other:?}"),
     }
 }
 

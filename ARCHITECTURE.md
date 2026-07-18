@@ -1,16 +1,23 @@
 # router — architecture
 
-*Delivery reducer and pending-delivery state for Persona.*
+*Host-to-host message relay and channel authority for Persona.*
 
-`router` decides where Persona messages are delivered. It consumes
-typed frames from the message boundary, keeps pending deliveries, owns live
-authorized-channel state, and persists router state in its own `router.sema`
-database through `sema-engine`.
+`router` relays messages between hosts and owns live authorized-channel
+state, attestation, and adjudication. Since messenger-promotion packet 3.2b
+it is host-to-host ONLY: the local message ledger, inbox, and local delivery
+are the `message` component's durable state, and every local message
+operation on this daemon refuses typed. A stamped submission is accepted
+solely as the outbound relay entry — the recipient must already resolve to
+an installed remote route — and the inbound peer leg (`ForwardMessage` under
+criome attestation) still delivers to local harness endpoints until the
+messenger handoff replaces that final hop. Router state persists in its own
+`router.sema` database through `sema-engine`.
 
 ## 0 · TL;DR
 
-The router owns routing policy and delivery state. It does not own OS backends,
-terminal byte transport, or contract definitions.
+The router owns host-to-host routing, channel policy, and attestation. It
+does not own local messaging (the messenger's), OS backends, terminal byte
+transport, or contract definitions.
 
 ```mermaid
 flowchart LR

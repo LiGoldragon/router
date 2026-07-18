@@ -30,12 +30,10 @@ use signal_frame::{
 };
 use signal_message::{
     ComponentName as SignalComponentName, ConnectionClass as SignalConnectionClass,
-    Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
-    InboxListing as SignalInboxListing, InboxQuery as SignalInboxQuery,
+    Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry, InboxQuery as SignalInboxQuery,
     Input as SignalMessageContractInput, MessageBody as SignalMessageBody, MessageKind,
     MessageOperationKind, MessageOrigin as SignalMessageOrigin,
-    MessageRecipient as SignalMessageRecipient, MessageRequestUnimplemented,
-    MessageSender as SignalMessageSender, MessageSlot as SignalSlot,
+    MessageRecipient as SignalMessageRecipient, MessageRequestUnimplemented, MessageSlot as SignalSlot,
     MessageSubmission as SignalMessageSubmission, MessageUnimplementedReason,
     Output as SignalMessageContractOutput, StampedMessageSubmission,
     SubmissionAcceptance as SignalSubmissionAcceptance,
@@ -2387,6 +2385,11 @@ impl RouterRoot {
         }
     }
 
+    /// Local messaging moved into the messenger (train packet 3.2a): the
+    /// message ledger, inbox, and local delivery are `message`'s durable
+    /// state now, and the router's message plane is host-to-host only. Every
+    /// local message operation refuses typed; the peer `ForwardMessage`
+    /// plane is the one remaining message path through this daemon.
     async fn apply_signal(
         &mut self,
         input: SignalMessageInput,
@@ -2398,11 +2401,9 @@ impl RouterRoot {
             SignalMessageContractInput::SubmitStamped(stamped) => {
                 self.apply_stamped_message_submission(stamped).await
             }
-            SignalMessageContractInput::QueryInbox(query) => {
-                Ok(SignalMessageContractOutput::InboxListing(
-                    SignalInboxListing::from_entries(self.signal_inbox(query.payload())),
-                ))
-            }
+            SignalMessageContractInput::QueryInbox(_) => Ok(Self::unimplemented_message_request(
+                MessageOperationKind::QueryInbox,
+            )),
         }
     }
 
@@ -2625,34 +2626,6 @@ impl RouterRoot {
         })
     }
 
-    async fn apply_stamped_message_submission(
-        &mut self,
-        stamped: StampedMessageSubmission,
-    ) -> RouterResult<SignalMessageContractOutput> {
-        if stamped.message_submission.message_kind != MessageKind::Send {
-            return Ok(Self::unimplemented_message_request(
-                MessageOperationKind::SubmitStamped,
-            ));
-        }
-        let sender = RouterIngressContext::actor_identifier_for_origin(&stamped.message_origin);
-        let origin = stamped.message_origin;
-        let slot = self.next_signal_message_slot();
-        let message = self.signal_message(sender, stamped.message_submission, slot.clone());
-        self.persist_message(&message, &origin, Some(slot.clone()))?;
-        let pending =
-            PendingRouterMessage::new(self.next_backlog_sequence(), message.clone(), origin);
-        self.persist_outbound_backlog(&pending)?;
-        self.pending.push(pending);
-        self.signal_slots
-            .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
-        self.trace
-            .record(message.id.clone(), RouterTraceStep::MessageCommitted);
-        let _delivered = self.retry_pending().await?;
-        Ok(SignalMessageContractOutput::SubmissionAccepted(
-            SignalSubmissionAcceptance::new(slot),
-        ))
-    }
-
     /// Originate a component-object forward on the standing daemon's own
     /// initiative. A co-resident component hands the router a
     /// `ForwardedMessagePayload` over the working socket; the router marks it
@@ -2795,6 +2768,46 @@ impl RouterRoot {
         ))
     }
 
+    /// Packet 3.2b: the router's message plane is host-to-host only. A
+    /// stamped submission is accepted solely as the OUTBOUND relay entry —
+    /// the recipient must already resolve to an installed remote route. A
+    /// local recipient refuses typed: the messenger owns the local ledger,
+    /// inbox, and delivery now.
+    async fn apply_stamped_message_submission(
+        &mut self,
+        stamped: StampedMessageSubmission,
+    ) -> RouterResult<SignalMessageContractOutput> {
+        if stamped.message_submission.message_kind != MessageKind::Send {
+            return Ok(Self::unimplemented_message_request(
+                MessageOperationKind::SubmitStamped,
+            ));
+        }
+        let recipient =
+            ActorIdentifier::new(stamped.message_submission.message_recipient.as_str());
+        if self.resolve_remote_route(&recipient).await?.is_none() {
+            return Ok(Self::unimplemented_message_request(
+                MessageOperationKind::SubmitStamped,
+            ));
+        }
+        let sender = RouterIngressContext::actor_identifier_for_origin(&stamped.message_origin);
+        let origin = stamped.message_origin;
+        let slot = self.next_signal_message_slot();
+        let message = self.signal_message(sender, stamped.message_submission, slot.clone());
+        self.persist_message(&message, &origin, Some(slot.clone()))?;
+        let pending =
+            PendingRouterMessage::new(self.next_backlog_sequence(), message.clone(), origin);
+        self.persist_outbound_backlog(&pending)?;
+        self.pending.push(pending);
+        self.signal_slots
+            .push(SignalMessageSlot::new(message.id.clone(), slot.clone()));
+        self.trace
+            .record(message.id.clone(), RouterTraceStep::MessageCommitted);
+        let _delivered = self.retry_pending().await?;
+        Ok(SignalMessageContractOutput::SubmissionAccepted(
+            SignalSubmissionAcceptance::new(slot),
+        ))
+    }
+
     fn unimplemented_message_request(
         operation: MessageOperationKind,
     ) -> SignalMessageContractOutput {
@@ -2933,23 +2946,6 @@ impl RouterRoot {
         tokio::spawn(async move {
             let _ = self_reference.ask(DrainOutboundBacklog).await;
         });
-    }
-
-    fn signal_inbox(&self, recipient: &SignalMessageRecipient) -> Vec<SignalInboxEntry> {
-        self.pending
-            .iter()
-            .filter(|pending| pending.message.to.as_str() == recipient.as_str())
-            .filter_map(|pending| {
-                let slot = self.signal_slot_for(&pending.message.id)?;
-                Some(SignalInboxEntry {
-                    message_slot: slot,
-                    message_sender: SignalMessageSender::new(
-                        pending.message.from.as_str().to_string(),
-                    ),
-                    message_body: SignalMessageBody::new(pending.message.body.clone()),
-                })
-            })
-            .collect()
     }
 
     fn signal_slot_for(&self, message_identifier: &MessageIdentifier) -> Option<SignalSlot> {

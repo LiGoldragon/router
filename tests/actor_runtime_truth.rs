@@ -24,9 +24,7 @@ use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
 };
 use signal_message::{
-    ComponentInstanceName as SignalComponentInstanceName, ComponentName as SignalComponentName,
-    ConnectionClass as SignalConnectionClass, Input as SignalInput,
-    InternalComponentInstanceOrigin as SignalInternalComponentInstanceOrigin, MessageBody,
+    ConnectionClass as SignalConnectionClass, Input as SignalInput, MessageBody,
     MessageKind, MessageOperationKind, MessageOrigin as SignalMessageOrigin, MessageRecipient,
     MessageSubmission, MessageUnimplementedReason, Output as SignalOutput,
     StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
@@ -595,85 +593,6 @@ async fn local_delivery_emits_no_mind_adjudication_request() {
     router.stop().await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn explicit_thread_name_is_used_verbatim_while_absent_thread_derives_direct() {
-    // An explicit thread name is a plain sender-chosen token taken verbatim as
-    // the message thread; an absent thread (`ThreadSelection::None`) falls back
-    // to the derived direct-thread for the sender/recipient pair. Same explicit
-    // name means the same thread deliberately — collision is convergence.
-    let operator = ActorIdentifier::new("operator");
-    let responder = ActorIdentifier::new("responder");
-    let store = TemporaryRouterStore::new("explicit-thread");
-    let tables = RouterTables::open(store.path()).expect("router tables open");
-    let inspection = tables.clone();
-    let router = RouterFixture::start_with_tables(tables).await;
-    router
-        .apply(RouterInput::RegisterActor(RegisterActor {
-            actor: Actor {
-                name: responder.clone(),
-                pid: 42,
-                endpoint: None,
-            },
-        }))
-        .await
-        .expect("register request passes through router actor");
-
-    router
-        .apply_signal(SignalMessageInput::with_origin(
-            operator.clone(),
-            SignalMessageOrigin::External(SignalConnectionClass::Owner),
-            SignalInput::SubmitStamped(StampedMessageSubmission {
-                message_submission: MessageSubmission {
-                    message_recipient: MessageRecipient::new(responder.as_str().to_string()),
-                    message_kind: MessageKind::Send,
-                    message_body: MessageBody::new("named body".to_string()),
-                    thread_selection: signal_message::ThreadSelection::Named(
-                        signal_message::ThreadName::new("launch-plan"),
-                    ),
-                },
-                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1).into(),
-            }),
-        ))
-        .await
-        .expect("named-thread submission passes through router actors");
-
-    router
-        .apply_signal(SignalMessageInput::with_origin(
-            operator.clone(),
-            SignalMessageOrigin::External(SignalConnectionClass::Owner),
-            SignalInput::SubmitStamped(StampedMessageSubmission {
-                message_submission: MessageSubmission {
-                    message_recipient: MessageRecipient::new(responder.as_str().to_string()),
-                    message_kind: MessageKind::Send,
-                    message_body: MessageBody::new("derived body".to_string()),
-                    thread_selection: signal_message::ThreadSelection::None,
-                },
-                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(2).into(),
-            }),
-        ))
-        .await
-        .expect("absent-thread submission passes through router actors");
-
-    let records = inspection
-        .message_records()
-        .expect("stored message records read");
-    let named = records
-        .iter()
-        .find(|record| record.body == "named body")
-        .expect("named-thread message stored");
-    assert_eq!(named.thread, "launch-plan");
-    let derived = records
-        .iter()
-        .find(|record| record.body == "derived body")
-        .expect("derived-thread message stored");
-    // The sender is resolved from the stamped Owner origin (an owner submission
-    // is "owner"), so the derived direct-thread names owner -> responder.
-    assert_eq!(derived.thread, "direct-owner-responder");
-
-    router.stop().await;
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_shot_channel_cannot_authorize_second_message() {
@@ -1395,134 +1314,8 @@ async fn mind_deny_removes_a_stuck_pending_message() {
     router.stop().await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn signal_message_submission_cannot_bypass_router_root_commit_trace() {
-    let router = RouterFixture::start().await;
-    let reply = router
-        .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            SignalInput::SubmitStamped(StampedMessageSubmission {
-                message_submission: MessageSubmission {
-                    message_recipient: MessageRecipient::new("responder".to_string()),
-                    message_kind: MessageKind::Send,
-                    message_body: MessageBody::new("hello".to_string()),
-                    thread_selection: signal_message::ThreadSelection::None,
-                },
-                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1).into(),
-            }),
-        ))
-        .await
-        .expect("signal message request passes through router actors");
 
-    let SignalOutput::SubmissionAccepted(acceptance) = reply else {
-        panic!("expected accepted signal message reply");
-    };
-    assert_eq!(acceptance.into_payload().into_u64(), 1);
 
-    let trace = router.trace().await.expect("router trace is readable");
-    assert!(
-        trace
-            .events()
-            .iter()
-            .any(|event| event.step() == RouterTraceStep::MessageCommitted),
-        "signal message submission must commit through RouterRoot before reply"
-    );
-
-    router.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn router_root_persists_accepted_signal_message_before_delivery_attempt() {
-    let store = TemporaryRouterStore::new("message-tables");
-    let tables = RouterTables::open(store.path()).expect("router tables open");
-    let inspection = tables.clone();
-    let router = RouterFixture::start_with_tables(tables).await;
-
-    let reply = router
-        .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            SignalInput::SubmitStamped(StampedMessageSubmission {
-                message_submission: MessageSubmission {
-                    message_recipient: MessageRecipient::new("responder".to_string()),
-                    message_kind: MessageKind::Send,
-                    message_body: MessageBody::new("durable router message".to_string()),
-                    thread_selection: signal_message::ThreadSelection::None,
-                },
-                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
-                stamped_at: SignalTimestampNanos::new(1).into(),
-            }),
-        ))
-        .await
-        .expect("signal message request passes through router actors");
-
-    let SignalOutput::SubmissionAccepted(acceptance) = reply else {
-        panic!("expected accepted signal message reply");
-    };
-    assert_eq!(acceptance.into_payload().into_u64(), 1);
-
-    let messages = inspection.message_records().expect("message records read");
-    let attempts = inspection
-        .delivery_attempt_records()
-        .expect("delivery attempts read");
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].sender, "owner");
-    assert_eq!(messages[0].recipient, "responder");
-    assert_eq!(messages[0].body, "durable router message");
-    assert_eq!(messages[0].signal_slot, Some(1));
-    assert_eq!(
-        messages[0].origin,
-        SignalMessageOrigin::External(SignalConnectionClass::Owner)
-    );
-    assert!(
-        attempts.is_empty(),
-        "message row must persist even when no harness target exists yet"
-    );
-
-    router.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stamped_component_instance_origin_becomes_message_sender_actor() {
-    let store = TemporaryRouterStore::new("component-instance-origin");
-    let tables = RouterTables::open(store.path()).expect("router tables open");
-    let inspection = tables.clone();
-    let router = RouterFixture::start_with_tables(tables).await;
-    let origin =
-        SignalMessageOrigin::InternalComponentInstance(SignalInternalComponentInstanceOrigin {
-            component_name: SignalComponentName::Harness,
-            component_instance_name: SignalComponentInstanceName::new("initiator".to_string()),
-        });
-
-    let reply = router
-        .apply_signal(SignalMessageInput::with_ingress(
-            RouterIngressContext::message(),
-            SignalInput::SubmitStamped(StampedMessageSubmission {
-                message_submission: MessageSubmission {
-                    message_recipient: MessageRecipient::new("responder".to_string()),
-                    message_kind: MessageKind::Send,
-                    message_body: MessageBody::new("from component instance".to_string()),
-                    thread_selection: signal_message::ThreadSelection::None,
-                },
-                message_origin: origin.clone(),
-                stamped_at: SignalTimestampNanos::new(1).into(),
-            }),
-        ))
-        .await
-        .expect("signal message request passes through router actors");
-
-    let SignalOutput::SubmissionAccepted(acceptance) = reply else {
-        panic!("expected accepted signal message reply");
-    };
-    assert_eq!(acceptance.into_payload().into_u64(), 1);
-
-    let messages = inspection.message_records().expect("message records read");
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].sender, "initiator");
-    assert_eq!(messages[0].origin, origin);
-
-    router.stop().await;
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unstamped_message_submission_is_not_router_ingress_payload() {
@@ -1934,4 +1727,73 @@ fn public_control_records_cannot_be_zero_sized() {
     assert!(std::mem::size_of::<ReadHarnessRegistryStatus>() > 0);
     assert!(std::mem::size_of::<ReadRouterTrace>() > 0);
     assert!(std::mem::size_of::<RouterTrace>() > 0);
+}
+
+/// Packet 3.2b: local messaging lives in the messenger; the router's message
+/// plane is host-to-host only. A stamped local submission refuses typed —
+/// nothing commits, nothing enters the pending backlog.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stamped_local_submission_refuses_typed_after_the_messenger_owns_local_delivery() {
+    let store = TemporaryRouterStore::new("shrunk-submit");
+    let tables = RouterTables::open(store.path()).expect("router tables open");
+    let inspection = tables.clone();
+    let router = RouterFixture::start_with_tables(tables).await;
+
+    let reply = router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
+            SignalInput::SubmitStamped(StampedMessageSubmission {
+                message_submission: MessageSubmission {
+                    message_recipient: MessageRecipient::new("responder".to_string()),
+                    message_kind: MessageKind::Send,
+                    message_body: MessageBody::new("hello".to_string()),
+                    thread_selection: signal_message::ThreadSelection::None,
+                },
+                message_origin: SignalMessageOrigin::External(SignalConnectionClass::Owner),
+                stamped_at: SignalTimestampNanos::new(1).into(),
+            }),
+        ))
+        .await
+        .expect("signal message request passes through router actors");
+
+    let SignalOutput::MessageRequestUnimplemented(refusal) = reply else {
+        panic!("expected typed refusal for a local submission, got {reply:?}");
+    };
+    assert_eq!(
+        refusal.message_operation_kind,
+        signal_message::MessageOperationKind::SubmitStamped
+    );
+    let messages = inspection.message_records().expect("message records read");
+    assert!(
+        messages.is_empty(),
+        "a refused local submission must not commit a message row"
+    );
+
+    router.stop().await;
+}
+
+/// Packet 3.2b: the inbox is messenger state; the router's inbox query
+/// refuses typed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_inbox_query_refuses_typed_after_the_messenger_owns_the_inbox() {
+    let router = RouterFixture::start().await;
+    let reply = router
+        .apply_signal(SignalMessageInput::with_ingress(
+            RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
+            SignalInput::QueryInbox(signal_message::InboxQuery::new(
+                MessageRecipient::new("responder".to_string()),
+            )),
+        ))
+        .await
+        .expect("signal message request passes through router actors");
+
+    let SignalOutput::MessageRequestUnimplemented(refusal) = reply else {
+        panic!("expected typed refusal for a local inbox query, got {reply:?}");
+    };
+    assert_eq!(
+        refusal.message_operation_kind,
+        signal_message::MessageOperationKind::QueryInbox
+    );
+
+    router.stop().await;
 }

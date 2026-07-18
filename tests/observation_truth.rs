@@ -90,6 +90,28 @@ impl ObservationFixture {
         }
     }
 
+    /// Packet 3.2b seeding: the router accepts stamped submissions only as
+    /// the outbound relay entry, so observation facts are seeded through a
+    /// remote-routed recipient (unreachable peer — messages accept, commit,
+    /// and stay pending; no delivery mark, no adjudication denial).
+    async fn install_remote_recipient(&self, name: &str) {
+        let home = router::CriomeHostId::new(format!("observation-home-{name}"));
+        self.runtime
+            .ask(router::InstallRemotePeer {
+                identity: home.clone(),
+                address: router::TailnetAddress::new("127.0.0.1:1".to_string()),
+            })
+            .await
+            .expect("install remote peer");
+        self.runtime
+            .ask(router::InstallRemoteRoute {
+                recipient: ActorIdentifier::new(name),
+                home,
+            })
+            .await
+            .expect("install remote route");
+    }
+
     async fn apply(&self, input: RouterInput) -> router::RouterResult<RouterOutput> {
         self.runtime
             .ask(ApplyRouterInput { input })
@@ -478,6 +500,7 @@ async fn router_daemon_answers_router_summary_query() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_summary_query_counts_accepted_pending_and_failed_messages() {
     let router = ObservationFixture::start().await;
+    router.install_remote_recipient("responder").await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
@@ -548,6 +571,7 @@ async fn router_message_trace_query_reports_routed_status_for_attempted_message(
     // does not complete — the trace reports `Routed` (attempted, not yet
     // marked delivered), never the pre-policy `Deferred` (parked) status.
     let router = ObservationFixture::start().await;
+    router.install_remote_recipient("responder").await;
     router
         .apply(RouterInput::RegisterActor(RegisterActor {
             actor: Actor {
@@ -705,6 +729,7 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
     // increment in lockstep with the calls, proving the answer comes from a
     // mailbox round-trip — not a stale snapshot or a parallel data path.
     let router = ObservationFixture::start().await;
+    router.install_remote_recipient("responder").await;
     let baseline = router.observation_plane_status().await;
     assert_eq!(baseline.summary_query_count, 0);
     assert_eq!(baseline.message_trace_query_count, 0);
