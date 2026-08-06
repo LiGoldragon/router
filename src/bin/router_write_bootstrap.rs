@@ -4,11 +4,6 @@ use std::{
 };
 
 use nota::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
-use signal_router::{
-    Actor, ActorIdentifier, Address, CriomeHostId, EndpointKind, EndpointTransport,
-    GrantDirectMessage, Identity, RegisterActor, RegisterRemoteRouter, RouterBootstrapDocument,
-    RouterBootstrapOperation, TailnetAddress,
-};
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
 
@@ -90,11 +85,13 @@ enum ActorEndpoint {
 }
 
 impl ActorEndpoint {
-    fn into_transport(self) -> EndpointTransport {
+    fn into_transport(self) -> signal_router::z2VLce {
         match self {
-            Self::ComponentSocket(target) => {
-                EndpointTransport::new(EndpointKind::ComponentSocket, target, None)
-            }
+            Self::ComponentSocket(target) => signal_router::z2VLce {
+                field_0: signal_router::z2VZNB::new(signal_router::z2VaJt::z2VUHw),
+                field_1: signal_router::z2VXQX::new(target),
+                field_2: None,
+            },
         }
     }
 }
@@ -113,10 +110,10 @@ struct DirectMessageGrant {
 }
 
 impl DirectMessageGrant {
-    fn into_operation(self) -> RouterBootstrapOperation {
-        RouterBootstrapOperation::GrantDirectMessage(GrantDirectMessage {
-            source_actor: ActorIdentifier::new(self.source).into(),
-            destination_actor: ActorIdentifier::new(self.destination).into(),
+    fn into_operation(self) -> signal_router::z2VNh2 {
+        signal_router::z2VNh2::z2VUXc(signal_router::z2VPkk {
+            field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new(self.source)),
+            field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(self.destination)),
         })
     }
 }
@@ -171,7 +168,9 @@ impl BootstrapWriterInput {
 
 impl BootstrapWriteRequest {
     fn write(self) -> Result<BootstrapWriteOutput, BootstrapWriterError> {
-        let document = RouterBootstrapDocument::from_operations(self.operations());
+        let document = signal_router::z2VWUQ {
+            field_0: self.operations(),
+        };
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&document)
             .map_err(|error| BootstrapWriterError::Encode(error.to_string()))?;
         fs::write(self.output_path.as_path(), bytes.as_ref()).map_err(|source| {
@@ -185,28 +184,32 @@ impl BootstrapWriteRequest {
         })
     }
 
-    fn operations(&self) -> Vec<RouterBootstrapOperation> {
+    fn operations(&self) -> Vec<signal_router::z2VNh2> {
         let mut operations = Vec::new();
         for peer in &self.remote_peers {
-            operations.push(RouterBootstrapOperation::RegisterRemoteRouter(
-                RegisterRemoteRouter {
-                    identity: Identity::new(CriomeHostId::new(peer.identity.clone())),
-                    address: Address::new(TailnetAddress::new(peer.address.clone())),
-                },
-            ));
+            operations.push(signal_router::z2VNh2::z2VdzM(signal_router::z2VWkj {
+                field_0: signal_router::z2Vdz8::new(signal_router::z2VNwn::new(
+                    peer.identity.clone(),
+                )),
+                field_1: signal_router::z2VbwY::new(signal_router::z2VVPx::new(
+                    peer.address.clone(),
+                )),
+            }));
         }
         for actor_home in &self.actor_homes {
-            operations.push(RouterBootstrapOperation::RegisterActor(RegisterActor::new(
-                Actor::new(
-                    ActorIdentifier::new(actor_home.actor.clone()),
-                    actor_home.process,
-                    actor_home
+            operations.push(signal_router::z2VNh2::z2VQBJ(signal_router::z2VPdn {
+                field_0: signal_router::z2VTFJ {
+                    field_0: signal_router::z2VQ8d::new(signal_router::z2VNMz::new(
+                        actor_home.actor.clone(),
+                    )),
+                    field_1: signal_router::z2VVdV::new(actor_home.process),
+                    field_2: actor_home
                         .endpoint
                         .clone()
                         .map(ActorEndpoint::into_transport),
-                ),
-                actor_home.home.clone().map(CriomeHostId::new),
-            )));
+                },
+                field_1: actor_home.home.clone().map(signal_router::z2VNwn::new),
+            }));
         }
         for grant in &self.direct_message_grants {
             operations.push(grant.clone().into_operation());

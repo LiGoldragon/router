@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use signal_router::{CriomeHostId, RouterDaemonConfiguration};
+use signal_router::{z2VNwn as CriomeHostId, z2VZfL as RouterDaemonConfiguration};
 use thiserror::Error;
 use triad_runtime::{BindingSurface, SocketMode as RuntimeSocketMode};
 
@@ -40,7 +40,8 @@ impl Configuration {
     /// on a field the bootstrap tool already encoded.
     pub fn from_raw(raw: RouterDaemonConfiguration) -> Result<Self, ConfigurationError> {
         let tailnet_listen_address = raw
-            .tailnet_listen_address()
+            .field_9
+            .as_ref()
             .map(|address| {
                 address.payload().parse::<SocketAddr>().map_err(|error| {
                     ConfigurationError::TailnetListenAddress {
@@ -51,15 +52,17 @@ impl Configuration {
             })
             .transpose()?;
         Ok(Self {
-            socket_path: PathBuf::from(raw.router_socket_path.payload().payload()),
-            meta_socket_path: PathBuf::from(raw.meta_router_socket_path.payload().payload()),
-            database_path: PathBuf::from(raw.store_path.payload().payload()),
+            socket_path: PathBuf::from(raw.field_0.payload().payload()),
+            meta_socket_path: PathBuf::from(raw.field_2.payload().payload()),
+            database_path: PathBuf::from(raw.field_6.payload().payload()),
             bootstrap_path: raw
-                .bootstrap_path()
+                .field_7
+                .as_ref()
                 .map(|path| PathBuf::from(path.payload())),
             tailnet_listen_address,
             criome_socket_path: raw
-                .criome_socket_path()
+                .field_11
+                .as_ref()
                 .map(|path| PathBuf::from(path.payload())),
             raw,
         })
@@ -70,11 +73,10 @@ impl Configuration {
             path: path.to_path_buf(),
             source,
         })?;
-        let raw = RouterDaemonConfiguration::from_rkyv_bytes(&bytes).map_err(|_| {
-            ConfigurationError::Decode {
+        let raw = rkyv::from_bytes::<RouterDaemonConfiguration, rkyv::rancor::Error>(&bytes)
+            .map_err(|_| ConfigurationError::Decode {
                 path: path.to_path_buf(),
-            }
-        })?;
+            })?;
         Self::from_raw(raw)
     }
 
@@ -97,7 +99,7 @@ impl Configuration {
     /// This router's own stable identity, carried into outbound
     /// attestations as the signer and admitted by peers' registries.
     pub fn router_identity(&self) -> &CriomeHostId {
-        self.raw.router_identity.payload()
+        self.raw.field_10.payload()
     }
 
     /// The local criome daemon's socket the receiving ingress would ask to
@@ -108,11 +110,11 @@ impl Configuration {
     }
 
     fn router_socket_mode(&self) -> RuntimeSocketMode {
-        RuntimeSocketMode::new(*self.raw.router_socket_mode.payload().payload() as u32)
+        RuntimeSocketMode::new(*self.raw.field_1.payload().payload() as u32)
     }
 
     fn meta_router_socket_mode(&self) -> RuntimeSocketMode {
-        RuntimeSocketMode::new(*self.raw.meta_router_socket_mode.payload().payload() as u32)
+        RuntimeSocketMode::new(*self.raw.field_3.payload().payload() as u32)
     }
 }
 

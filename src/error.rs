@@ -10,8 +10,15 @@ pub enum Error {
     #[error("nota: {0}")]
     Nota(#[from] nota::NotaDecodeError),
 
+    #[cfg(feature = "dotos-text")]
+    #[error("dotos: {0}")]
+    Dotos(#[from] dotos::DotosDecodeError),
+
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_frame::FrameError),
+
+    #[error("published Interface frame: {0}")]
+    InterfaceFrame(#[from] signal_frame_interface::FrameError),
 
     #[error("signal-router frame: {0}")]
     SignalRouterFrame(#[from] signal_router::SignalFrameError),
@@ -50,9 +57,7 @@ pub enum Error {
     PeerSession(String),
 
     #[error("forwarded message refused by this router: {reason:?}")]
-    ForwardRefused {
-        reason: signal_router::RouterForwardRefusalReason,
-    },
+    ForwardRefused { reason: signal_router::z2VQC7 },
 
     #[error("router socket path is missing")]
     MissingSocket,

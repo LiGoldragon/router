@@ -13,7 +13,7 @@ use signal_harness::{
     HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest, MessageBody,
     MessageDelivery, MessageSender, MessageSlot,
 };
-use signal_router::RoutedContractObject;
+use signal_router::z2Vcrd as RoutedContractObject;
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 use crate::{Actor, EndpointKind, Error, Message, RouterResult};
@@ -146,15 +146,15 @@ impl HarnessDelivery {
     }
 
     fn object_payload_octets(object: &RoutedContractObject) -> RouterResult<Vec<u8>> {
-        let declared = *object.contract_payload_size.payload();
-        let actual = object.payload_octets().len() as u64;
+        let declared = *object.field_2.payload();
+        let actual = object.field_3.len() as u64;
         if declared != actual {
             return Err(Error::UnexpectedSignalFrame {
                 got: format!("routed object declared {declared} octets but carried {actual}"),
             });
         }
         object
-            .payload_octets()
+            .field_3
             .iter()
             .map(|octet| {
                 u8::try_from(*octet).map_err(|_| Error::UnexpectedSignalFrame {

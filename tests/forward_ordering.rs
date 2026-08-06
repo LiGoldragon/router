@@ -33,13 +33,13 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
-use meta_signal_router::{Input as MetaInput, MirrorEnabled as MetaMirrorEnabled};
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
-    ChannelLifetime, CriomeHostId, EndpointKind, EndpointTransport, GrantChannel,
-    GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress,
-    RegisterActor, RouterInput, RouterNetworkConfiguration, RouterRuntime, TailnetAddress,
+    ChannelLifetime, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
+    InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress, RegisterActor, RouterInput,
+    RouterNetworkConfiguration, RouterRuntime,
 };
+use signal_frame_interface::{ExchangeIdentifier, ExchangeLane, LaneSequence, SessionEpoch};
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 /// The one session identity all routers prove under. The offline identity
@@ -77,26 +77,22 @@ impl OrderedComponentSink {
                 let Ok(body) = codec.read_body(&mut stream) else {
                     break;
                 };
-                let Ok((_route, input)) = signal_mirror::Input::decode_signal_frame(body.bytes())
+                let Ok((exchange, input)) =
+                    signal_mirror::ContractMarker::decode_single_request(body.bytes())
                 else {
                     break;
                 };
-                let signal_mirror::Input::NotifyObject(notice) = input else {
+                let signal_mirror::z2VVny::z2VaYk(notice) = input else {
                     break;
                 };
-                if sender
-                    .send(*notice.head_mark.commit_sequence.payload())
-                    .is_err()
-                {
+                if sender.send(*notice.field_1.field_0.payload()).is_err() {
                     break;
                 }
-                let reply = signal_mirror::Output::ObjectNoticeAccepted(
-                    signal_mirror::ObjectNoticeReceipt {
-                        store_name: notice.store_name,
-                        head_mark: notice.head_mark,
-                    },
-                )
-                .encode_signal_frame()
+                let reply = signal_mirror::z2VTqL::z2VR8x(signal_mirror::z2VWFj {
+                    field_0: notice.field_0,
+                    field_1: notice.field_1,
+                })
+                .encode_reply_frame(exchange)
                 .expect("component sink reply encodes");
                 if codec
                     .write_body(&mut stream, &FrameBody::new(reply))
@@ -137,33 +133,35 @@ impl Drop for OrderedComponentSink {
 
 /// One mirror origination toward `recipient` carrying a distinguishable head
 /// sequence, so the sink can report the arrival order of the batch chain.
-fn mirror_origination(recipient: &str, sequence: u64) -> signal_router::ForwardedMessagePayload {
+fn mirror_origination(recipient: &str, sequence: u64) -> signal_router::z2VNid {
     let digest_byte = u8::try_from(sequence).unwrap_or(0);
-    let payload = signal_mirror::Input::NotifyObject(signal_mirror::ObjectNotice::new(
-        signal_mirror::StoreName::new("spirit"),
-        signal_mirror::HeadMark {
-            commit_sequence: signal_mirror::CommitSequence::new(sequence),
-            entry_digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new(
-                [digest_byte; 32],
-            )),
+    let payload = signal_mirror::z2VVny::z2VaYk(signal_mirror::z2VZWt {
+        field_0: signal_mirror::z2Ve8p::new("spirit".to_owned()),
+        field_1: signal_mirror::z2VcqM {
+            field_0: signal_mirror::z2VSAK::new(sequence),
+            field_1: signal_standard::z2VSyM::new(format!("{digest_byte:02x}").repeat(32)),
         },
-        None,
+        field_2: None,
+    })
+    .encode_request_frame(ExchangeIdentifier::new(
+        SessionEpoch::new(0),
+        ExchangeLane::Connector,
+        LaneSequence::first(),
     ))
-    .encode_signal_frame()
     .expect("signal-mirror object notice frame encodes");
-    let object = signal_router::RoutedContractObject::new(
-        signal_router::ContractName::new("signal-mirror"),
-        signal_router::ContractOperation::new("NotifyObject"),
-        signal_router::ContractPayloadSize::new(u64::try_from(payload.len()).expect("size fits")),
-        payload.into_iter().map(u64::from).collect(),
-    );
-    signal_router::ForwardedMessagePayload::new(
-        signal_router::ActorIdentifier::new(SOURCE_ACTOR),
-        signal_router::ActorIdentifier::new(recipient),
-        "mirror-append".to_string(),
-        Vec::new(),
-        vec![object],
-    )
+    let object = signal_router::z2Vcrd {
+        field_0: signal_router::z2VbKU::new("signal-mirror".to_owned()),
+        field_1: signal_router::z2VV5h::new("NotifyObject".to_owned()),
+        field_2: signal_router::z2VPAH::new(u64::try_from(payload.len()).expect("size fits")),
+        field_3: payload.into_iter().map(u64::from).collect(),
+    };
+    signal_router::z2VNid {
+        field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new(SOURCE_ACTOR.to_owned())),
+        field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(recipient.to_owned())),
+        field_2: signal_router::z2VYUB::new("mirror-append".to_owned()),
+        field_3: Vec::new(),
+        field_4: vec![object],
+    }
 }
 
 async fn bound_tailnet_address(runtime: &ActorRef<RouterRuntime>) -> SocketAddr {
@@ -177,7 +175,7 @@ async fn bound_tailnet_address(runtime: &ActorRef<RouterRuntime>) -> SocketAddr 
 async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
     runtime
         .ask(ApplyMetaRouterPolicy {
-            input: MetaInput::set_mirror_enabled(MetaMirrorEnabled::new(true)),
+            input: meta_signal_router::z2VVKk::z2VYZY(meta_signal_router::z2VZs4::new(true)),
         })
         .await
         .expect("meta SetMirrorEnabled reaches runtime")
@@ -200,11 +198,11 @@ async fn install_route(
     recipient: &str,
     address: SocketAddr,
 ) {
-    let peer = CriomeHostId::new(peer);
+    let peer = signal_router::z2VNwn::new(peer.to_owned());
     runtime
         .ask(InstallRemotePeer {
             identity: peer.clone(),
-            address: TailnetAddress::new(address.to_string()),
+            address: signal_router::z2VVPx::new(address.to_string()),
         })
         .await
         .expect("install remote peer installs");
@@ -222,7 +220,7 @@ async fn start_offline_session_router() -> ActorRef<RouterRuntime> {
         None,
         RouterNetworkConfiguration::offline_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            CriomeHostId::new(SESSION_IDENTITY),
+            signal_router::z2VNwn::new(SESSION_IDENTITY.to_owned()),
         ),
     )
     .await

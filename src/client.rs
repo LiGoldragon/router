@@ -1,24 +1,26 @@
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 use std::io::Write;
 
-#[cfg(feature = "nota-text")]
-use nota::{NotaEncode, NotaSource};
-use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply};
-use signal_router::{
-    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
-    Output as SignalRouterOutput,
+#[cfg(feature = "dotos-text")]
+use dotos::{DotosEncode, DotosSource};
+use signal_frame_interface::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply,
 };
-#[cfg(feature = "nota-text")]
+use signal_router::{
+    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, z2VXoV as SignalRouterOutput,
+    z2VZGC as SignalRouterInput,
+};
+#[cfg(feature = "dotos-text")]
 use triad_runtime::ComponentCommand;
 
-#[cfg(feature = "nota-text")]
-use crate::cli_argument::NotaCommandText;
+#[cfg(feature = "dotos-text")]
+use crate::cli_argument::DotosCommandText;
 use crate::{Error, RouterObservationFrameCodec, RouterResult};
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 const DEFAULT_ROUTER_SOCKET: &str = "/tmp/router.sock";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,20 +97,20 @@ impl RouterClient {
     }
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterCommand {
     command: ComponentCommand,
     environment: RouterCommandEnvironment,
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterCommandEnvironment {
     socket: String,
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 impl RouterCommand {
     pub fn from_env() -> Self {
         Self {
@@ -142,12 +144,12 @@ impl RouterCommand {
     pub fn run(self, mut output: impl Write) -> RouterResult<()> {
         let input = RouterInputText::from_command(self.command)?.into_input()?;
         let reply = RouterClient::new(self.environment.endpoint()).submit(input)?;
-        writeln!(output, "{}", reply.to_nota())?;
+        writeln!(output, "{}", reply.to_dotos())?;
         Ok(())
     }
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 impl RouterCommandEnvironment {
     pub fn new(socket: impl Into<String>) -> Self {
         Self {
@@ -164,21 +166,21 @@ impl RouterCommandEnvironment {
     }
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RouterInputText {
-    text: NotaCommandText,
+    text: DotosCommandText,
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 impl RouterInputText {
     fn from_command(command: ComponentCommand) -> RouterResult<Self> {
         Ok(Self {
-            text: NotaCommandText::from_command(command)?,
+            text: DotosCommandText::from_command(command)?,
         })
     }
 
     fn into_input(self) -> RouterResult<SignalRouterInput> {
-        Ok(NotaSource::new(self.text.as_str()).parse::<SignalRouterInput>()?)
+        Ok(DotosSource::new(self.text.as_str()).parse::<SignalRouterInput>()?)
     }
 }

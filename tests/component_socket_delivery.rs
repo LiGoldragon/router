@@ -20,14 +20,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
-use meta_signal_router::{Input as MetaInput, MirrorEnabled as MetaMirrorEnabled};
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
     EndpointKind, EndpointTransport, RegisterActor, RouterInput, RouterRuntime,
-};
-use signal_router::{
-    ActorIdentifier as SignalActorIdentifier, ContractName, ContractOperation, ContractPayloadSize,
-    ForwardedMessagePayload, Output as SignalRouterOutput, RoutedContractObject,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
@@ -107,7 +102,7 @@ fn nanos() -> u128 {
 async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
     runtime
         .ask(ApplyMetaRouterPolicy {
-            input: MetaInput::set_mirror_enabled(MetaMirrorEnabled::new(true)),
+            input: meta_signal_router::z2VVKk::z2VYZY(meta_signal_router::z2VZs4::new(true)),
         })
         .await
         .expect("meta SetMirrorEnabled reaches runtime")
@@ -142,15 +137,15 @@ async fn register_component_socket_actor(
 
 /// The message body the orchestrate daemon will carry as an opaque
 /// `RoutedContractObject` — here a fixed byte pattern the listener re-asserts.
-fn report_object() -> (RoutedContractObject, Vec<u8>) {
+fn report_object() -> (signal_router::z2Vcrd, Vec<u8>) {
     let octets: Vec<u64> = vec![0x52, 0x45, 0x50, 0x4f, 0x52, 0x54]; // "REPORT"
     let expected = octets.iter().map(|byte| *byte as u8).collect::<Vec<u8>>();
-    let object = RoutedContractObject::new(
-        ContractName::new("signal-orchestrator-message"),
-        ContractOperation::new("Report"),
-        ContractPayloadSize::new(octets.len() as u64),
-        octets,
-    );
+    let object = signal_router::z2Vcrd {
+        field_0: signal_router::z2VbKU::new("signal-orchestrator-message".to_owned()),
+        field_1: signal_router::z2VV5h::new("Report".to_owned()),
+        field_2: signal_router::z2VPAH::new(octets.len() as u64),
+        field_3: octets,
+    };
     (object, expected)
 }
 
@@ -171,13 +166,17 @@ async fn component_socket_actor_receives_locally_authorized_delivery() {
     let (object, expected) = report_object();
     let accepted = runtime
         .ask(ApplyRoutedObjectSubmission {
-            submission: ForwardedMessagePayload::new(
-                SignalActorIdentifier::new("agent-7f3k"),
-                SignalActorIdentifier::new("orchestrate"),
-                "orchestrator report".to_string(),
-                Vec::new(),
-                vec![object],
-            ),
+            submission: signal_router::z2VNid {
+                field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new(
+                    "agent-7f3k".to_owned(),
+                )),
+                field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(
+                    "orchestrate".to_owned(),
+                )),
+                field_2: signal_router::z2VYUB::new("orchestrator report".to_owned()),
+                field_3: Vec::new(),
+                field_4: vec![object],
+            },
         })
         .await
         .expect("routed-object submission reaches runtime")
@@ -185,7 +184,7 @@ async fn component_socket_actor_receives_locally_authorized_delivery() {
         .expect("routed-object submission applies");
 
     assert!(
-        matches!(accepted, SignalRouterOutput::RoutedObjectsAccepted(_)),
+        matches!(accepted, signal_router::z2VXoV::z2Vc2V(_)),
         "a locally-registered ComponentSocket recipient accepts the delivery without a grant, got {accepted:?}"
     );
 

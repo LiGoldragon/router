@@ -20,8 +20,8 @@ use signal_criome::{
     Identity, ObjectDigest, PrincipalName, SignRequest, SignatureEnvelope, VerificationDecision,
 };
 use signal_router::{
-    CriomeHostId, ReplayNonce, RouterIdentityProof, SessionRefusalReason, SignatureScheme,
-    TimestampNanos,
+    z2VLFW as ReplayNonce, z2VLuJ as SignatureScheme, z2VNwn as CriomeHostId,
+    z2VPfN as RouterIdentityProof, z2VQGK as TimestampNanos, z2VVNQ as SessionRefusalReason,
 };
 
 use crate::criome_client::{CriomeSigningClient, CriomeSigningError};
@@ -108,8 +108,8 @@ impl CriomeIdentityProver {
 
     fn criome_scheme(scheme: &SignatureScheme) -> signal_criome::SignatureScheme {
         match scheme {
-            SignatureScheme::Bls12_381MinPk => signal_criome::SignatureScheme::Bls12_381MinPk,
-            SignatureScheme::Bls12_381MinSig => signal_criome::SignatureScheme::Bls12_381MinSig,
+            SignatureScheme::z2VYiG => signal_criome::SignatureScheme::Bls12_381MinPk,
+            SignatureScheme::z2VYLS => signal_criome::SignatureScheme::Bls12_381MinSig,
         }
     }
 
@@ -127,23 +127,29 @@ impl CriomeIdentityProver {
             None,
         );
         let attestation = self.client.sign(sign_request)?;
-        Ok(RouterIdentityProof::new(
-            self.identity.clone(),
-            SignatureScheme::Bls12_381MinPk,
-            attestation
-                .signature_envelope
-                .bls_public_key
-                .as_str()
-                .to_string(),
-            attestation
-                .signature_envelope
-                .bls_signature
-                .as_str()
-                .to_string(),
-            digest.as_str().to_string(),
-            ReplayNonce::new(challenge),
-            TimestampNanos::new(attestation.timestamp_nanos.into_u64()),
-        ))
+        Ok(RouterIdentityProof {
+            field_0: signal_router::z2VdEo::new(self.identity.clone()),
+            field_1: signal_router::z2VVd5::new(SignatureScheme::z2VYiG),
+            field_2: signal_router::z2VQew::new(
+                attestation
+                    .signature_envelope
+                    .bls_public_key
+                    .as_str()
+                    .to_string(),
+            ),
+            field_3: signal_router::z2VbVV::new(
+                attestation
+                    .signature_envelope
+                    .bls_signature
+                    .as_str()
+                    .to_string(),
+            ),
+            field_4: signal_router::z2Vaf5::new(digest.as_str().to_string()),
+            field_5: signal_router::z2Vd1b::new(ReplayNonce::new(challenge.to_owned())),
+            field_6: signal_router::z2VUTN::new(TimestampNanos::new(
+                attestation.timestamp_nanos.into_u64(),
+            )),
+        })
     }
 
     fn verify_proof(
@@ -152,9 +158,9 @@ impl CriomeIdentityProver {
         proof: &RouterIdentityProof,
     ) -> Result<VerificationDecision, CriomeSigningError> {
         let derived_digest = IdentityProofPreimage::bind(
-            proof.signer(),
+            proof.field_0.payload(),
             peer_ephemeral_public_key,
-            proof.challenge_nonce().payload(),
+            proof.field_5.payload().payload(),
         )
         .digest();
         let criome_attestation = self.reconstruct_attestation(proof);
@@ -163,21 +169,21 @@ impl CriomeIdentityProver {
     }
 
     fn reconstruct_attestation(&self, proof: &RouterIdentityProof) -> Attestation {
-        let signed_digest = ObjectDigest::new(proof.digest().to_string());
+        let signed_digest = ObjectDigest::new(proof.field_4.payload().to_string());
         let envelope = SignatureEnvelope {
-            signature_scheme: Self::criome_scheme(proof.scheme()),
-            bls_public_key: BlsPublicKey::new(proof.public_key().to_string()),
-            bls_signature: BlsSignature::new(proof.signature().to_string()),
+            signature_scheme: Self::criome_scheme(proof.field_1.payload()),
+            bls_public_key: BlsPublicKey::new(proof.field_2.payload().to_string()),
+            bls_signature: BlsSignature::new(proof.field_3.payload().to_string()),
         };
         let criome_issued_at =
-            signal_criome::TimestampNanos::new(*proof.attestation_issued_at().payload());
+            signal_criome::TimestampNanos::new(*proof.field_6.payload().payload());
         Attestation::new(
             self.content_reference(signed_digest),
-            Self::criome_signer_identity(proof.signer()),
+            Self::criome_signer_identity(proof.field_0.payload()),
             envelope,
             criome_issued_at,
             None,
-            self.audit_context(proof.challenge_nonce().payload()),
+            self.audit_context(proof.field_5.payload().payload()),
         )
     }
 
@@ -187,15 +193,15 @@ impl CriomeIdentityProver {
     fn unsigned(&self, ephemeral_public_key: &str, challenge: &str) -> RouterIdentityProof {
         let digest =
             IdentityProofPreimage::bind(&self.identity, ephemeral_public_key, challenge).digest();
-        RouterIdentityProof::new(
-            self.identity.clone(),
-            SignatureScheme::Bls12_381MinPk,
-            String::new(),
-            String::new(),
-            digest.as_str().to_string(),
-            ReplayNonce::new(challenge),
-            TimestampNanos::new(0),
-        )
+        RouterIdentityProof {
+            field_0: signal_router::z2VdEo::new(self.identity.clone()),
+            field_1: signal_router::z2VVd5::new(SignatureScheme::z2VYiG),
+            field_2: signal_router::z2VQew::new(String::new()),
+            field_3: signal_router::z2VbVV::new(String::new()),
+            field_4: signal_router::z2Vaf5::new(digest.as_str().to_string()),
+            field_5: signal_router::z2Vd1b::new(ReplayNonce::new(challenge.to_owned())),
+            field_6: signal_router::z2VUTN::new(TimestampNanos::new(0)),
+        }
     }
 }
 
@@ -221,12 +227,12 @@ impl PeerIdentityProver for CriomeIdentityProver {
         // do: the proof must answer the challenge THIS node issued for this
         // session. A replayed proof carries a stale challenge and is refused
         // here, before any signature is even considered.
-        if proof.challenge_nonce().payload() != issued_challenge {
-            return Err(SessionRefusalReason::ChallengeMismatch);
+        if proof.field_5.payload().payload() != issued_challenge {
+            return Err(SessionRefusalReason::z2VXec);
         }
         match self.verify_proof(peer_ephemeral_public_key, proof) {
-            Ok(VerificationDecision::Valid) => Ok(proof.signer().clone()),
-            Ok(_) | Err(_) => Err(SessionRefusalReason::IdentityProofInvalid),
+            Ok(VerificationDecision::Valid) => Ok(proof.field_0.payload().clone()),
+            Ok(_) | Err(_) => Err(SessionRefusalReason::z2Vb6c),
         }
     }
 }
@@ -256,15 +262,21 @@ impl PeerIdentityProver for AcceptFixedIdentityProver {
     fn prove(&self, ephemeral_public_key: &str, challenge: &str) -> RouterIdentityProof {
         let digest =
             IdentityProofPreimage::bind(&self.identity, ephemeral_public_key, challenge).digest();
-        RouterIdentityProof::new(
-            self.identity.clone(),
-            SignatureScheme::Bls12_381MinPk,
-            format!("offline-identity-key-{}", self.identity.payload()),
-            format!("offline-identity-signature-{}", self.identity.payload()),
-            digest.as_str().to_string(),
-            ReplayNonce::new(challenge),
-            TimestampNanos::new(0),
-        )
+        RouterIdentityProof {
+            field_0: signal_router::z2VdEo::new(self.identity.clone()),
+            field_1: signal_router::z2VVd5::new(SignatureScheme::z2VYiG),
+            field_2: signal_router::z2VQew::new(format!(
+                "offline-identity-key-{}",
+                self.identity.payload(),
+            )),
+            field_3: signal_router::z2VbVV::new(format!(
+                "offline-identity-signature-{}",
+                self.identity.payload(),
+            )),
+            field_4: signal_router::z2Vaf5::new(digest.as_str().to_string()),
+            field_5: signal_router::z2Vd1b::new(ReplayNonce::new(challenge.to_owned())),
+            field_6: signal_router::z2VUTN::new(TimestampNanos::new(0)),
+        }
     }
 
     fn verify(
@@ -273,22 +285,22 @@ impl PeerIdentityProver for AcceptFixedIdentityProver {
         issued_challenge: &str,
         proof: &RouterIdentityProof,
     ) -> Result<CriomeHostId, SessionRefusalReason> {
-        if proof.challenge_nonce().payload() != issued_challenge {
-            return Err(SessionRefusalReason::ChallengeMismatch);
+        if proof.field_5.payload().payload() != issued_challenge {
+            return Err(SessionRefusalReason::z2VXec);
         }
-        if proof.signer() != &self.identity {
-            return Err(SessionRefusalReason::IdentityProofInvalid);
+        if proof.field_0.payload() != &self.identity {
+            return Err(SessionRefusalReason::z2Vb6c);
         }
         let derived = IdentityProofPreimage::bind(
-            proof.signer(),
+            proof.field_0.payload(),
             peer_ephemeral_public_key,
-            proof.challenge_nonce().payload(),
+            proof.field_5.payload().payload(),
         )
         .digest();
-        if proof.digest() != derived.as_str() {
-            return Err(SessionRefusalReason::IdentityProofInvalid);
+        if proof.field_4.payload() != derived.as_str() {
+            return Err(SessionRefusalReason::z2Vb6c);
         }
-        Ok(proof.signer().clone())
+        Ok(proof.field_0.payload().clone())
     }
 }
 

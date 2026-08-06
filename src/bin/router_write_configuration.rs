@@ -5,7 +5,6 @@ use std::{
 
 use nota::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use router::RouterDaemonConfigurationFile;
-use signal_router::{CriomeHostId, OwnerIdentity, RouterDaemonConfiguration, TailnetAddress};
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
 
@@ -118,30 +117,42 @@ impl ConfigurationWriteRequest {
         Ok(ConfigurationWriteOutput { output_path })
     }
 
-    fn configuration(&self) -> RouterDaemonConfiguration {
-        RouterDaemonConfiguration::from(signal_router::RouterDaemonConfigurationParts {
-            router_socket_path: self.router_socket_path.as_str().to_owned().into(),
-            router_socket_mode: 0o600.into(),
-            meta_router_socket_path: self.meta_router_socket_path.as_str().to_owned().into(),
-            meta_router_socket_mode: 0o600.into(),
-            supervision_socket_path: self.supervision_socket_path.as_str().to_owned().into(),
-            supervision_socket_mode: 0o600.into(),
-            store_path: self.store_path.as_str().to_owned().into(),
-            bootstrap_path: self
+    fn configuration(&self) -> signal_router::z2VZfL {
+        signal_router::z2VZfL {
+            field_0: signal_router::z2Ve3n::new(signal_router::z2VPn3::new(
+                self.router_socket_path.as_str().to_owned(),
+            )),
+            field_1: signal_router::z2VbSs::new(signal_router::z2Vf1e::new(0o600)),
+            field_2: signal_router::z2Va6n::new(signal_router::z2VPn3::new(
+                self.meta_router_socket_path.as_str().to_owned(),
+            )),
+            field_3: signal_router::z2VMR5::new(signal_router::z2Vf1e::new(0o600)),
+            field_4: signal_router::z2VcsM::new(signal_router::z2VPn3::new(
+                self.supervision_socket_path.as_str().to_owned(),
+            )),
+            field_5: signal_router::z2VXG3::new(signal_router::z2Vf1e::new(0o600)),
+            field_6: signal_router::z2VcTK::new(signal_router::z2VPn3::new(
+                self.store_path.as_str().to_owned(),
+            )),
+            field_7: self
                 .bootstrap_path
                 .as_ref()
-                .map(|path| path.as_str().to_owned().into()),
-            owner_identity: OwnerIdentity::UnixUser(self.owner_user_identifier.into()),
-            tailnet_listen_address: self
+                .map(|path| signal_router::z2VPn3::new(path.as_str().to_owned())),
+            field_8: signal_router::z2VLx1::z2VM4G(signal_router::z2Vf91::new(
+                self.owner_user_identifier,
+            )),
+            field_9: self
                 .tailnet_listen_address
                 .as_ref()
-                .map(|address| TailnetAddress::new(address.as_str().to_owned())),
-            router_identity: CriomeHostId::new(self.router_identity.as_str().to_owned()),
-            criome_socket_path: self
+                .map(|address| signal_router::z2VVPx::new(address.as_str().to_owned())),
+            field_10: signal_router::z2Vafp::new(signal_router::z2VNwn::new(
+                self.router_identity.as_str().to_owned(),
+            )),
+            field_11: self
                 .criome_socket_path
                 .as_ref()
-                .map(|path| path.as_str().to_owned().into()),
-        })
+                .map(|path| signal_router::z2VPn3::new(path.as_str().to_owned())),
+        }
     }
 }
 

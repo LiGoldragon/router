@@ -17,8 +17,9 @@ use std::collections::{HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use signal_router::{
-    CriomeHostId, ForwardedMessagePayload, ReplayNonce, RouterForwardRefusalReason,
-    RouterForwardRequest, RouterPeerAttestation, SignatureScheme, TimestampNanos,
+    z2VLFW as ReplayNonce, z2VLuJ as SignatureScheme, z2VNid as ForwardedMessagePayload,
+    z2VNwn as CriomeHostId, z2VQC7 as RouterForwardRefusalReason, z2VQGK as TimestampNanos,
+    z2VRcj as RouterForwardRequest, z2VWsQ as RouterPeerAttestation,
 };
 
 /// The signing/verifying boundary for cross-host forwards. A sending
@@ -76,19 +77,19 @@ impl AcceptFixedTestIdentity {
     /// receiver's content-binding check.
     fn content_digest(payload: &ForwardedMessagePayload) -> String {
         let mut hash = ContentDigest::new();
-        hash.feed_str(payload.source_actor.payload().payload());
-        hash.feed_str(payload.destination_actor.payload().payload());
-        hash.feed_str(payload.body.payload());
-        for attachment in payload.attachments() {
+        hash.feed_str(payload.field_0.payload().payload());
+        hash.feed_str(payload.field_1.payload().payload());
+        hash.feed_str(payload.field_2.payload());
+        for attachment in &payload.field_3 {
             hash.feed_str(attachment);
         }
-        hash.feed_u64(payload.routed_objects().len() as u64);
-        for object in payload.routed_objects() {
-            hash.feed_str(object.contract_name.payload());
-            hash.feed_str(object.contract_operation.payload());
-            hash.feed_u64(*object.contract_payload_size.payload());
-            hash.feed_u64(object.payload_octets().len() as u64);
-            for octet in object.payload_octets() {
+        hash.feed_u64(payload.field_4.len() as u64);
+        for object in &payload.field_4 {
+            hash.feed_str(object.field_0.payload());
+            hash.feed_str(object.field_1.payload());
+            hash.feed_u64(*object.field_2.payload());
+            hash.feed_u64(object.field_3.len() as u64);
+            for octet in &object.field_3 {
                 hash.feed_u64(*octet);
             }
         }
@@ -104,17 +105,23 @@ impl ForwardAttestationVerifier for AcceptFixedTestIdentity {
         issued_at: TimestampNanos,
     ) -> RouterPeerAttestation {
         RouterPeerAttestation {
-            signer: self.identity.clone().into(),
-            scheme: SignatureScheme::Bls12_381MinPk.into(),
-            public_key: format!("offline-test-key-{}", self.identity.payload()).into(),
-            signature: format!("offline-test-signature-{}", self.identity.payload()).into(),
-            content_digest: Self::content_digest(payload).into(),
-            issued_at: issued_at.clone().into(),
-            nonce: nonce.clone().into(),
+            field_0: signal_router::z2VLTy::new(self.identity.clone()),
+            field_1: signal_router::z2VZU5::new(SignatureScheme::z2VYiG),
+            field_2: signal_router::z2VVAk::new(format!(
+                "offline-test-key-{}",
+                self.identity.payload(),
+            )),
+            field_3: signal_router::z2VZX5::new(format!(
+                "offline-test-signature-{}",
+                self.identity.payload(),
+            )),
+            field_4: signal_router::z2Vd3E::new(Self::content_digest(payload)),
+            field_5: signal_router::z2Vd2q::new(issued_at.clone()),
+            field_6: signal_router::z2VcpN::new(nonce.clone()),
             // The offline stand-in signs and verifies itself, so the criome
             // attestation stamp it reconstructs is simply the same forward
             // timestamp; the criome verifier carries criome's real server stamp.
-            attestation_issued_at: issued_at.into(),
+            field_7: signal_router::z2VSgE::new(issued_at),
         }
     }
 
@@ -123,13 +130,13 @@ impl ForwardAttestationVerifier for AcceptFixedTestIdentity {
         attestation: &RouterPeerAttestation,
         payload: &ForwardedMessagePayload,
     ) -> Result<CriomeHostId, RouterForwardRefusalReason> {
-        if attestation.signer.payload() != &self.identity {
-            return Err(RouterForwardRefusalReason::AttestationInvalid);
+        if attestation.field_0.payload() != &self.identity {
+            return Err(RouterForwardRefusalReason::z2VLzK);
         }
-        if attestation.content_digest.payload() != &Self::content_digest(payload) {
-            return Err(RouterForwardRefusalReason::AttestationInvalid);
+        if attestation.field_4.payload() != &Self::content_digest(payload) {
+            return Err(RouterForwardRefusalReason::z2VLzK);
         }
-        Ok(attestation.signer.payload().clone())
+        Ok(attestation.field_0.payload().clone())
     }
 }
 
@@ -168,15 +175,15 @@ impl ForwardAdmissionWindow {
         request: &RouterForwardRequest,
         now: ForwardAdmissionInstant,
     ) -> Result<(), RouterForwardRefusalReason> {
-        if request.attestation.payload().nonce != request.nonce
-            || request.attestation.payload().issued_at != request.issued_at
+        if request.field_1.payload().field_6.payload() != request.field_3.payload()
+            || request.field_1.payload().field_5.payload() != request.field_4.payload()
         {
-            return Err(RouterForwardRefusalReason::AttestationInvalid);
+            return Err(RouterForwardRefusalReason::z2VLzK);
         }
-        self.reject_clock_skew(request.issued_at.payload(), now)?;
-        let key = ForwardAdmissionKey::new(verified_origin, request.nonce.payload());
+        self.reject_clock_skew(request.field_4.payload(), now)?;
+        let key = ForwardAdmissionKey::new(verified_origin, request.field_3.payload());
         if self.seen.contains(&key) {
-            return Err(RouterForwardRefusalReason::ReplayDetected);
+            return Err(RouterForwardRefusalReason::z2VYnV);
         }
         self.remember(key);
         Ok(())
@@ -189,7 +196,7 @@ impl ForwardAdmissionWindow {
     ) -> Result<(), RouterForwardRefusalReason> {
         let issued = *issued_at.payload();
         if now.nanos().abs_diff(issued) > self.freshness_window_nanos {
-            return Err(RouterForwardRefusalReason::ClockSkew);
+            return Err(RouterForwardRefusalReason::z2VXYJ);
         }
         Ok(())
     }
@@ -295,32 +302,37 @@ mod tests {
 
     impl ForwardAdmissionFixture {
         fn new() -> Self {
-            let identity = CriomeHostId::new("router-a");
+            let identity = CriomeHostId::new("router-a".to_owned());
             Self {
                 verifier: AcceptFixedTestIdentity::new(identity.clone()),
                 identity,
-                payload: ForwardedMessagePayload::new(
-                    signal_router::ActorIdentifier::new("sender"),
-                    signal_router::ActorIdentifier::new("receiver"),
-                    "payload".to_string(),
-                    Vec::new(),
-                    Vec::new(),
-                ),
+                payload: ForwardedMessagePayload {
+                    field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new(
+                        "sender".to_owned(),
+                    )),
+                    field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(
+                        "receiver".to_owned(),
+                    )),
+                    field_2: signal_router::z2VYUB::new("payload".to_owned()),
+                    field_3: Vec::new(),
+                    field_4: Vec::new(),
+                },
             }
         }
 
         fn request(&self, nonce: &str, issued_at: u64) -> RouterForwardRequest {
-            let nonce = ReplayNonce::new(nonce);
+            let nonce = ReplayNonce::new(nonce.to_owned());
             let issued_at = TimestampNanos::new(issued_at);
             RouterForwardRequest {
-                submission: self.payload.clone().into(),
-                attestation: self
-                    .verifier
-                    .attest(&self.payload, &nonce, issued_at.clone())
-                    .into(),
-                forwarded: signal_router::ForwardMarker::Origin.into(),
-                nonce: nonce.into(),
-                issued_at: issued_at.into(),
+                field_0: signal_router::z2VX9R::new(self.payload.clone()),
+                field_1: signal_router::z2VL7S::new(self.verifier.attest(
+                    &self.payload,
+                    &nonce,
+                    issued_at.clone(),
+                )),
+                field_2: signal_router::z2VVui::new(signal_router::z2VMPZ::z2VUf6),
+                field_3: signal_router::z2VcpN::new(nonce),
+                field_4: signal_router::z2Vd2q::new(issued_at),
             }
         }
     }
@@ -335,7 +347,7 @@ mod tests {
         assert_eq!(window.admit(&fixture.identity, &request, now), Ok(()));
         assert_eq!(
             window.admit(&fixture.identity, &request, now),
-            Err(RouterForwardRefusalReason::ReplayDetected)
+            Err(RouterForwardRefusalReason::z2VYnV)
         );
     }
 
@@ -351,7 +363,7 @@ mod tests {
                 &request,
                 ForwardAdmissionInstant::new(111)
             ),
-            Err(RouterForwardRefusalReason::ClockSkew)
+            Err(RouterForwardRefusalReason::z2VXYJ)
         );
     }
 
@@ -360,9 +372,10 @@ mod tests {
         let fixture = ForwardAdmissionFixture::new();
         let mut window = ForwardAdmissionWindow::new(10, 8);
         let mut request = fixture.request("outer-nonce", 100);
-        let mut attestation = request.attestation.into_payload();
-        attestation.nonce = ReplayNonce::new("inner-nonce").into();
-        request.attestation = attestation.into();
+        let mut attestation = request.field_1.into_payload();
+        attestation.field_6 =
+            signal_router::z2VcpN::new(ReplayNonce::new("inner-nonce".to_owned()));
+        request.field_1 = signal_router::z2VL7S::new(attestation);
 
         assert_eq!(
             window.admit(
@@ -370,29 +383,29 @@ mod tests {
                 &request,
                 ForwardAdmissionInstant::new(100)
             ),
-            Err(RouterForwardRefusalReason::AttestationInvalid)
+            Err(RouterForwardRefusalReason::z2VLzK)
         );
     }
 
     #[test]
     fn attestation_digest_covers_routed_contract_object_octets() {
         let fixture = ForwardAdmissionFixture::new();
-        let nonce = ReplayNonce::new("object-nonce");
+        let nonce = ReplayNonce::new("object-nonce".to_owned());
         let issued_at = TimestampNanos::new(100);
         let attestation = fixture
             .verifier
             .attest(&fixture.payload, &nonce, issued_at.clone());
         let mut tampered_payload = fixture.payload.clone();
-        tampered_payload.push_routed_object(signal_router::RoutedContractObject::new(
-            signal_router::ContractName::new("signal-mirror"),
-            signal_router::ContractOperation::new("NotifyObject"),
-            signal_router::ContractPayloadSize::new(2),
-            vec![1, 2],
-        ));
+        tampered_payload.field_4.push(signal_router::z2Vcrd {
+            field_0: signal_router::z2VbKU::new("signal-mirror".to_owned()),
+            field_1: signal_router::z2VV5h::new("NotifyObject".to_owned()),
+            field_2: signal_router::z2VPAH::new(2),
+            field_3: vec![1, 2],
+        });
 
         assert_eq!(
             fixture.verifier.verify(&attestation, &tampered_payload),
-            Err(RouterForwardRefusalReason::AttestationInvalid)
+            Err(RouterForwardRefusalReason::z2VLzK)
         );
     }
 }

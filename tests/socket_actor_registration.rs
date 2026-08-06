@@ -18,16 +18,11 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
-use meta_signal_router::{Input as MetaInput, MirrorEnabled as MetaMirrorEnabled};
 use router::{
     ApplyActorRegistration, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, RouterRuntime,
 };
-use signal_frame::{NonEmpty, Reply, RequestPayload, SubReply};
-use signal_router::{
-    Actor, ActorIdentifier, ActorRegistrationDisposition, ContractName, ContractOperation,
-    ContractPayloadSize, EndpointKind, EndpointTransport, ForwardedMessagePayload, Frame,
-    FrameBody, Input as SignalRouterInput, Output as SignalRouterOutput, RoutedContractObject,
-};
+use signal_frame_interface::{Reply, SubReply};
+use signal_router::{z2VXoV as SignalRouterOutput, z2VZGC as SignalRouterInput};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
@@ -125,21 +120,19 @@ impl RouterWorkingSocket {
         let Ok(body) = codec.read_body_async(&mut stream).await else {
             return;
         };
-        let Ok(frame) = Frame::decode(&body.into_bytes()) else {
+        let Ok((exchange, input)) =
+            signal_router::ContractMarker::decode_single_request(&body.into_bytes())
+        else {
             return;
         };
-        let FrameBody::Request { exchange, request } = frame.into_body() else {
-            return;
-        };
-        let (input, _tail) = request.payloads.into_head_and_tail();
         let output = match input {
-            SignalRouterInput::RegisterActor(actor) => runtime
+            SignalRouterInput::z2VWdr(actor) => runtime
                 .ask(ApplyActorRegistration { actor })
                 .await
                 .expect("registration reaches runtime")
                 .into_result()
                 .expect("registration applies"),
-            SignalRouterInput::SubmitRoutedObjects(submission) => runtime
+            SignalRouterInput::z2Vdxj(submission) => runtime
                 .ask(ApplyRoutedObjectSubmission { submission })
                 .await
                 .expect("submission reaches runtime")
@@ -147,11 +140,9 @@ impl RouterWorkingSocket {
                 .expect("submission applies"),
             other => panic!("unexpected working-socket input: {other:?}"),
         };
-        let reply_frame = Frame::new(FrameBody::Reply {
-            exchange,
-            reply: Reply::committed(NonEmpty::single(SubReply::Ok(output))),
-        });
-        let bytes = reply_frame.encode().expect("encode reply frame");
+        let bytes = output
+            .encode_reply_frame(exchange)
+            .expect("encode reply frame");
         let _ = codec
             .write_body_async(&mut stream, &LengthPrefixedFrameBody::new(bytes))
             .await;
@@ -167,19 +158,15 @@ async fn exchange_over_socket(path: &Path, input: SignalRouterInput) -> SignalRo
         .await
         .expect("client connects to working socket");
     let codec = LengthPrefixedCodec::default();
-    let request = Frame::new(FrameBody::Request {
-        exchange: signal_frame::ExchangeIdentifier::new(
-            signal_frame::SessionEpoch::new(1),
-            signal_frame::ExchangeLane::Connector,
-            signal_frame::LaneSequence::first(),
-        ),
-        request: input.into_request(),
-    });
+    let request = input
+        .encode_request_frame(signal_frame_interface::ExchangeIdentifier::new(
+            signal_frame_interface::SessionEpoch::new(1),
+            signal_frame_interface::ExchangeLane::Connector,
+            signal_frame_interface::LaneSequence::first(),
+        ))
+        .expect("encode request frame");
     codec
-        .write_body_async(
-            &mut stream,
-            &LengthPrefixedFrameBody::new(request.encode().expect("encode request frame")),
-        )
+        .write_body_async(&mut stream, &LengthPrefixedFrameBody::new(request))
         .await
         .expect("client writes request");
     stream.flush().await.expect("client flushes request");
@@ -187,9 +174,10 @@ async fn exchange_over_socket(path: &Path, input: SignalRouterInput) -> SignalRo
         .read_body_async(&mut stream)
         .await
         .expect("client reads reply");
-    let FrameBody::Reply { reply, .. } = Frame::decode(&body.into_bytes())
-        .expect("decode reply frame")
-        .into_body()
+    let signal_router::FrameBody::Reply { reply, .. } =
+        signal_router::ContractMarker::decode_frame(&body.into_bytes())
+            .expect("decode reply frame")
+            .into_body()
     else {
         panic!("expected reply frame");
     };
@@ -205,7 +193,7 @@ async fn exchange_over_socket(path: &Path, input: SignalRouterInput) -> SignalRo
 async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
     runtime
         .ask(ApplyMetaRouterPolicy {
-            input: MetaInput::set_mirror_enabled(MetaMirrorEnabled::new(true)),
+            input: meta_signal_router::z2VVKk::z2VYZY(meta_signal_router::z2VZs4::new(true)),
         })
         .await
         .expect("meta SetMirrorEnabled reaches runtime")
@@ -214,26 +202,26 @@ async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
 }
 
 fn register_actor_input(name: &str, target: String) -> SignalRouterInput {
-    SignalRouterInput::RegisterActor(Actor::new(
-        ActorIdentifier::new(name),
-        4242,
-        Some(EndpointTransport::new(
-            EndpointKind::ComponentSocket,
-            target,
-            None,
-        )),
-    ))
+    SignalRouterInput::z2VWdr(signal_router::z2VTFJ {
+        field_0: signal_router::z2VQ8d::new(signal_router::z2VNMz::new(name.to_owned())),
+        field_1: signal_router::z2VVdV::new(4242),
+        field_2: Some(signal_router::z2VLce {
+            field_0: signal_router::z2VZNB::new(signal_router::z2VaJt::z2VUHw),
+            field_1: signal_router::z2VXQX::new(target),
+            field_2: None,
+        }),
+    })
 }
 
-fn report_object() -> (RoutedContractObject, Vec<u8>) {
+fn report_object() -> (signal_router::z2Vcrd, Vec<u8>) {
     let octets: Vec<u64> = vec![0x52, 0x45, 0x50, 0x4f, 0x52, 0x54]; // "REPORT"
     let expected = octets.iter().map(|byte| *byte as u8).collect::<Vec<u8>>();
-    let object = RoutedContractObject::new(
-        ContractName::new("signal-orchestrator-message"),
-        ContractOperation::new("Report"),
-        ContractPayloadSize::new(octets.len() as u64),
-        octets,
-    );
+    let object = signal_router::z2Vcrd {
+        field_0: signal_router::z2VbKU::new("signal-orchestrator-message".to_owned()),
+        field_1: signal_router::z2VV5h::new("Report".to_owned()),
+        field_2: signal_router::z2VPAH::new(octets.len() as u64),
+        field_3: octets,
+    };
     (object, expected)
 }
 
@@ -261,13 +249,13 @@ async fn socket_registered_actor_receives_locally_authorized_delivery() {
         register_actor_input("orchestrate", listener.target()),
     )
     .await;
-    let SignalRouterOutput::ActorRegistered(registered) = registered else {
+    let SignalRouterOutput::z2VeUs(registered) = registered else {
         panic!("expected ActorRegistered, got {registered:?}");
     };
-    assert_eq!(registered.actor().payload().as_str(), "orchestrate");
+    assert_eq!(registered.field_0.payload().payload(), "orchestrate");
     assert_eq!(
-        registered.disposition(),
-        ActorRegistrationDisposition::Registered,
+        registered.field_1,
+        signal_router::z2VZMx::z2VMfh,
         "a first registration over the socket reports Registered"
     );
 
@@ -278,12 +266,12 @@ async fn socket_registered_actor_receives_locally_authorized_delivery() {
         register_actor_input("orchestrate", listener.target()),
     )
     .await;
-    let SignalRouterOutput::ActorRegistered(updated) = updated else {
+    let SignalRouterOutput::z2VeUs(updated) = updated else {
         panic!("expected ActorRegistered on re-registration, got {updated:?}");
     };
     assert_eq!(
-        updated.disposition(),
-        ActorRegistrationDisposition::EndpointUpdated,
+        updated.field_1,
+        signal_router::z2VZMx::z2VRvr,
         "re-registering an existing actor over the socket reports EndpointUpdated"
     );
 
@@ -293,17 +281,21 @@ async fn socket_registered_actor_receives_locally_authorized_delivery() {
     let (object, expected) = report_object();
     let accepted = exchange_over_socket(
         &working,
-        SignalRouterInput::SubmitRoutedObjects(ForwardedMessagePayload::new(
-            ActorIdentifier::new("agent-7f3k"),
-            ActorIdentifier::new("orchestrate"),
-            "orchestrator report".to_string(),
-            Vec::new(),
-            vec![object],
-        )),
+        SignalRouterInput::z2Vdxj(signal_router::z2VNid {
+            field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new(
+                "agent-7f3k".to_owned(),
+            )),
+            field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(
+                "orchestrate".to_owned(),
+            )),
+            field_2: signal_router::z2VYUB::new("orchestrator report".to_owned()),
+            field_3: Vec::new(),
+            field_4: vec![object],
+        }),
     )
     .await;
     assert!(
-        matches!(accepted, SignalRouterOutput::RoutedObjectsAccepted(_)),
+        matches!(accepted, SignalRouterOutput::z2Vc2V(_)),
         "the socket-registered ComponentSocket recipient accepts the delivery, got {accepted:?}"
     );
 

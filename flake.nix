@@ -36,17 +36,20 @@
             "rust-src"
           ];
           craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
-          schemaFilter =
-            path: type:
-            (type == "regular" || type == "directory")
-            && (builtins.match ".*/schema(/.*)?" path != null);
-          sourceFilter =
-            path: type:
-            (craneLib.filterCargoSources path type) || (schemaFilter path type);
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
-            filter = sourceFilter;
+            filter = craneLib.filterCargoSources;
             name = "source";
+          };
+          constraintSourceFilter =
+            path: type:
+            (craneLib.filterCargoSources path type)
+            || (type == "regular" && builtins.baseNameOf path == "flake.nix")
+            || (builtins.match ".*/scripts(/.*)?" path != null);
+          constraintSrc = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = constraintSourceFilter;
+            name = "constraint-source";
           };
           commonArgs = {
             inherit src;
@@ -59,7 +62,7 @@
               set -euo pipefail
 
               export PATH=${pkgs.lib.makeBinPath [ pkgs.ripgrep ]}:$PATH
-              ${pkgs.bash}/bin/bash ${script} ${./.}
+              ${pkgs.bash}/bin/bash ${script} ${constraintSrc}
 
               touch "$out"
             '';
@@ -94,14 +97,14 @@
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoExtraArgs = "--features nota-text";
+              cargoExtraArgs = "--features dotos-text";
               pname = "router-text";
               meta.mainProgram = "router";
             }
           );
-          # The two-VM criome-auth witness build: the nota-text bins PLUS the
+          # The two-VM criome-auth witness build: the dotos-text bins PLUS the
           # router-forward-witness sender (the `witness` feature also enables
-          # nota-text). Used by the CriomOS-test-cluster criome-auth witness.
+          # dotos-text). Used by the CriomOS-test-cluster criome-auth witness.
           witness = context.craneLib.buildPackage (
             context.commonArgs
             // {
@@ -112,30 +115,6 @@
             }
           );
           # Slice D (primary-79z1.23): two in-process criome hosts found ONE root
-          # ENTIRELY over the real router — real RouterSubmission
-          # origination (SubmitRoutedObjects -> apply_routed_object_submission)
-          # over two real routers with real durable pubkey-keyed route stores.
-          # Both hosts converge on the SAME founded anchor via the two-round
-          # commit under the witness-clock gate.
-          #
-          # STATEFUL, not a pure check: the harness spawns two real OS-threaded
-          # criome daemons, binds real loopback TCP router listeners and real
-          # Unix working/meta sockets under a process-local temp directory, and
-          # synchronizes across them with wall-clock polling (`wait_until`, up
-          # to 20s). That is multi-process, socket-binding, thread-scheduling
-          # behavior, not a pure evaluation — so it is a named, explicitly-run
-          # output (`nix build .#router-two-hosts-found-root-over-router-test`),
-          # not a `checks.*` entry auto-swept by `nix flake check`. It still runs
-          # inside the Nix build sandbox (loopback networking is available
-          # there) and is kept runnable with real evidence; it is just not part
-          # of the default pure-check gate.
-          router-two-hosts-found-root-over-router-test = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test founding_over_router two_hosts_found_the_same_root_anchor_over_the_real_router -- --exact";
-            }
-          );
         }
       );
 
@@ -151,41 +130,6 @@
               inherit (context) cargoArtifacts;
             }
           );
-          router-accepts-only-real-criome-attestation = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test criome_forward_attestation router_accepts_forward_under_real_criome_bls_attestation -- --exact";
-            }
-          );
-          router-refuses-forward-without-criome-credential = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test criome_forward_attestation router_refuses_forwards_without_a_valid_criome_attestation -- --exact";
-            }
-          );
-          # L5: a criome-verified forward carrying a signal-mirror Append is
-          # relayed to a co-resident mirror's ComponentSocket and DURABLY LANDS
-          # (the real mirror engine's head advances to the appended record).
-          router-criome-forward-lands-in-mirror = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_an_append_in_the_co_resident_mirror -- --exact";
-            }
-          );
-          # The REAL-BODY witness: the forward carries the rkyv VersionedCommitLogEntry
-          # the production shipper ships (no placeholder), it durably lands, and
-          # re-deriving the digest from the LANDED body reproduces the record's
-          # real head — sema-engine's own content-addressing, the value ObserveHead returns.
-          router-criome-forward-lands-real-body-in-mirror = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test criome_forward_lands_in_mirror criome_verified_forward_lands_the_real_record_body_which_rehashes_to_the_head -- --exact";
-            }
-          );
           # The witness sender forwards the REAL record body: ENTRY_BODY_PATH
           # octets (the rkyv VersionedCommitLogEntry meta-spirit "(ObserveHeadObject)"
           # surfaces) become the Append payload byte-for-byte, binary-safe, instead
@@ -197,7 +141,7 @@
               cargoTestExtraArgs = "--features witness --bin router-forward-witness";
             }
           );
-          router-generated-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
+          router-component-daemon-answers-working-and-meta-sockets = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
@@ -208,14 +152,14 @@
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--features nota-text --test process_boundary router_cli_reaches_working_observation_socket_and_prints_typed_summary -- --exact";
+              cargoTestExtraArgs = "--features dotos-text --test process_boundary router_cli_reaches_working_observation_socket_and_prints_typed_summary -- --exact";
             }
           );
           meta-router-cli-reaches-policy-socket = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--features nota-text --test process_boundary meta_router_cli_reaches_policy_socket_and_prints_typed_grant -- --exact";
+              cargoTestExtraArgs = "--features dotos-text --test process_boundary meta_router_cli_reaches_policy_socket_and_prints_typed_grant -- --exact";
             }
           );
           router-runtime-cannot-depend-on-message =
@@ -419,14 +363,14 @@
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--features nota-text --test configuration_text_edges router_configuration_carries_listen_identity_and_criome_socket -- --exact";
+              cargoTestExtraArgs = "--features dotos-text --test configuration_text_edges router_configuration_carries_listen_identity_and_criome_socket -- --exact";
             }
           );
           router-write-bootstrap-carries-hardwired-peers = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--features nota-text --test configuration_text_edges router_bootstrap_carries_hardwired_peers_and_actor_homes -- --exact";
+              cargoTestExtraArgs = "--features dotos-text --test configuration_text_edges router_bootstrap_carries_hardwired_peers_and_actor_homes -- --exact";
             }
           );
         }

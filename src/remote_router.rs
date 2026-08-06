@@ -25,10 +25,11 @@ use std::collections::HashMap;
 use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
+use signal_router::{z2VNwn as CriomeHostId, z2VVPx as TailnetAddress};
 
 use crate::route::YggdrasilBaseline;
 use crate::tables::{RouterTables, StoredHostRoute};
-use crate::{ActorIdentifier, CriomeHostId, RouterResult, TailnetAddress};
+use crate::{ActorIdentifier, RouterResult};
 
 /// `CriomeHostId` is a milestone-1 contract newtype that does not
 /// derive `Hash`, so the peer table keys on its stable `String` payload

@@ -2,10 +2,11 @@ pub mod adjudication;
 pub mod authorized_object;
 pub mod authorized_object_projection;
 pub mod channel;
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 pub mod cli_argument;
 pub mod client;
 pub mod command;
+pub mod component_daemon;
 pub mod config;
 pub mod criome_attestation;
 pub mod criome_client;
@@ -26,17 +27,6 @@ pub mod route;
 pub mod router;
 pub mod supervision;
 pub mod tables;
-
-pub mod schema {
-    #[rustfmt::skip]
-    pub mod signal;
-    #[rustfmt::skip]
-    pub mod sema;
-    #[rustfmt::skip]
-    pub mod nexus;
-    #[rustfmt::skip]
-    pub mod daemon;
-}
 
 pub use adjudication::{
     MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot, MindAdjudicationReceipt,
@@ -61,9 +51,12 @@ pub use channel::{
     StructuralChannelInstallation, StructuralChannelInstallationOutcome, UseChannel,
 };
 pub use client::{RouterClient, RouterEndpoint};
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 pub use client::{RouterCommand, RouterCommandEnvironment};
 pub use command::{RouterDaemonCommand, RouterDaemonConfigurationFile};
+pub use component_daemon::{
+    ComponentDaemon, DaemonCommand, DaemonEntry, DaemonError, ListenerTier,
+};
 pub use config::{Configuration, ConfigurationError};
 pub use criome_attestation::CriomeForwardAttestation;
 pub use criome_client::{CriomeSigningClient, CriomeSigningError};
@@ -83,7 +76,7 @@ pub use message::{
     MessageIdentifier, ThreadIdentifier,
 };
 pub use meta::{MetaRouterClient, MetaRouterEndpoint};
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 pub use meta::{MetaRouterCommand, MetaRouterCommandEnvironment};
 pub use observation::{
     ApplyRouterObservation, ReadRouterObservationPlaneStatus, RouterObservationOutcome,
@@ -122,16 +115,6 @@ pub use router::{
     RouterTrace, RouterTraceEvent, RouterTraceSnapshot, RouterTraceStep, SignalMessageFrameCodec,
     SignalMessageInput, SignalMessageOutcome, SocketMode, Status, StructuralChannelsInstalled,
     TailnetForwardIngress,
-};
-pub use schema::daemon::{ComponentDaemon, DaemonCommand, DaemonEntry, DaemonError, ListenerTier};
-pub use signal_router::{
-    CriomeHostId, EphemeralPublicKey, ForwardMarker, ForwardedMessagePayload, GrantDirectMessage,
-    InstallStructuralChannels as InstallStructuralChannelsBootstrap, RegisterRemoteRouter,
-    RouterBootstrapOperation, RouterForwardAccepted, RouterForwardRefusalReason,
-    RouterForwardRefused, RouterForwardRequest, RouterIdentityProof, RouterPeerAttestation,
-    RouterSessionAccepted, RouterSessionClientHello, RouterSessionClientProof, RouterSessionData,
-    RouterSessionRefused, RouterSessionServerHello, SessionChallenge, SessionRefusalReason,
-    TailnetAddress,
 };
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,

@@ -3,17 +3,16 @@ use router::{
     ReadAuthorizedObjectFanoutStatus, RouterRuntime, StandardReference, WithdrawAuthorizedObjects,
 };
 use signal_standard::{
-    AuthorizedObjectInterest, AuthorizedObjectKind, AuthorizedObjectReference,
-    ComponentObjectInterest, ObjectDigest,
+    z2VQD6 as AuthorizedObjectInterest, z2VSyM as ObjectDigest,
+    z2VTjK as AuthorizedObjectReference, z2Vbhy as AuthorizedObjectKind,
+    z2VdWE as ComponentObjectInterest,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authorized_object_fanout_delivers_reference_only_updates_to_matching_subscribers() {
     let router = RouterRuntime::start().await;
-    let mentci_interest =
-        AuthorizedObjectInterest::Component(signal_standard::ComponentKind::Criome);
-    let mirror_interest =
-        AuthorizedObjectInterest::Component(signal_standard::ComponentKind::Mirror);
+    let mentci_interest = AuthorizedObjectInterest::z2VW1p(signal_standard::z2VWWD::z2VSDw);
+    let mirror_interest = AuthorizedObjectInterest::z2VW1p(signal_standard::z2VWWD::z2VVh8);
 
     let mentci = router
         .ask(AttendAuthorizedObjects {
@@ -31,9 +30,9 @@ async fn authorized_object_fanout_delivers_reference_only_updates_to_matching_su
         .expect("router actor accepts attend");
 
     let reference = AuthorizedObjectReference::new(
-        signal_standard::ComponentKind::Criome,
-        ObjectDigest::new("criome-authorized-object-1"),
-        AuthorizedObjectKind::Operation,
+        signal_standard::z2VWWD::z2VSDw,
+        ObjectDigest::new("criome-authorized-object-1".to_owned()),
+        AuthorizedObjectKind::z2VPDv,
     );
     let publication = router
         .ask(PublishAuthorizedObjectReference {
@@ -68,9 +67,9 @@ async fn authorized_object_fanout_delivers_reference_only_updates_to_matching_su
     assert!(withdrawn.retracted);
 
     let second_reference = AuthorizedObjectReference::new(
-        signal_standard::ComponentKind::Criome,
-        ObjectDigest::new("criome-authorized-object-2"),
-        AuthorizedObjectKind::Operation,
+        signal_standard::z2VWWD::z2VSDw,
+        ObjectDigest::new("criome-authorized-object-2".to_owned()),
+        AuthorizedObjectKind::z2VPDv,
     );
     let second_publication = router
         .ask(PublishAuthorizedObjectReference {
@@ -91,14 +90,14 @@ async fn authorized_object_fanout_delivers_reference_only_updates_to_matching_su
 async fn authorized_object_fanout_returns_matching_snapshot_on_late_attend() {
     let router = RouterRuntime::start().await;
     let time_reference = AuthorizedObjectReference::new(
-        signal_standard::ComponentKind::Criome,
-        ObjectDigest::new("time-object"),
-        AuthorizedObjectKind::Time,
+        signal_standard::z2VWWD::z2VSDw,
+        ObjectDigest::new("time-object".to_owned()),
+        AuthorizedObjectKind::z2VYDX,
     );
     let operation_reference = AuthorizedObjectReference::new(
-        signal_standard::ComponentKind::Criome,
-        ObjectDigest::new("operation-object"),
-        AuthorizedObjectKind::Operation,
+        signal_standard::z2VWWD::z2VSDw,
+        ObjectDigest::new("operation-object".to_owned()),
+        AuthorizedObjectKind::z2VPDv,
     );
 
     for reference in [time_reference.clone(), operation_reference] {
@@ -111,7 +110,7 @@ async fn authorized_object_fanout_returns_matching_snapshot_on_late_attend() {
     let snapshot = router
         .ask(AttendAuthorizedObjects {
             subscriber: ActorIdentifier::new("clock-viewer"),
-            interest: AuthorizedObjectInterest::ObjectKind(AuthorizedObjectKind::Time),
+            interest: AuthorizedObjectInterest::z2Ve8W(AuthorizedObjectKind::z2VYDX),
         })
         .await
         .expect("router actor accepts late attend");
@@ -130,9 +129,9 @@ async fn criome_reference_projects_to_router_reference_only_pulse() {
     let subscriber = router
         .ask(AttendAuthorizedObjects {
             subscriber: ActorIdentifier::new("spirit-replica"),
-            interest: AuthorizedObjectInterest::ComponentObject(ComponentObjectInterest::new(
-                signal_standard::ComponentKind::Spirit,
-                AuthorizedObjectKind::Head,
+            interest: AuthorizedObjectInterest::z2VNut(ComponentObjectInterest::new(
+                signal_standard::z2VWWD::z2VPuL,
+                AuthorizedObjectKind::z2Vd4Q,
             )),
         })
         .await
@@ -157,12 +156,16 @@ async fn criome_reference_projects_to_router_reference_only_pulse() {
         ActorIdentifier::new("spirit-replica")
     );
     assert_eq!(
-        publication.deliveries[0].reference.object_digest.as_str(),
+        publication.deliveries[0]
+            .reference
+            .field_1
+            .payload()
+            .as_str(),
         "spirit-head-digest"
     );
     assert_eq!(
-        publication.deliveries[0].reference.authorized_object_kind,
-        AuthorizedObjectKind::Head
+        publication.deliveries[0].reference.field_2,
+        AuthorizedObjectKind::z2Vd4Q
     );
     router
         .stop_gracefully()

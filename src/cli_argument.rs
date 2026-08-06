@@ -5,11 +5,11 @@ use triad_runtime::{ComponentArgument, ComponentCommand};
 use crate::{Error, RouterResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NotaCommandText {
+pub struct DotosCommandText {
     text: String,
 }
 
-impl NotaCommandText {
+impl DotosCommandText {
     pub fn from_command(command: ComponentCommand) -> RouterResult<Self> {
         match command.nota_argument()? {
             ComponentArgument::InlineNota(argument) => Ok(Self::new(argument.into_string())),

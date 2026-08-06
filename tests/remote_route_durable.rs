@@ -26,9 +26,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
 use router::{
-    ActorIdentifier, CriomeHostId, RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute,
-    RemoteRouterRegistry, ResolveRemoteRoute, RouterTables, TailnetAddress,
+    ActorIdentifier, RegisterRemoteActorHome, RegisterRemotePeer, RemoteRoute,
+    RemoteRouterRegistry, ResolveRemoteRoute, RouterTables,
 };
+use signal_router::{z2VNwn as CriomeHostId, z2VVPx as TailnetAddress};
 
 const RECIPIENT_ACTOR: &str = "spirit-peer";
 
@@ -65,9 +66,9 @@ impl Drop for TemporaryRouterStore {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn seeded_route_survives_restart_and_resolves_without_bootstrap() {
     let store = TemporaryRouterStore::new("resolve");
-    let peer = CriomeHostId::new("criome-host-b-master-pubkey");
+    let peer = CriomeHostId::new("criome-host-b-master-pubkey".to_owned());
     let recipient = ActorIdentifier::new(RECIPIENT_ACTOR);
-    let seeded_address = TailnetAddress::new("[200:1::1]:9000");
+    let seeded_address = TailnetAddress::new("[200:1::1]:9000".to_owned());
 
     // (1) Seed: register the peer's route and the recipient's home, keyed on
     // the Criome host ID — durably, per Slice A2 — then resolve.

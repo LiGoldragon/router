@@ -6,28 +6,23 @@ use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "dotos-text")]
+use dotos::DotosEncode;
 use meta_signal_router::{
-    ChannelDuration as MetaChannelDuration, ChannelEndpoint as MetaChannelEndpoint,
-    ChannelGrant as MetaChannelGrant, ChannelMessageKind as MetaChannelMessageKind,
-    ComponentName as MetaComponentName, ConnectionClass as MetaConnectionClass, Input as MetaInput,
-    Output as MetaOutput,
+    z2VUWE as MetaChannelMessageKind, z2VVKk as MetaInput, z2VVrv as MetaConnectionClass,
+    z2VWgk as MetaChannelDuration, z2VXEz as MetaChannelGrant, z2VZMR as MetaOutput,
+    z2Vbxp as MetaChannelEndpoint,
 };
-#[cfg(feature = "nota-text")]
-use nota::NotaEncode;
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
 };
 use signal_message::{
     ComponentName, Frame as SignalMessageFrame, FrameBody as SignalMessageFrameBody,
     Input as SignalInput, MessageBody, MessageKind, MessageOrigin as SignalMessageOrigin,
-    MessageRecipient, MessageSubmission, Output as SignalOutput,
-    StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
+    MessageRecipient, MessageSubmission, Output as SignalOutput, StampedMessageSubmission,
+    TimestampNanos as SignalTimestampNanos,
 };
-#[cfg(feature = "nota-text")]
-use signal_router::{
-    Engine, EngineIdentifier, Input as RouterObservationInput, RouterSummaryQuery,
-};
-use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterDaemonConfiguration};
+use signal_standard::z2VWWD as MetaComponentName;
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
 struct DaemonFixture {
@@ -63,28 +58,34 @@ impl DaemonFixture {
 
     fn write_configuration(&self) {
         std::fs::create_dir_all(&self.directory).expect("create router process fixture");
-        let configuration =
-            RouterDaemonConfiguration::from(signal_router::RouterDaemonConfigurationParts {
-                router_socket_path: self.socket_path.display().to_string().into(),
-                router_socket_mode: 0o640.into(),
-                meta_router_socket_path: self.meta_socket_path.display().to_string().into(),
-                meta_router_socket_mode: 0o600.into(),
-                supervision_socket_path: self
-                    .directory
+        let configuration = signal_router::z2VZfL {
+            field_0: signal_router::z2Ve3n::new(signal_router::z2VPn3::new(
+                self.socket_path.display().to_string(),
+            )),
+            field_1: signal_router::z2VbSs::new(signal_router::z2Vf1e::new(0o640)),
+            field_2: signal_router::z2Va6n::new(signal_router::z2VPn3::new(
+                self.meta_socket_path.display().to_string(),
+            )),
+            field_3: signal_router::z2VMR5::new(signal_router::z2Vf1e::new(0o600)),
+            field_4: signal_router::z2VcsM::new(signal_router::z2VPn3::new(
+                self.directory
                     .join("router-supervision.sock")
                     .display()
-                    .to_string()
-                    .into(),
-                supervision_socket_mode: 0o600.into(),
-                store_path: self.database_path.display().to_string().into(),
-                bootstrap_path: None,
-                owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
-                tailnet_listen_address: None,
-                router_identity: signal_router::CriomeHostId::new("router-local"),
-                criome_socket_path: None,
-            });
-        let bytes = configuration
-            .to_rkyv_bytes()
+                    .to_string(),
+            )),
+            field_5: signal_router::z2VXG3::new(signal_router::z2Vf1e::new(0o600)),
+            field_6: signal_router::z2VcTK::new(signal_router::z2VPn3::new(
+                self.database_path.display().to_string(),
+            )),
+            field_7: None,
+            field_8: signal_router::z2VLx1::z2VM4G(signal_router::z2Vf91::new(1000)),
+            field_9: None,
+            field_10: signal_router::z2Vafp::new(signal_router::z2VNwn::new(
+                "router-local".to_owned(),
+            )),
+            field_11: None,
+        };
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&configuration)
             .expect("encode router daemon configuration");
         std::fs::write(&self.configuration_path, bytes).expect("write router daemon configuration");
     }
@@ -120,7 +121,7 @@ impl Drop for DaemonProcess {
 }
 
 #[test]
-fn generated_daemon_binds_working_and_meta_sockets_with_configured_modes() {
+fn component_daemon_binds_working_and_meta_sockets_with_configured_modes() {
     let fixture = DaemonFixture::new("socket-modes");
     let _daemon = fixture.spawn_daemon();
 
@@ -132,7 +133,7 @@ fn generated_daemon_binds_working_and_meta_sockets_with_configured_modes() {
 }
 
 #[test]
-fn generated_daemon_answers_working_signal_message_frame() {
+fn component_daemon_answers_working_signal_message_frame() {
     let fixture = DaemonFixture::new("working-signal");
     let _daemon = fixture.spawn_daemon();
 
@@ -165,41 +166,43 @@ fn generated_daemon_answers_working_signal_message_frame() {
 }
 
 #[test]
-fn generated_daemon_answers_meta_signal_frame_on_meta_socket() {
+fn component_daemon_answers_meta_signal_frame_on_meta_socket() {
     let fixture = DaemonFixture::new("meta-signal");
     let _daemon = fixture.spawn_daemon();
 
     let output = meta_signal_exchange(
         &fixture.meta_socket_path,
-        MetaInput::grant(MetaChannelGrant::new(
-            MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-            MetaChannelEndpoint::Internal(MetaComponentName::Message),
-            vec![MetaChannelMessageKind::MessageSubmission],
-            MetaChannelDuration::Permanent,
-        )),
+        MetaInput::z2VQkd(MetaChannelGrant {
+            field_0: MetaChannelEndpoint::z2Va3A(MetaConnectionClass::z2VR7t),
+            field_1: MetaChannelEndpoint::z2VWQw(MetaComponentName::z2VUqs),
+            field_2: vec![MetaChannelMessageKind::z2VQst],
+            field_3: MetaChannelDuration::z2VVUb,
+        }),
     );
 
     match output {
-        MetaOutput::ChannelGranted(granted) => {
+        MetaOutput::z2VRJ5(granted) => {
             let channel = granted.into_payload().into_payload();
             assert!(
-                !channel.payload().is_empty(),
-                "router should return the generated channel identifier"
+                !channel.is_empty(),
+                "router should return the minted channel identifier"
             );
         }
         other => panic!("expected ChannelGranted, got {other:?}"),
     }
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 #[test]
 fn router_cli_reaches_working_observation_socket_and_prints_typed_summary() {
     let fixture = DaemonFixture::new("router-cli");
     let _daemon = fixture.spawn_daemon();
-    let request = RouterObservationInput::Summary(RouterSummaryQuery::new(Engine::new(
-        EngineIdentifier::new("process-boundary"),
-    )))
-    .to_nota();
+    let request = signal_router::z2VZGC::z2VMyr(signal_router::z2VNj2 {
+        field_0: signal_router::z2VQcL::new(signal_router::z2VbUg::new(
+            "process-boundary".to_owned(),
+        )),
+    })
+    .to_dotos();
 
     let output = Command::new(env!("CARGO_BIN_EXE_router"))
         .env("ROUTER_SOCKET", &fixture.socket_path)
@@ -220,18 +223,18 @@ fn router_cli_reaches_working_observation_socket_and_prints_typed_summary() {
     );
 }
 
-#[cfg(feature = "nota-text")]
+#[cfg(feature = "dotos-text")]
 #[test]
 fn meta_router_cli_reaches_policy_socket_and_prints_typed_grant() {
     let fixture = DaemonFixture::new("meta-router-cli");
     let _daemon = fixture.spawn_daemon();
-    let request = MetaInput::grant(MetaChannelGrant::new(
-        MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-        MetaChannelEndpoint::Internal(MetaComponentName::Message),
-        vec![MetaChannelMessageKind::MessageSubmission],
-        MetaChannelDuration::Permanent,
-    ))
-    .to_nota();
+    let request = MetaInput::z2VQkd(MetaChannelGrant {
+        field_0: MetaChannelEndpoint::z2Va3A(MetaConnectionClass::z2VR7t),
+        field_1: MetaChannelEndpoint::z2VWQw(MetaComponentName::z2VUqs),
+        field_2: vec![MetaChannelMessageKind::z2VQst],
+        field_3: MetaChannelDuration::z2VVUb,
+    })
+    .to_dotos();
 
     let output = Command::new(env!("CARGO_BIN_EXE_meta-router"))
         .env("ROUTER_META_SOCKET", &fixture.meta_socket_path)
@@ -280,11 +283,30 @@ fn working_signal_exchange(socket_path: &Path, request: SignalInput) -> SignalOu
 }
 
 fn meta_signal_exchange(socket_path: &Path, input: MetaInput) -> MetaOutput {
-    let request = input.encode_signal_frame().expect("encode meta input");
+    let exchange = signal_frame_interface::ExchangeIdentifier::new(
+        signal_frame_interface::SessionEpoch::new(0),
+        signal_frame_interface::ExchangeLane::Connector,
+        signal_frame_interface::LaneSequence::first(),
+    );
+    let request = input
+        .encode_request_frame(exchange)
+        .expect("encode meta input");
     let reply_body = framed_exchange(socket_path, request);
-    let (_route, output) =
-        MetaOutput::decode_signal_frame(reply_body.bytes()).expect("decode meta output");
-    output
+    match meta_signal_router::ContractMarker::decode_frame(reply_body.bytes())
+        .expect("decode meta output")
+        .into_body()
+    {
+        meta_signal_router::FrameBody::Reply { reply, .. } => match reply {
+            signal_frame_interface::Reply::Accepted { per_operation, .. } => {
+                match per_operation.into_head() {
+                    signal_frame_interface::SubReply::Ok(output) => output,
+                    other => panic!("expected successful meta sub-reply, got {other:?}"),
+                }
+            }
+            other => panic!("expected accepted meta reply, got {other:?}"),
+        },
+        other => panic!("expected meta reply frame, got {other:?}"),
+    }
 }
 
 fn framed_exchange(socket_path: &Path, body: Vec<u8>) -> RuntimeFrameBody {

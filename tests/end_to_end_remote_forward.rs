@@ -31,10 +31,10 @@ use kameo::actor::ActorRef;
 use router::ChannelLifetime;
 use router::{
     Actor, ActorIdentifier, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission, ApplyRouterInput,
-    ApplySignalMessage, CriomeHostId, EndpointKind, EndpointTransport, GrantChannel,
-    GrantRouteChannel, InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress,
-    ReadRouterTrace, RegisterActor, RouterInput, RouterNetworkConfiguration, RouterRuntime,
-    RouterTraceStep, SignalMessageInput, TailnetAddress,
+    ApplySignalMessage, EndpointKind, EndpointTransport, GrantChannel, GrantRouteChannel,
+    InstallRemotePeer, InstallRemoteRoute, ReadRouterTailnetAddress, ReadRouterTrace,
+    RegisterActor, RouterInput, RouterNetworkConfiguration, RouterRuntime, RouterTraceStep,
+    SignalMessageInput,
 };
 use signal_frame::{NonEmpty, Reply, SubReply};
 use signal_harness::{
@@ -46,8 +46,9 @@ use signal_message::{
     TimestampNanos as SignalTimestampNanos,
 };
 use signal_router::{
-    Input as SignalRouterInput, MessageSlot, Output as SignalRouterOutput,
-    RouterForwardRefusalReason, RouterForwardRequest, RouterMessageTraceQuery,
+    z2VQC7 as RouterForwardRefusalReason, z2VRcj as RouterForwardRequest,
+    z2VXoV as SignalRouterOutput, z2VXxh as MessageSlot, z2VYdo as RouterMessageTraceQuery,
+    z2VZGC as SignalRouterInput,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
@@ -138,7 +139,7 @@ impl Drop for HarnessWitness {
 /// out. The router must treat both bodies as opaque bytes.
 struct ComponentSignalWitness {
     path: std::path::PathBuf,
-    received: Receiver<signal_mirror::Input>,
+    received: Receiver<signal_mirror::z2VVny>,
 }
 
 impl ComponentSignalWitness {
@@ -161,21 +162,21 @@ impl ComponentSignalWitness {
             let body = codec
                 .read_body(&mut stream)
                 .expect("component witness reads frame body");
-            let (_route, input) = signal_mirror::Input::decode_signal_frame(body.bytes())
-                .expect("component witness decodes signal-mirror input");
+            let (exchange, input) =
+                signal_mirror::ContractMarker::decode_single_request(body.bytes())
+                    .expect("component witness decodes signal-mirror input");
             sender
                 .send(input.clone())
                 .expect("component witness reports delivery");
-            let signal_mirror::Input::NotifyObject(notice) = input else {
+            let signal_mirror::z2VVny::z2VaYk(notice) = input else {
                 panic!("expected signal-mirror NotifyObject");
             };
-            let reply =
-                signal_mirror::Output::ObjectNoticeAccepted(signal_mirror::ObjectNoticeReceipt {
-                    store_name: notice.store_name,
-                    head_mark: notice.head_mark,
-                })
-                .encode_signal_frame()
-                .expect("component witness reply encodes");
+            let reply = signal_mirror::z2VTqL::z2VR8x(signal_mirror::z2VWFj {
+                field_0: notice.field_0,
+                field_1: notice.field_1,
+            })
+            .encode_reply_frame(exchange)
+            .expect("component witness reply encodes");
             codec
                 .write_body(&mut stream, &FrameBody::new(reply))
                 .expect("component witness writes reply");
@@ -188,7 +189,7 @@ impl ComponentSignalWitness {
         self.path.to_string_lossy().into_owned()
     }
 
-    fn received(&self) -> signal_mirror::Input {
+    fn received(&self) -> signal_mirror::z2VVny {
         self.received
             .recv_timeout(Duration::from_secs(5))
             .expect("component witness receives delivery")
@@ -239,9 +240,7 @@ async fn apply_router_input(runtime: &ActorRef<RouterRuntime>, input: RouterInpu
 async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
     runtime
         .ask(ApplyMetaRouterPolicy {
-            input: meta_signal_router::Input::set_mirror_enabled(
-                meta_signal_router::MirrorEnabled::new(true),
-            ),
+            input: meta_signal_router::z2VVKk::z2VYZY(meta_signal_router::z2VZs4::new(true)),
         })
         .await
         .expect("meta SetMirrorEnabled reaches runtime")
@@ -249,12 +248,12 @@ async fn enable_mirror(runtime: &ActorRef<RouterRuntime>) {
         .expect("SetMirrorEnabled applies");
 }
 
-fn timestamp_now() -> signal_router::TimestampNanos {
+fn timestamp_now() -> signal_router::z2VQGK {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    signal_router::TimestampNanos::new(u64::try_from(nanos).unwrap_or(u64::MAX))
+    signal_router::z2VQGK::new(u64::try_from(nanos).unwrap_or(u64::MAX))
 }
 
 /// Build one direct `signal-router::ForwardMessage` request. The attestation
@@ -268,52 +267,54 @@ fn direct_forward_request(recipient: &str, nonce: &str) -> RouterForwardRequest 
 fn direct_forward_request_with_objects(
     recipient: &str,
     nonce: &str,
-    routed_objects: Vec<signal_router::RoutedContractObject>,
+    routed_objects: Vec<signal_router::z2Vcrd>,
 ) -> RouterForwardRequest {
-    let payload = signal_router::ForwardedMessagePayload::new(
-        signal_router::ActorIdentifier::new("operator"),
-        signal_router::ActorIdentifier::new(recipient),
-        "direct client forward".to_string(),
-        Vec::new(),
-        routed_objects,
-    );
-    let nonce = signal_router::ReplayNonce::new(nonce);
+    let payload = signal_router::z2VNid {
+        field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new("operator".to_owned())),
+        field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(recipient.to_owned())),
+        field_2: signal_router::z2VYUB::new("direct client forward".to_owned()),
+        field_3: Vec::new(),
+        field_4: routed_objects,
+    };
+    let nonce = signal_router::z2VLFW::new(nonce.to_owned());
     let issued_at = timestamp_now();
-    let verifier = router::AcceptFixedTestIdentity::new(CriomeHostId::new(
-        RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
+    let verifier = router::AcceptFixedTestIdentity::new(signal_router::z2VNwn::new(
+        RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY.to_owned(),
     ));
     let attestation =
         router::ForwardAttestationVerifier::attest(&verifier, &payload, &nonce, issued_at.clone());
-    signal_router::RouterForwardRequest {
-        submission: payload.into(),
-        attestation: attestation.into(),
-        forwarded: signal_router::ForwardMarker::Origin.into(),
-        nonce: nonce.into(),
-        issued_at: issued_at.into(),
+    signal_router::z2VRcj {
+        field_0: signal_router::z2VX9R::new(payload),
+        field_1: signal_router::z2VL7S::new(attestation),
+        field_2: signal_router::z2VVui::new(signal_router::z2VMPZ::z2VUf6),
+        field_3: signal_router::z2VcpN::new(nonce),
+        field_4: signal_router::z2Vd2q::new(issued_at),
     }
 }
 
-fn spirit_mirror_notice_object() -> signal_router::RoutedContractObject {
-    let payload = signal_mirror::Input::NotifyObject(signal_mirror::ObjectNotice::new(
-        signal_mirror::StoreName::new("spirit"),
-        signal_mirror::HeadMark {
-            commit_sequence: signal_mirror::CommitSequence::new(1),
-            entry_digest: signal_mirror::EntryDigest::new(signal_mirror::FixedBytes::new(
-                [0x42; 32],
-            )),
+fn spirit_mirror_notice_object() -> signal_router::z2Vcrd {
+    let payload = signal_mirror::z2VVny::z2VaYk(signal_mirror::z2VZWt {
+        field_0: signal_mirror::z2Ve8p::new("spirit".to_owned()),
+        field_1: signal_mirror::z2VcqM {
+            field_0: signal_mirror::z2VSAK::new(1),
+            field_1: signal_standard::z2VSyM::new("42".repeat(32)),
         },
-        None,
+        field_2: None,
+    })
+    .encode_request_frame(signal_frame_interface::ExchangeIdentifier::new(
+        signal_frame_interface::SessionEpoch::new(0),
+        signal_frame_interface::ExchangeLane::Connector,
+        signal_frame_interface::LaneSequence::first(),
     ))
-    .encode_signal_frame()
     .expect("signal-mirror object notice frame encodes");
-    signal_router::RoutedContractObject::new(
-        signal_router::ContractName::new("signal-mirror"),
-        signal_router::ContractOperation::new("NotifyObject"),
-        signal_router::ContractPayloadSize::new(
+    signal_router::z2Vcrd {
+        field_0: signal_router::z2VbKU::new("signal-mirror".to_owned()),
+        field_1: signal_router::z2VV5h::new("NotifyObject".to_owned()),
+        field_2: signal_router::z2VPAH::new(
             u64::try_from(payload.len()).expect("payload size fits"),
         ),
-        payload.into_iter().map(u64::from).collect(),
-    )
+        field_3: payload.into_iter().map(u64::from).collect(),
+    }
 }
 
 /// Send one `signal-router::ForwardMessage` frame to a router's tailnet
@@ -323,8 +324,12 @@ async fn send_forward(address: SocketAddr, request: RouterForwardRequest) -> Sig
     let mut stream = tokio::net::TcpStream::connect(address)
         .await
         .expect("connect to router B ingress");
-    let frame = SignalRouterInput::forward_message(request)
-        .encode_signal_frame()
+    let frame = SignalRouterInput::z2Vd1x(request)
+        .encode_request_frame(signal_frame_interface::ExchangeIdentifier::new(
+            signal_frame_interface::SessionEpoch::new(0),
+            signal_frame_interface::ExchangeLane::Connector,
+            signal_frame_interface::LaneSequence::first(),
+        ))
         .expect("forward frame encodes");
     use tokio::io::AsyncWriteExt;
     codec
@@ -336,9 +341,21 @@ async fn send_forward(address: SocketAddr, request: RouterForwardRequest) -> Sig
         .read_body_async(&mut stream)
         .await
         .expect("read forward reply");
-    let (_route, output) =
-        SignalRouterOutput::decode_signal_frame(reply.bytes()).expect("decode forward reply");
-    output
+    match signal_router::ContractMarker::decode_frame(reply.bytes())
+        .expect("decode forward reply")
+        .into_body()
+    {
+        signal_router::FrameBody::Reply { reply, .. } => match reply {
+            signal_frame_interface::Reply::Accepted { per_operation, .. } => {
+                match per_operation.into_head() {
+                    signal_frame_interface::SubReply::Ok(output) => output,
+                    other => panic!("expected successful router sub-reply, got {other:?}"),
+                }
+            }
+            other => panic!("expected accepted router reply, got {other:?}"),
+        },
+        other => panic!("expected router reply frame, got {other:?}"),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -349,7 +366,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     // to router B — so B's channel grant authorizes (owner -> target).
     let owner = ActorIdentifier::new("owner");
     let target = ActorIdentifier::new("responder");
-    let router_b_identity = CriomeHostId::new("router-b");
+    let router_b_identity = signal_router::z2VNwn::new("router-b".to_owned());
 
     // Router B: a local harness witness, a listening tailnet ingress, the
     // target registered LOCALLY (home None), and the channel grant the
@@ -403,7 +420,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
         None,
         RouterNetworkConfiguration::offline_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            CriomeHostId::new("router-a"),
+            signal_router::z2VNwn::new("router-a".to_owned()),
         ),
     )
     .await;
@@ -412,7 +429,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     router_a
         .ask(InstallRemotePeer {
             identity: router_b_identity.clone(),
-            address: TailnetAddress::new(router_b_address.to_string()),
+            address: signal_router::z2VVPx::new(router_b_address.to_string()),
         })
         .await
         .expect("install remote peer installs");
@@ -499,12 +516,14 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     );
 
     // (d) Same fact through the typed observation surface: router A reports
-    // RouterDeliveryStatus::ForwardedRemote for the submitted slot.
+    // RouterDeliveryStatus::z2Ve98 for the submitted slot.
     let trace_reply = router_a
         .ask(router::ApplyRouterObservation {
-            request: SignalRouterInput::MessageTrace(RouterMessageTraceQuery {
-                engine: signal_router::EngineIdentifier::new("router-a").into(),
-                message_slot: MessageSlot::new(submitted_slot),
+            request: SignalRouterInput::z2VWzG(RouterMessageTraceQuery {
+                field_0: signal_router::z2VQcL::new(signal_router::z2VbUg::new(
+                    "router-a".to_owned(),
+                )),
+                field_1: MessageSlot::new(submitted_slot),
             }),
         })
         .await
@@ -512,10 +531,10 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
         .into_result()
         .expect("message trace query answers");
     match trace_reply {
-        SignalRouterOutput::MessageTrace(trace) => {
+        SignalRouterOutput::z2VNok(trace) => {
             assert_eq!(
-                trace.delivery_status.into_payload(),
-                signal_router::RouterDeliveryStatus::ForwardedRemote,
+                trace.field_2.into_payload(),
+                signal_router::z2VMfS::z2Ve98,
                 "router A observation should report ForwardedRemote"
             );
         }
@@ -563,7 +582,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     )
     .await;
     assert!(
-        matches!(direct_reply, SignalRouterOutput::ForwardAccepted(_)),
+        matches!(direct_reply, SignalRouterOutput::z2VTwc(_)),
         "router B ingress should reply ForwardAccepted, got {direct_reply:?}"
     );
     let direct_witness = second_harness.received();
@@ -611,17 +630,17 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     )
     .await;
     assert!(
-        matches!(mirror_reply, SignalRouterOutput::ForwardAccepted(_)),
+        matches!(mirror_reply, SignalRouterOutput::z2VTwc(_)),
         "router B ingress should accept the mirror object forward, got {mirror_reply:?}"
     );
-    let signal_mirror::Input::NotifyObject(notice) = mirror_socket.received() else {
+    let signal_mirror::z2VVny::z2VaYk(notice) = mirror_socket.received() else {
         panic!("expected mirror object notice");
     };
-    assert_eq!(notice.store_name, signal_mirror::StoreName::new("spirit"));
     assert_eq!(
-        notice.head_mark.commit_sequence,
-        signal_mirror::CommitSequence::new(1)
+        notice.field_0,
+        signal_mirror::z2Ve8p::new("spirit".to_owned())
     );
+    assert_eq!(notice.field_1.field_0, signal_mirror::z2VSAK::new(1));
 
     // A validly attested frame with the same verified signer and nonce is
     // refused on the second arrival before it reaches routing policy. The
@@ -630,15 +649,15 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
     let replay_request = direct_forward_request("missing-replay-target", "router-e2e-replay-1");
     let first_replay_reply = send_forward(router_b_address, replay_request.clone()).await;
     assert!(
-        matches!(first_replay_reply, SignalRouterOutput::ForwardAccepted(_)),
+        matches!(first_replay_reply, SignalRouterOutput::z2VTwc(_)),
         "first unknown-recipient forward should be accepted into router state, got {first_replay_reply:?}"
     );
     let second_replay_reply = send_forward(router_b_address, replay_request).await;
     assert!(
         matches!(
             second_replay_reply,
-            SignalRouterOutput::ForwardRefused(ref reason)
-                if *reason.payload() == RouterForwardRefusalReason::ReplayDetected.into()
+            SignalRouterOutput::z2VPBN(ref reason)
+                if *reason.payload() == signal_router::z2VNRo::new(RouterForwardRefusalReason::z2VYnV)
         ),
         "second same-nonce forward should be refused as replay, got {second_replay_reply:?}"
     );
@@ -665,7 +684,7 @@ async fn message_on_router_a_forwards_over_loopback_tcp_and_router_b_delivers_lo
 async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     let source = ActorIdentifier::new("spirit");
     let recipient = ActorIdentifier::new("spirit-peer");
-    let router_b_identity = CriomeHostId::new("router-b-origin");
+    let router_b_identity = signal_router::z2VNwn::new("router-b-origin".to_owned());
 
     // Router B: the destination component socket, a listening ingress, the
     // recipient registered LOCALLY (home None), and the channel grant the
@@ -717,7 +736,7 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
         None,
         RouterNetworkConfiguration::offline_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            CriomeHostId::new("router-a-origin"),
+            signal_router::z2VNwn::new("router-a-origin".to_owned()),
         ),
     )
     .await;
@@ -727,7 +746,7 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     router_a
         .ask(InstallRemotePeer {
             identity: router_b_identity.clone(),
-            address: TailnetAddress::new(router_b_address.to_string()),
+            address: signal_router::z2VVPx::new(router_b_address.to_string()),
         })
         .await
         .expect("install remote peer installs");
@@ -742,13 +761,15 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
     // A co-resident component hands router A the sealed object to originate —
     // the standing-daemon working-tier path, NOT a directly constructed
     // ForwardMessage frame sent to B's ingress.
-    let submission = signal_router::ForwardedMessagePayload::new(
-        signal_router::ActorIdentifier::new(source.as_str()),
-        signal_router::ActorIdentifier::new(recipient.as_str()),
-        "mirror-append".to_string(),
-        Vec::new(),
-        vec![spirit_mirror_notice_object()],
-    );
+    let submission = signal_router::z2VNid {
+        field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new(source.as_str().to_owned())),
+        field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(
+            recipient.as_str().to_owned(),
+        )),
+        field_2: signal_router::z2VYUB::new("mirror-append".to_owned()),
+        field_3: Vec::new(),
+        field_4: vec![spirit_mirror_notice_object()],
+    };
     let accepted = router_a
         .ask(ApplyRoutedObjectSubmission { submission })
         .await
@@ -756,20 +777,20 @@ async fn standing_daemon_originates_routed_object_forward_over_loopback_tcp() {
         .into_result()
         .expect("router A accepts the origination submission");
     assert!(
-        matches!(accepted, SignalRouterOutput::RoutedObjectsAccepted(_)),
+        matches!(accepted, SignalRouterOutput::z2Vc2V(_)),
         "router A should accept the origination with RoutedObjectsAccepted, got {accepted:?}"
     );
 
     // Router B received the carried routed object on its component socket —
     // the standing daemon originated and forwarded it on its own.
-    let signal_mirror::Input::NotifyObject(notice) = mirror_socket.received() else {
+    let signal_mirror::z2VVny::z2VaYk(notice) = mirror_socket.received() else {
         panic!("expected mirror object notice delivered to router B");
     };
-    assert_eq!(notice.store_name, signal_mirror::StoreName::new("spirit"));
     assert_eq!(
-        notice.head_mark.commit_sequence,
-        signal_mirror::CommitSequence::new(1)
+        notice.field_0,
+        signal_mirror::z2Ve8p::new("spirit".to_owned())
     );
+    assert_eq!(notice.field_1.field_0, signal_mirror::z2VSAK::new(1));
 
     // Router A's trace records that the origination left for a peer — awaited,
     // since the forward settles one mailbox turn after the submission reply.
@@ -831,7 +852,7 @@ async fn session_capable_ingress_shuts_the_plaintext_forward_door() {
         None,
         RouterNetworkConfiguration::offline_session_listening(
             "127.0.0.1:0".parse().expect("loopback address"),
-            CriomeHostId::new("mirror-alpha"),
+            signal_router::z2VNwn::new("mirror-alpha".to_owned()),
         ),
     )
     .await;
@@ -844,9 +865,9 @@ async fn session_capable_ingress_shuts_the_plaintext_forward_door() {
     .await;
 
     match &output {
-        SignalRouterOutput::ForwardRefused(refused) => assert_eq!(
+        SignalRouterOutput::z2VPBN(refused) => assert_eq!(
             *refused.payload(),
-            RouterForwardRefusalReason::SessionRequired.into(),
+            signal_router::z2VNRo::new(RouterForwardRefusalReason::z2VepV),
             "a session-capable ingress must refuse a bare plaintext forward as SessionRequired, \
              not serve it — the cleartext door is shut once the encrypted session is available"
         ),

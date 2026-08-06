@@ -20,18 +20,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
-use meta_signal_router::{
-    Input as MetaInput, MirrorEnabled as MetaMirrorEnabled, Output as MetaOutput,
-};
 use router::{
     AcceptFixedTestIdentity, ApplyForwardedMessage, ApplyMetaRouterPolicy,
-    ApplyRoutedObjectSubmission, CriomeHostId, ForwardApplied, ForwardAttestationVerifier,
-    RouterForwardRefusalReason, RouterNetworkConfiguration, RouterRuntime, RouterTables,
-};
-use signal_router::{
-    ContractName, ContractOperation, ContractPayloadSize, ForwardMarker, ForwardedMessagePayload,
-    Output as SignalRouterOutput, ReplayNonce, RoutedContractObject, RouterForwardRequest,
-    TimestampNanos,
+    ApplyRoutedObjectSubmission, ForwardApplied, ForwardAttestationVerifier,
+    RouterNetworkConfiguration, RouterRuntime, RouterTables,
 };
 
 struct TemporaryRouterStore {
@@ -62,32 +54,32 @@ impl Drop for TemporaryRouterStore {
     }
 }
 
-fn routed_object() -> RoutedContractObject {
+fn routed_object() -> signal_router::z2Vcrd {
     let octets = vec![1_u64, 2, 3, 4];
-    RoutedContractObject::new(
-        ContractName::new("signal-spirit"),
-        ContractOperation::new("ApplyAuthorizedRecord"),
-        ContractPayloadSize::new(octets.len() as u64),
-        octets,
-    )
+    signal_router::z2Vcrd {
+        field_0: signal_router::z2VbKU::new("signal-spirit".to_owned()),
+        field_1: signal_router::z2VV5h::new("ApplyAuthorizedRecord".to_owned()),
+        field_2: signal_router::z2VPAH::new(octets.len() as u64),
+        field_3: octets,
+    }
 }
 
-fn mirror_origination() -> ForwardedMessagePayload {
-    ForwardedMessagePayload::new(
-        signal_router::ActorIdentifier::new("spirit"),
-        signal_router::ActorIdentifier::new("spirit-peer"),
-        "mirror-append".to_string(),
-        Vec::new(),
-        vec![routed_object()],
-    )
+fn mirror_origination() -> signal_router::z2VNid {
+    signal_router::z2VNid {
+        field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new("spirit".to_owned())),
+        field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new("spirit-peer".to_owned())),
+        field_2: signal_router::z2VYUB::new("mirror-append".to_owned()),
+        field_3: Vec::new(),
+        field_4: vec![routed_object()],
+    }
 }
 
-fn timestamp_now() -> TimestampNanos {
+fn timestamp_now() -> signal_router::z2VQGK {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    TimestampNanos::new(u64::try_from(nanos).unwrap_or(u64::MAX))
+    signal_router::z2VQGK::new(u64::try_from(nanos).unwrap_or(u64::MAX))
 }
 
 /// An inbound forward carrying a routed object, attested by the shared
@@ -95,31 +87,26 @@ fn timestamp_now() -> TimestampNanos {
 /// gate — `apply_forwarded` reads only the carried objects — but the request
 /// shape is the real wire type, so the witness exercises the production
 /// admission surface.
-fn inbound_mirror_forward(nonce: &str) -> (CriomeHostId, RouterForwardRequest) {
-    let payload = ForwardedMessagePayload::new(
-        signal_router::ActorIdentifier::new("spirit"),
-        signal_router::ActorIdentifier::new("spirit-peer"),
-        "mirror-append".to_string(),
-        Vec::new(),
-        vec![routed_object()],
-    );
-    let identity = CriomeHostId::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY);
+fn inbound_mirror_forward(nonce: &str) -> (signal_router::z2VNwn, signal_router::z2VRcj) {
+    let payload = mirror_origination();
+    let identity =
+        signal_router::z2VNwn::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY.to_owned());
     let verifier = AcceptFixedTestIdentity::new(identity.clone());
-    let nonce = ReplayNonce::new(nonce);
+    let nonce = signal_router::z2VLFW::new(nonce.to_owned());
     let issued_at = timestamp_now();
     let attestation =
         ForwardAttestationVerifier::attest(&verifier, &payload, &nonce, issued_at.clone());
-    let request = RouterForwardRequest {
-        submission: payload.into(),
-        attestation: attestation.into(),
-        forwarded: ForwardMarker::Origin.into(),
-        nonce: nonce.into(),
-        issued_at: issued_at.into(),
+    let request = signal_router::z2VRcj {
+        field_0: signal_router::z2VX9R::new(payload),
+        field_1: signal_router::z2VL7S::new(attestation),
+        field_2: signal_router::z2VVui::new(signal_router::z2VMPZ::z2VUf6),
+        field_3: signal_router::z2VcpN::new(nonce),
+        field_4: signal_router::z2Vd2q::new(issued_at),
     };
     (identity, request)
 }
 
-async fn originate(runtime: &ActorRef<RouterRuntime>) -> SignalRouterOutput {
+async fn originate(runtime: &ActorRef<RouterRuntime>) -> signal_router::z2VXoV {
     runtime
         .ask(ApplyRoutedObjectSubmission {
             submission: mirror_origination(),
@@ -143,10 +130,13 @@ async fn accept_inbound(runtime: &ActorRef<RouterRuntime>, nonce: &str) -> Forwa
         .expect("inbound forward applies")
 }
 
-async fn set_mirror_enabled(runtime: &ActorRef<RouterRuntime>, enabled: bool) -> MetaOutput {
+async fn set_mirror_enabled(
+    runtime: &ActorRef<RouterRuntime>,
+    enabled: bool,
+) -> meta_signal_router::z2VZMR {
     runtime
         .ask(ApplyMetaRouterPolicy {
-            input: MetaInput::set_mirror_enabled(MetaMirrorEnabled::new(enabled)),
+            input: meta_signal_router::z2VVKk::z2VYZY(meta_signal_router::z2VZs4::new(enabled)),
         })
         .await
         .expect("meta SetMirrorEnabled reaches runtime")
@@ -154,11 +144,11 @@ async fn set_mirror_enabled(runtime: &ActorRef<RouterRuntime>, enabled: bool) ->
         .expect("meta SetMirrorEnabled applies")
 }
 
-fn assert_refused_mirror_disabled(output: &SignalRouterOutput) {
+fn assert_refused_mirror_disabled(output: &signal_router::z2VXoV) {
     match output {
-        SignalRouterOutput::RoutedObjectsRefused(refused) => assert_eq!(
+        signal_router::z2VXoV::z2VLzz(refused) => assert_eq!(
             *refused.payload(),
-            RouterForwardRefusalReason::MirrorDisabled.into(),
+            signal_router::z2VNRo::new(signal_router::z2VQC7::z2VTee),
             "origination while OFF must be refused as MirrorDisabled"
         ),
         other => panic!("expected RoutedObjectsRefused(MirrorDisabled), got {other:?}"),
@@ -185,15 +175,15 @@ async fn mirror_switch_defaults_off_inert_and_toggles_over_the_meta_socket() {
     assert_refused_mirror_disabled(&originate(&runtime).await);
     assert_eq!(
         accept_inbound(&runtime, "mirror-toggle-off-1").await,
-        ForwardApplied::Refused(RouterForwardRefusalReason::MirrorDisabled),
+        ForwardApplied::Refused(signal_router::z2VQC7::z2VTee),
         "inbound mirror forward while OFF must be refused as MirrorDisabled"
     );
 
     // Flip ON over the owner-only meta socket; the reply confirms the value.
     match set_mirror_enabled(&runtime, true).await {
-        MetaOutput::MirrorEnabledSet(set) => {
+        meta_signal_router::z2VZMR::z2VWPR(set) => {
             assert!(
-                *set.into_payload().payload(),
+                set.into_payload(),
                 "SetMirrorEnabled(true) confirms the switch is ON"
             );
         }
@@ -203,10 +193,7 @@ async fn mirror_switch_defaults_off_inert_and_toggles_over_the_meta_socket() {
     // ON: origination is accepted (parks with no route, but the gate is
     // open), acceptance is admitted (parks for an unknown local recipient).
     assert!(
-        matches!(
-            originate(&runtime).await,
-            SignalRouterOutput::RoutedObjectsAccepted(_)
-        ),
+        matches!(originate(&runtime).await, signal_router::z2VXoV::z2Vc2V(_)),
         "origination while ON is accepted"
     );
     assert_eq!(
@@ -218,8 +205,8 @@ async fn mirror_switch_defaults_off_inert_and_toggles_over_the_meta_socket() {
     // Flip OFF again: both are inert once more — the gate is live, not a
     // one-way latch.
     match set_mirror_enabled(&runtime, false).await {
-        MetaOutput::MirrorEnabledSet(set) => assert!(
-            !*set.into_payload().payload(),
+        meta_signal_router::z2VZMR::z2VWPR(set) => assert!(
+            !set.into_payload(),
             "SetMirrorEnabled(false) confirms the switch is OFF"
         ),
         other => panic!("expected MirrorEnabledSet(false), got {other:?}"),
@@ -261,10 +248,7 @@ async fn mirror_switch_survives_router_restart_both_directions() {
         );
         let runtime = RouterRuntime::start_with_tables(tables).await;
         assert!(
-            matches!(
-                originate(&runtime).await,
-                SignalRouterOutput::RoutedObjectsAccepted(_)
-            ),
+            matches!(originate(&runtime).await, signal_router::z2VXoV::z2Vc2V(_)),
             "the reloaded ON switch opens the live origination gate after restart"
         );
         // Flip OFF over the meta socket for the next restart to observe.
@@ -300,25 +284,26 @@ async fn ordinary_message_forward_is_not_gated_by_the_mirror_switch() {
     // Switch is OFF (default). A forward with NO routed objects still applies
     // — it parks for the unknown local recipient and is not refused as
     // MirrorDisabled.
-    let ordinary = ForwardedMessagePayload::new(
-        signal_router::ActorIdentifier::new("operator"),
-        signal_router::ActorIdentifier::new("responder"),
-        "an ordinary message".to_string(),
-        Vec::new(),
-        Vec::new(),
-    );
-    let identity = CriomeHostId::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY);
+    let ordinary = signal_router::z2VNid {
+        field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new("operator".to_owned())),
+        field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new("responder".to_owned())),
+        field_2: signal_router::z2VYUB::new("an ordinary message".to_owned()),
+        field_3: Vec::new(),
+        field_4: Vec::new(),
+    };
+    let identity =
+        signal_router::z2VNwn::new(RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY.to_owned());
     let verifier = AcceptFixedTestIdentity::new(identity.clone());
-    let nonce = ReplayNonce::new("mirror-toggle-ordinary-1");
+    let nonce = signal_router::z2VLFW::new("mirror-toggle-ordinary-1".to_owned());
     let issued_at = timestamp_now();
     let attestation =
         ForwardAttestationVerifier::attest(&verifier, &ordinary, &nonce, issued_at.clone());
-    let request = RouterForwardRequest {
-        submission: ordinary.into(),
-        attestation: attestation.into(),
-        forwarded: ForwardMarker::Origin.into(),
-        nonce: nonce.into(),
-        issued_at: issued_at.into(),
+    let request = signal_router::z2VRcj {
+        field_0: signal_router::z2VX9R::new(ordinary),
+        field_1: signal_router::z2VL7S::new(attestation),
+        field_2: signal_router::z2VVui::new(signal_router::z2VMPZ::z2VUf6),
+        field_3: signal_router::z2VcpN::new(nonce),
+        field_4: signal_router::z2Vd2q::new(issued_at),
     };
     let outcome = runtime
         .ask(ApplyForwardedMessage {

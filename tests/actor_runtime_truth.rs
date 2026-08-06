@@ -24,8 +24,8 @@ use signal_harness::{
     DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
 };
 use signal_message::{
-    ConnectionClass as SignalConnectionClass, Input as SignalInput, MessageBody,
-    MessageKind, MessageOperationKind, MessageOrigin as SignalMessageOrigin, MessageRecipient,
+    ConnectionClass as SignalConnectionClass, Input as SignalInput, MessageBody, MessageKind,
+    MessageOperationKind, MessageOrigin as SignalMessageOrigin, MessageRecipient,
     MessageSubmission, MessageUnimplementedReason, Output as SignalOutput,
     StampedMessageSubmission, TimestampNanos as SignalTimestampNanos,
 };
@@ -592,7 +592,6 @@ async fn local_delivery_emits_no_mind_adjudication_request() {
 
     router.stop().await;
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_shot_channel_cannot_authorize_second_message() {
@@ -1314,9 +1313,6 @@ async fn mind_deny_removes_a_stuck_pending_message() {
     router.stop().await;
 }
 
-
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unstamped_message_submission_is_not_router_ingress_payload() {
     let router = RouterFixture::start().await;
@@ -1780,9 +1776,9 @@ async fn local_inbox_query_refuses_typed_after_the_messenger_owns_the_inbox() {
     let reply = router
         .apply_signal(SignalMessageInput::with_ingress(
             RouterIngressContext::fixture_external_owner(ActorIdentifier::new("operator")),
-            SignalInput::QueryInbox(signal_message::InboxQuery::new(
-                MessageRecipient::new("responder".to_string()),
-            )),
+            SignalInput::QueryInbox(signal_message::InboxQuery::new(MessageRecipient::new(
+                "responder".to_string(),
+            ))),
         ))
         .await
         .expect("signal message request passes through router actors");

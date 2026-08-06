@@ -15,7 +15,10 @@ use sema_engine::{
 };
 use signal_message::{MessageOrigin, MessageSlot};
 use signal_persona::ChannelIdentifier;
-use signal_router::{CriomeHostId, ForwardMarker, RoutedContractObject, TailnetAddress};
+use signal_router::{
+    z2VMPZ as ForwardMarker, z2VNwn as CriomeHostId, z2VVPx as TailnetAddress,
+    z2Vcrd as RoutedContractObject,
+};
 
 use crate::route::{DirectCandidate, DirectLocator, RouteEndpoint, YggdrasilBaseline};
 use crate::{

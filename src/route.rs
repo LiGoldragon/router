@@ -13,7 +13,7 @@
 //! baseline only.
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use signal_router::{TailnetAddress, TimestampNanos};
+use signal_router::{z2VQGK as TimestampNanos, z2VVPx as TailnetAddress};
 
 /// The Yggdrasil endpoint: secure by construction when the Yggdrasil system
 /// is operational. Audited-hard — the router's `.criome`-name integrity

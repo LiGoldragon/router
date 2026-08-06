@@ -55,8 +55,9 @@ use signal_criome::{
     Identity, ObjectDigest, PrincipalName, SignRequest, SignatureEnvelope, VerificationDecision,
 };
 use signal_router::{
-    CriomeHostId, ForwardedMessagePayload, ReplayNonce, RouterForwardRefusalReason,
-    RouterPeerAttestation, SignatureScheme, TimestampNanos,
+    z2VLFW as ReplayNonce, z2VLuJ as SignatureScheme, z2VNid as ForwardedMessagePayload,
+    z2VNwn as CriomeHostId, z2VQC7 as RouterForwardRefusalReason, z2VQGK as TimestampNanos,
+    z2VWsQ as RouterPeerAttestation,
 };
 
 use crate::criome_client::{CriomeSigningClient, CriomeSigningError};
@@ -125,8 +126,8 @@ impl CriomeForwardAttestation {
     /// are deliberately separate closed enums; this is the boundary projection.
     fn criome_scheme(&self, scheme: &SignatureScheme) -> signal_criome::SignatureScheme {
         match scheme {
-            SignatureScheme::Bls12_381MinPk => signal_criome::SignatureScheme::Bls12_381MinPk,
-            SignatureScheme::Bls12_381MinSig => signal_criome::SignatureScheme::Bls12_381MinSig,
+            SignatureScheme::z2VYiG => signal_criome::SignatureScheme::Bls12_381MinPk,
+            SignatureScheme::z2VYLS => signal_criome::SignatureScheme::Bls12_381MinSig,
         }
     }
 
@@ -149,24 +150,26 @@ impl CriomeForwardAttestation {
         let attestation = self.client.sign(sign_request)?;
         let criome_issued_at = TimestampNanos::new(attestation.timestamp_nanos.into_u64());
         Ok(RouterPeerAttestation {
-            signer: self.router_identity.clone().into(),
-            scheme: SignatureScheme::Bls12_381MinPk.into(),
-            public_key: attestation
-                .signature_envelope
-                .bls_public_key
-                .as_str()
-                .to_string()
-                .into(),
-            signature: attestation
-                .signature_envelope
-                .bls_signature
-                .as_str()
-                .to_string()
-                .into(),
-            content_digest: digest.as_str().to_string().into(),
-            issued_at: issued_at.clone().into(),
-            nonce: nonce.clone().into(),
-            attestation_issued_at: criome_issued_at.into(),
+            field_0: signal_router::z2VLTy::new(self.router_identity.clone()),
+            field_1: signal_router::z2VZU5::new(SignatureScheme::z2VYiG),
+            field_2: signal_router::z2VVAk::new(
+                attestation
+                    .signature_envelope
+                    .bls_public_key
+                    .as_str()
+                    .to_string(),
+            ),
+            field_3: signal_router::z2VZX5::new(
+                attestation
+                    .signature_envelope
+                    .bls_signature
+                    .as_str()
+                    .to_string(),
+            ),
+            field_4: signal_router::z2Vd3E::new(digest.as_str().to_string()),
+            field_5: signal_router::z2Vd2q::new(issued_at.clone()),
+            field_6: signal_router::z2VcpN::new(nonce.clone()),
+            field_7: signal_router::z2VSgE::new(criome_issued_at),
         })
     }
 
@@ -179,7 +182,7 @@ impl CriomeForwardAttestation {
         attestation: &RouterPeerAttestation,
         payload: &ForwardedMessagePayload,
     ) -> Result<VerificationDecision, CriomeSigningError> {
-        let origin = attestation.signer.payload();
+        let origin = attestation.field_0.payload();
         let derived_digest = ForwardContentPreimage::for_forward(origin, payload).digest();
         let criome_attestation = self.reconstruct_attestation(attestation)?;
         let decision = self
@@ -196,22 +199,21 @@ impl CriomeForwardAttestation {
         &self,
         attestation: &RouterPeerAttestation,
     ) -> Result<Attestation, CriomeSigningError> {
-        let signed_digest = ObjectDigest::new(attestation.content_digest.payload().clone());
+        let signed_digest = ObjectDigest::new(attestation.field_4.payload().clone());
         let envelope = SignatureEnvelope {
-            signature_scheme: self.criome_scheme(attestation.scheme.payload()),
-            bls_public_key: BlsPublicKey::new(attestation.public_key.payload().clone()),
-            bls_signature: BlsSignature::new(attestation.signature.payload().clone()),
+            signature_scheme: self.criome_scheme(attestation.field_1.payload()),
+            bls_public_key: BlsPublicKey::new(attestation.field_2.payload().clone()),
+            bls_signature: BlsSignature::new(attestation.field_3.payload().clone()),
         };
-        let criome_issued_at = signal_criome::TimestampNanos::new(
-            *attestation.attestation_issued_at.payload().payload(),
-        );
+        let criome_issued_at =
+            signal_criome::TimestampNanos::new(*attestation.field_7.payload().payload());
         Ok(Attestation::new(
             self.content_reference(signed_digest),
-            Self::criome_signer_identity(attestation.signer.payload()),
+            Self::criome_signer_identity(attestation.field_0.payload()),
             envelope,
             criome_issued_at,
             None,
-            self.audit_context(attestation.nonce.payload()),
+            self.audit_context(attestation.field_6.payload()),
         ))
     }
 }
@@ -241,8 +243,8 @@ impl ForwardAttestationVerifier for CriomeForwardAttestation {
         // Every non-`Valid` criome decision and every client/transport error
         // collapses to one fail-closed refusal reason.
         match self.verify_forward(attestation, payload) {
-            Ok(VerificationDecision::Valid) => Ok(attestation.signer.payload().clone()),
-            Ok(_) | Err(_) => Err(RouterForwardRefusalReason::AttestationInvalid),
+            Ok(VerificationDecision::Valid) => Ok(attestation.field_0.payload().clone()),
+            Ok(_) | Err(_) => Err(RouterForwardRefusalReason::z2VLzK),
         }
     }
 }
@@ -260,14 +262,14 @@ impl CriomeForwardAttestation {
     ) -> RouterPeerAttestation {
         let digest = ForwardContentPreimage::for_forward(&self.router_identity, payload).digest();
         RouterPeerAttestation {
-            signer: self.router_identity.clone().into(),
-            scheme: SignatureScheme::Bls12_381MinPk.into(),
-            public_key: String::new().into(),
-            signature: String::new().into(),
-            content_digest: digest.as_str().to_string().into(),
-            issued_at: issued_at.clone().into(),
-            nonce: nonce.clone().into(),
-            attestation_issued_at: issued_at.into(),
+            field_0: signal_router::z2VLTy::new(self.router_identity.clone()),
+            field_1: signal_router::z2VZU5::new(SignatureScheme::z2VYiG),
+            field_2: signal_router::z2VVAk::new(String::new()),
+            field_3: signal_router::z2VZX5::new(String::new()),
+            field_4: signal_router::z2Vd3E::new(digest.as_str().to_string()),
+            field_5: signal_router::z2Vd2q::new(issued_at.clone()),
+            field_6: signal_router::z2VcpN::new(nonce.clone()),
+            field_7: signal_router::z2VSgE::new(issued_at),
         }
     }
 }
@@ -289,20 +291,20 @@ impl ForwardContentPreimage {
             bytes: Self::DOMAIN.to_vec(),
         };
         preimage.feed_str(origin.payload());
-        preimage.feed_str(payload.source_actor.payload().payload());
-        preimage.feed_str(payload.destination_actor.payload().payload());
-        preimage.feed_str(payload.body.payload());
-        preimage.feed_u64(payload.attachments().len() as u64);
-        for attachment in payload.attachments() {
+        preimage.feed_str(payload.field_0.payload().payload());
+        preimage.feed_str(payload.field_1.payload().payload());
+        preimage.feed_str(payload.field_2.payload());
+        preimage.feed_u64(payload.field_3.len() as u64);
+        for attachment in &payload.field_3 {
             preimage.feed_str(attachment);
         }
-        preimage.feed_u64(payload.routed_objects().len() as u64);
-        for object in payload.routed_objects() {
-            preimage.feed_str(object.contract_name.payload());
-            preimage.feed_str(object.contract_operation.payload());
-            preimage.feed_u64(*object.contract_payload_size.payload());
-            preimage.feed_u64(object.payload_octets().len() as u64);
-            for octet in object.payload_octets() {
+        preimage.feed_u64(payload.field_4.len() as u64);
+        for object in &payload.field_4 {
+            preimage.feed_str(object.field_0.payload());
+            preimage.feed_str(object.field_1.payload());
+            preimage.feed_u64(*object.field_2.payload());
+            preimage.feed_u64(object.field_3.len() as u64);
+            for octet in &object.field_3 {
                 preimage.feed_u64(*octet);
             }
         }
@@ -320,7 +322,7 @@ impl ForwardContentPreimage {
     }
 
     /// The criome object digest over these canonical bytes (blake3, via the
-    /// schema-emitted `ObjectDigest::from_bytes`).
+    /// Interface-defined `ObjectDigest::from_bytes`).
     fn digest(&self) -> ObjectDigest {
         ObjectDigest::from_bytes(&self.bytes)
     }

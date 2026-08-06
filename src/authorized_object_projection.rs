@@ -1,5 +1,6 @@
 use signal_standard::{
-    AuthorizedObjectKind, AuthorizedObjectReference, ComponentKind, ObjectDigest,
+    z2VSyM as ObjectDigest, z2VTjK as AuthorizedObjectReference, z2VWWD as ComponentKind,
+    z2Vbhy as AuthorizedObjectKind,
 };
 
 pub struct StandardReference {
@@ -17,7 +18,7 @@ impl From<signal_criome::AuthorizedObjectReference> for StandardReference {
         Self {
             inner: AuthorizedObjectReference::new(
                 StandardComponentKind::from(reference.component_kind).into_inner(),
-                ObjectDigest::new(reference.object_digest.as_str()),
+                ObjectDigest::new(reference.object_digest.as_str().to_owned()),
                 StandardAuthorizedObjectKind::from(reference.authorized_object_kind).into_inner(),
             ),
         }
@@ -37,13 +38,13 @@ impl StandardComponentKind {
 impl From<signal_criome::ComponentKind> for StandardComponentKind {
     fn from(component: signal_criome::ComponentKind) -> Self {
         let inner = match component {
-            signal_criome::ComponentKind::Spirit => ComponentKind::Spirit,
-            signal_criome::ComponentKind::Criome => ComponentKind::Criome,
-            signal_criome::ComponentKind::Router => ComponentKind::Router,
-            signal_criome::ComponentKind::Mirror => ComponentKind::Mirror,
-            signal_criome::ComponentKind::Lojix => ComponentKind::Lojix,
-            signal_criome::ComponentKind::Persona => ComponentKind::Persona,
-            signal_criome::ComponentKind::Agent => ComponentKind::Agent,
+            signal_criome::ComponentKind::Spirit => ComponentKind::z2VPuL,
+            signal_criome::ComponentKind::Criome => ComponentKind::z2VSDw,
+            signal_criome::ComponentKind::Router => ComponentKind::z2VZ4y,
+            signal_criome::ComponentKind::Mirror => ComponentKind::z2VVh8,
+            signal_criome::ComponentKind::Lojix => ComponentKind::z2VN8F,
+            signal_criome::ComponentKind::Persona => ComponentKind::z2Vc9t,
+            signal_criome::ComponentKind::Agent => ComponentKind::z2VNYL,
         };
         Self { inner }
     }
@@ -62,11 +63,11 @@ impl StandardAuthorizedObjectKind {
 impl From<signal_criome::AuthorizedObjectKind> for StandardAuthorizedObjectKind {
     fn from(kind: signal_criome::AuthorizedObjectKind) -> Self {
         let inner = match kind {
-            signal_criome::AuthorizedObjectKind::Operation => AuthorizedObjectKind::Operation,
-            signal_criome::AuthorizedObjectKind::Contract => AuthorizedObjectKind::Contract,
-            signal_criome::AuthorizedObjectKind::Agreement => AuthorizedObjectKind::Agreement,
-            signal_criome::AuthorizedObjectKind::Time => AuthorizedObjectKind::Time,
-            signal_criome::AuthorizedObjectKind::Head => AuthorizedObjectKind::Head,
+            signal_criome::AuthorizedObjectKind::Operation => AuthorizedObjectKind::z2VPDv,
+            signal_criome::AuthorizedObjectKind::Contract => AuthorizedObjectKind::z2Ve6d,
+            signal_criome::AuthorizedObjectKind::Agreement => AuthorizedObjectKind::z2VV79,
+            signal_criome::AuthorizedObjectKind::Time => AuthorizedObjectKind::z2VYDX,
+            signal_criome::AuthorizedObjectKind::Head => AuthorizedObjectKind::z2Vd4Q,
         };
         Self { inner }
     }

@@ -1,7 +1,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_standard::{AuthorizedObjectInterest, AuthorizedObjectReference};
+use signal_standard::{z2VQD6 as AuthorizedObjectInterest, z2VTjK as AuthorizedObjectReference};
 
 use crate::ActorIdentifier;
 

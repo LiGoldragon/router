@@ -31,10 +31,15 @@ use std::sync::Arc;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, Key, KeyInit, Nonce};
 use rand_core::{OsRng, RngCore};
+use signal_frame_interface::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply,
+};
 use signal_router::{
-    CriomeHostId, EphemeralPublicKey, Input as SignalRouterInput, Output as SignalRouterOutput,
-    RouterForwardRequest, RouterSessionAccepted, RouterSessionClientHello, RouterSessionData,
-    RouterSessionRefused, RouterSessionServerHello, SessionChallenge, SessionRefusalReason,
+    z2VLKE as RouterSessionServerHello, z2VNwn as CriomeHostId, z2VNxf as RouterSessionData,
+    z2VPaP as RouterSessionRefused, z2VRcj as RouterForwardRequest, z2VVNQ as SessionRefusalReason,
+    z2VWLp as RouterSessionClientHello, z2VXoV as SignalRouterOutput,
+    z2VYXM as RouterSessionAccepted, z2VZGC as SignalRouterInput, z2VbxJ as SessionChallenge,
+    z2VeFW as EphemeralPublicKey,
 };
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
@@ -302,35 +307,41 @@ impl PeerSession {
 
         Self::write_input(
             &mut stream,
-            &SignalRouterInput::SessionClientHello(RouterSessionClientHello::new(
-                SessionChallenge::new(challenge.clone()),
-                EphemeralPublicKey::new(ephemeral_hex.clone()),
-            )),
+            &SignalRouterInput::z2VMN6(RouterSessionClientHello {
+                field_0: signal_router::z2VPs7::new(SessionChallenge::new(challenge.clone())),
+                field_1: signal_router::z2VaLm::new(EphemeralPublicKey::new(ephemeral_hex.clone())),
+            }),
         )
         .await?;
 
         let server_hello = match Self::read_output(&mut stream).await? {
-            SignalRouterOutput::SessionServerHello(hello) => hello,
+            SignalRouterOutput::z2VTty(hello) => hello,
             other => return Err(SessionError::unexpected(&other)),
         };
-        let responder_ephemeral = server_hello.ephemeral_key().payload().clone();
-        let responder_challenge = server_hello.challenge().payload().clone();
+        let responder_ephemeral = server_hello.field_1.payload().payload().clone();
+        let responder_challenge = server_hello.field_0.payload().payload().clone();
 
         let verified_peer = prover
-            .verify(&responder_ephemeral, &challenge, server_hello.proof())
+            .verify(
+                &responder_ephemeral,
+                &challenge,
+                server_hello.field_2.payload(),
+            )
             .map_err(SessionError::Refused)?;
 
         let proof = prover.prove(&ephemeral_hex, &responder_challenge);
         Self::write_input(
             &mut stream,
-            &SignalRouterInput::session_client_proof(proof.into()),
+            &SignalRouterInput::z2VQMp(signal_router::z2VUFf {
+                field_0: signal_router::z2VSH4::new(proof),
+            }),
         )
         .await?;
 
         let accepted = match Self::read_output(&mut stream).await? {
-            SignalRouterOutput::SessionAccepted(accepted) => accepted,
-            SignalRouterOutput::SessionRefused(refused) => {
-                return Err(SessionError::Refused(refused.reason()));
+            SignalRouterOutput::z2VcTY(accepted) => accepted,
+            SignalRouterOutput::z2VNhW(refused) => {
+                return Err(SessionError::Refused(refused.field_0.into_payload()));
             }
             other => return Err(SessionError::unexpected(&other)),
         };
@@ -350,7 +361,7 @@ impl PeerSession {
         // shared key. Opening it to the same digest proves the peer derived the
         // identical session keys — a live proof, not just a claimed acceptance.
         let confirmation = cipher
-            .open(&Self::octets_to_bytes(accepted.key_confirmation()))
+            .open(&Self::octets_to_bytes(&accepted.field_0))
             .map_err(SessionError::Crypto)?;
         if confirmation.as_slice() != transcript.as_bytes() {
             return Err(SessionError::Crypto(
@@ -372,8 +383,9 @@ impl PeerSession {
         &mut self,
         request: RouterForwardRequest,
     ) -> Result<SignalRouterOutput, SessionError> {
-        let forward_frame = SignalRouterInput::forward_message(request)
-            .encode_signal_frame()
+        let exchange = Self::exchange();
+        let forward_frame = SignalRouterInput::z2Vd1x(request)
+            .encode_request_frame(exchange)
             .map_err(SessionError::frame)?;
         let sealed = self
             .cipher
@@ -381,23 +393,21 @@ impl PeerSession {
             .map_err(SessionError::Crypto)?;
         Self::write_input(
             &mut self.stream,
-            &SignalRouterInput::SessionData(RouterSessionData::from_octets(Self::bytes_to_octets(
-                &sealed,
-            ))),
+            &SignalRouterInput::z2Vd2e(RouterSessionData {
+                field_0: Self::bytes_to_octets(&sealed),
+            }),
         )
         .await?;
 
         let reply = match Self::read_output(&mut self.stream).await? {
-            SignalRouterOutput::SessionData(data) => data,
+            SignalRouterOutput::z2VPKn(data) => data,
             other => return Err(SessionError::unexpected(&other)),
         };
         let opened = self
             .cipher
-            .open(&Self::octets_to_bytes(reply.sealed_octets()))
+            .open(&Self::octets_to_bytes(&reply.field_0))
             .map_err(SessionError::Crypto)?;
-        let (_route, output) =
-            SignalRouterOutput::decode_signal_frame(&opened).map_err(SessionError::frame)?;
-        Ok(output)
+        Self::decode_output(&opened)
     }
 
     pub fn verified_peer(&self) -> &CriomeHostId {
@@ -413,7 +423,10 @@ impl PeerSession {
         input: &SignalRouterInput,
     ) -> Result<(), SessionError> {
         let codec = LengthPrefixedCodec::default();
-        let frame = input.encode_signal_frame().map_err(SessionError::frame)?;
+        let frame = input
+            .clone()
+            .encode_request_frame(Self::exchange())
+            .map_err(SessionError::frame)?;
         codec
             .write_body_async(stream, &RuntimeFrameBody::new(frame))
             .await
@@ -428,30 +441,31 @@ impl PeerSession {
             .read_body_async(stream)
             .await
             .map_err(|_| SessionError::ConnectionClosed)?;
-        let (_route, output) =
-            SignalRouterOutput::decode_signal_frame(body.bytes()).map_err(SessionError::frame)?;
-        Ok(output)
+        Self::decode_output(body.bytes())
     }
 
     pub(crate) async fn read_input(
         stream: &mut TokioTcpStream,
-    ) -> Result<SignalRouterInput, SessionError> {
+    ) -> Result<(ExchangeIdentifier, SignalRouterInput), SessionError> {
         let codec = LengthPrefixedCodec::default();
         let body = codec
             .read_body_async(stream)
             .await
             .map_err(|_| SessionError::ConnectionClosed)?;
-        let (_route, input) =
-            SignalRouterInput::decode_signal_frame(body.bytes()).map_err(SessionError::frame)?;
-        Ok(input)
+        signal_router::ContractMarker::decode_single_request(body.bytes())
+            .map_err(SessionError::frame)
     }
 
     pub(crate) async fn write_output(
         stream: &mut TokioTcpStream,
+        exchange: ExchangeIdentifier,
         output: &SignalRouterOutput,
     ) -> Result<(), SessionError> {
         let codec = LengthPrefixedCodec::default();
-        let frame = output.encode_signal_frame().map_err(SessionError::frame)?;
+        let frame = output
+            .clone()
+            .encode_reply_frame(exchange)
+            .map_err(SessionError::frame)?;
         codec
             .write_body_async(stream, &RuntimeFrameBody::new(frame))
             .await
@@ -466,6 +480,31 @@ impl PeerSession {
 
     fn octets_to_bytes(octets: &[u64]) -> Vec<u8> {
         octets.iter().map(|octet| *octet as u8).collect()
+    }
+
+    pub(crate) fn exchange() -> ExchangeIdentifier {
+        ExchangeIdentifier::new(
+            SessionEpoch::new(0),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        )
+    }
+
+    fn decode_output(bytes: &[u8]) -> Result<SignalRouterOutput, SessionError> {
+        let frame =
+            signal_router::ContractMarker::decode_frame(bytes).map_err(SessionError::frame)?;
+        match frame.into_body() {
+            signal_router::FrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok(output) => Ok(output),
+                    other => Err(SessionError::UnexpectedFrame(format!("{other:?}"))),
+                },
+                Reply::Rejected { reason } => {
+                    Err(SessionError::UnexpectedFrame(reason.to_string()))
+                }
+            },
+            other => Err(SessionError::UnexpectedFrame(format!("{other:?}"))),
+        }
     }
 }
 
@@ -487,10 +526,11 @@ impl SessionResponder {
     pub async fn accept(
         stream: &mut TokioTcpStream,
         prover: &Arc<dyn PeerIdentityProver>,
+        client_exchange: ExchangeIdentifier,
         client_hello: RouterSessionClientHello,
     ) -> Result<Self, SessionError> {
-        let initiator_ephemeral = client_hello.ephemeral_key().payload().clone();
-        let initiator_challenge = client_hello.challenge().payload().clone();
+        let initiator_ephemeral = client_hello.field_1.payload().payload().clone();
+        let initiator_challenge = client_hello.field_0.payload().payload().clone();
 
         let ephemeral = EphemeralKeyMaterial::generate();
         let ephemeral_hex = ephemeral.public_hex();
@@ -499,18 +539,24 @@ impl SessionResponder {
         let proof = prover.prove(&ephemeral_hex, &initiator_challenge);
         PeerSession::write_output(
             stream,
-            &SignalRouterOutput::SessionServerHello(RouterSessionServerHello::new(
-                SessionChallenge::new(challenge.clone()),
-                EphemeralPublicKey::new(ephemeral_hex.clone()),
-                proof,
-            )),
+            client_exchange,
+            &SignalRouterOutput::z2VTty(RouterSessionServerHello {
+                field_0: signal_router::z2VNKw::new(SessionChallenge::new(challenge.clone())),
+                field_1: signal_router::z2VW7S::new(EphemeralPublicKey::new(ephemeral_hex.clone())),
+                field_2: signal_router::z2VZXG::new(proof),
+            }),
         )
         .await?;
 
-        let client_proof = match PeerSession::read_input(stream).await? {
-            SignalRouterInput::SessionClientProof(payload) => payload,
-            other => {
-                Self::refuse(stream, SessionRefusalReason::HandshakeMalformed).await?;
+        let (proof_exchange, client_proof) = match PeerSession::read_input(stream).await? {
+            (exchange, SignalRouterInput::z2VQMp(payload)) => (exchange, payload),
+            (_, other) => {
+                Self::refuse(
+                    stream,
+                    PeerSession::exchange(),
+                    SessionRefusalReason::z2VY23,
+                )
+                .await?;
                 return Err(SessionError::unexpected_input(&other));
             }
         };
@@ -518,11 +564,11 @@ impl SessionResponder {
         let verified_peer = match prover.verify(
             &initiator_ephemeral,
             &challenge,
-            client_proof.identity_proof(),
+            client_proof.field_0.payload(),
         ) {
             Ok(identity) => identity,
             Err(reason) => {
-                Self::refuse(stream, reason).await?;
+                Self::refuse(stream, proof_exchange, reason.clone()).await?;
                 return Err(SessionError::Refused(reason));
             }
         };
@@ -543,9 +589,10 @@ impl SessionResponder {
             .map_err(SessionError::Crypto)?;
         PeerSession::write_output(
             stream,
-            &SignalRouterOutput::SessionAccepted(RouterSessionAccepted::from_confirmation(
-                PeerSession::bytes_to_octets(&confirmation),
-            )),
+            proof_exchange,
+            &SignalRouterOutput::z2VcTY(RouterSessionAccepted {
+                field_0: PeerSession::bytes_to_octets(&confirmation),
+            }),
         )
         .await?;
 
@@ -576,11 +623,15 @@ impl SessionResponder {
 
     async fn refuse(
         stream: &mut TokioTcpStream,
+        exchange: ExchangeIdentifier,
         reason: SessionRefusalReason,
     ) -> Result<(), SessionError> {
         PeerSession::write_output(
             stream,
-            &SignalRouterOutput::SessionRefused(RouterSessionRefused::new(reason.into())),
+            exchange,
+            &SignalRouterOutput::z2VNhW(RouterSessionRefused {
+                field_0: signal_router::z2VURC::new(reason),
+            }),
         )
         .await
     }

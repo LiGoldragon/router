@@ -5,17 +5,15 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use meta_signal_router::{
-    ChannelDuration as MetaChannelDuration, ChannelEndpoint as MetaChannelEndpoint,
-    ChannelGrant as MetaChannelGrant, ChannelIdentifier as MetaChannelIdentifier,
-    ChannelMessageKind as MetaChannelMessageKind, ComponentName as MetaComponentName,
-    ConnectionClass as MetaConnectionClass, GrantedChannel as MetaGrantedChannel,
-    Input as MetaInput, Output as MetaOutput,
+    z2VUEJ as MetaGrantedChannel, z2VUWE as MetaChannelMessageKind, z2VVKk as MetaInput,
+    z2VVrv as MetaConnectionClass, z2VWgk as MetaChannelDuration, z2VXEz as MetaChannelGrant,
+    z2VZMR as MetaOutput, z2Vbxp as MetaChannelEndpoint,
 };
 use router::{
-    Message, MessageBody, MessageIdentifier, PendingDelivery, RouterBootstrap,
-    RouterBootstrapOperation, RouterConnection, RouterDaemon, RouterDaemonCommand,
-    RouterDaemonConfigurationFile, RouterInput, RouterMetaConnection, RouterOutput, SocketMode,
-    SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
+    Message, MessageBody, MessageIdentifier, PendingDelivery, RouterBootstrap, RouterConnection,
+    RouterDaemon, RouterDaemonCommand, RouterDaemonConfigurationFile, RouterInput,
+    RouterMetaConnection, RouterOutput, SocketMode, SupervisionFrameCodec, SupervisionListener,
+    SupervisionProfile, SupervisionSocketMode,
 };
 use signal_frame::{
     ExchangeIdentifier, ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane,
@@ -35,7 +33,7 @@ use signal_persona::{
     Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
     Query as SupervisionQuery, Reply as SupervisionReply,
 };
-use signal_router::{OwnerIdentity as RouterOwnerIdentity, RouterBootstrapDocument};
+use signal_standard::z2VWWD as MetaComponentName;
 use triad_runtime::{FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
 struct SocketFixture {
@@ -113,63 +111,62 @@ fn router_output_encodes_delivery_changed() {
 
 #[test]
 fn router_bootstrap_constructs_direct_message_channel_grant() {
-    let operation =
-        RouterBootstrapOperation::GrantDirectMessage(signal_router::GrantDirectMessage {
-            source_actor: signal_router::ActorIdentifier::new("owner").into(),
-            destination_actor: signal_router::ActorIdentifier::new("responder").into(),
-        });
+    let operation = signal_router::z2VNh2::z2VUXc(signal_router::z2VPkk {
+        field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new("owner".to_owned())),
+        field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new("responder".to_owned())),
+    });
 
     assert!(matches!(
         operation,
-        RouterBootstrapOperation::GrantDirectMessage(grant)
-            if grant.source_actor.payload().payload() == "owner" && grant.destination_actor.payload().payload() == "responder"
+        signal_router::z2VNh2::z2VUXc(grant)
+            if grant.field_0.payload().payload() == "owner" && grant.field_1.payload().payload() == "responder"
     ));
 }
 
 #[test]
 fn router_bootstrap_constructs_registered_pty_endpoint() {
-    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
-        signal_router::Actor::new(
-            signal_router::ActorIdentifier::new("responder"),
-            42,
-            Some(signal_router::EndpointTransport::new(
-                signal_router::EndpointKind::PtySocket,
-                "/tmp/responder.terminal.sock".to_string(),
-                None,
-            )),
-        ),
-        None,
-    ));
+    let operation = signal_router::z2VNh2::z2VQBJ(signal_router::z2VPdn {
+        field_0: signal_router::z2VTFJ {
+            field_0: signal_router::z2VQ8d::new(signal_router::z2VNMz::new("responder".to_owned())),
+            field_1: signal_router::z2VVdV::new(42),
+            field_2: Some(signal_router::z2VLce {
+                field_0: signal_router::z2VZNB::new(signal_router::z2VaJt::z2Vd77),
+                field_1: signal_router::z2VXQX::new("/tmp/responder.terminal.sock".to_owned()),
+                field_2: None,
+            }),
+        },
+        field_1: None,
+    });
 
     assert!(matches!(
         operation,
-        RouterBootstrapOperation::RegisterActor(registration) if {
-            let actor = &registration.actor;
-            actor.name.payload().payload() == "responder" && actor.process.payload() == &42 && actor.endpoint().is_some()
+        signal_router::z2VNh2::z2VQBJ(registration) if {
+            let actor = &registration.field_0;
+            actor.field_0.payload().payload() == "responder" && actor.field_1.payload() == &42 && actor.field_2.is_some()
         }
     ));
 }
 
 #[test]
 fn router_bootstrap_constructs_registered_harness_socket_endpoint() {
-    let operation = RouterBootstrapOperation::RegisterActor(signal_router::RegisterActor::new(
-        signal_router::Actor::new(
-            signal_router::ActorIdentifier::new("responder"),
-            42,
-            Some(signal_router::EndpointTransport::new(
-                signal_router::EndpointKind::HarnessSocket,
-                "/tmp/responder.harness.sock".to_string(),
-                None,
-            )),
-        ),
-        None,
-    ));
+    let operation = signal_router::z2VNh2::z2VQBJ(signal_router::z2VPdn {
+        field_0: signal_router::z2VTFJ {
+            field_0: signal_router::z2VQ8d::new(signal_router::z2VNMz::new("responder".to_owned())),
+            field_1: signal_router::z2VVdV::new(42),
+            field_2: Some(signal_router::z2VLce {
+                field_0: signal_router::z2VZNB::new(signal_router::z2VaJt::z2VNJF),
+                field_1: signal_router::z2VXQX::new("/tmp/responder.harness.sock".to_owned()),
+                field_2: None,
+            }),
+        },
+        field_1: None,
+    });
 
     assert!(matches!(
         operation,
-        RouterBootstrapOperation::RegisterActor(registration) if {
-            let actor = &registration.actor;
-            actor.name.payload().payload() == "responder" && actor.process.payload() == &42 && actor.endpoint().is_some()
+        signal_router::z2VNh2::z2VQBJ(registration) if {
+            let actor = &registration.field_0;
+            actor.field_0.payload().payload() == "responder" && actor.field_1.payload() == &42 && actor.field_2.is_some()
         }
     ));
 }
@@ -179,27 +176,28 @@ fn router_daemon_configuration_accepts_binary_file_argument() {
     let fixture = SocketFixture::new("binary-configuration");
     fixture.create_directory();
     let configuration_path = fixture.directory.join("router.rkyv");
-    let configuration = signal_router::RouterDaemonConfiguration::from(
-        signal_router::RouterDaemonConfigurationParts {
-            router_socket_path: fixture.socket().display().to_string().into(),
-            router_socket_mode: 0o600.into(),
-            meta_router_socket_path: fixture.meta_socket().display().to_string().into(),
-            meta_router_socket_mode: 0o600.into(),
-            supervision_socket_path: fixture.supervision_socket().display().to_string().into(),
-            supervision_socket_mode: 0o600.into(),
-            store_path: fixture
-                .directory
-                .join("router.sema")
-                .display()
-                .to_string()
-                .into(),
-            bootstrap_path: None,
-            owner_identity: RouterOwnerIdentity::UnixUser(1000.into()),
-            tailnet_listen_address: None,
-            router_identity: signal_router::CriomeHostId::new("router-local"),
-            criome_socket_path: None,
-        },
-    );
+    let configuration = signal_router::z2VZfL {
+        field_0: signal_router::z2Ve3n::new(signal_router::z2VPn3::new(
+            fixture.socket().display().to_string(),
+        )),
+        field_1: signal_router::z2VbSs::new(signal_router::z2Vf1e::new(0o600)),
+        field_2: signal_router::z2Va6n::new(signal_router::z2VPn3::new(
+            fixture.meta_socket().display().to_string(),
+        )),
+        field_3: signal_router::z2VMR5::new(signal_router::z2Vf1e::new(0o600)),
+        field_4: signal_router::z2VcsM::new(signal_router::z2VPn3::new(
+            fixture.supervision_socket().display().to_string(),
+        )),
+        field_5: signal_router::z2VXG3::new(signal_router::z2Vf1e::new(0o600)),
+        field_6: signal_router::z2VcTK::new(signal_router::z2VPn3::new(
+            fixture.directory.join("router.sema").display().to_string(),
+        )),
+        field_7: None,
+        field_8: signal_router::z2VLx1::z2VM4G(signal_router::z2Vf91::new(1000)),
+        field_9: None,
+        field_10: signal_router::z2Vafp::new(signal_router::z2VNwn::new("router-local".to_owned())),
+        field_11: None,
+    };
     RouterDaemonConfigurationFile::new(&configuration_path)
         .write_configuration(&configuration)
         .expect("write binary configuration");
@@ -234,12 +232,12 @@ fn router_bootstrap_loads_binary_document() {
     let fixture = SocketFixture::new("binary-bootstrap");
     fixture.create_directory();
     let bootstrap_path = fixture.directory.join("router-bootstrap.rkyv");
-    let document = RouterBootstrapDocument::from_operations(vec![
-        RouterBootstrapOperation::GrantDirectMessage(signal_router::GrantDirectMessage {
-            source_actor: signal_router::ActorIdentifier::new("owner").into(),
-            destination_actor: signal_router::ActorIdentifier::new("responder").into(),
-        }),
-    ]);
+    let document = signal_router::z2VWUQ {
+        field_0: vec![signal_router::z2VNh2::z2VUXc(signal_router::z2VPkk {
+            field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new("owner".to_owned())),
+            field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new("responder".to_owned())),
+        })],
+    };
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&document).expect("encode bootstrap archive");
     std::fs::write(&bootstrap_path, bytes.as_ref()).expect("write bootstrap archive");
 
@@ -247,7 +245,7 @@ fn router_bootstrap_loads_binary_document() {
         .operations()
         .expect("decode binary bootstrap");
 
-    assert_eq!(operations, document.into_operations());
+    assert_eq!(operations, document.field_0);
 }
 
 #[test]
@@ -352,19 +350,25 @@ fn router_connection_decodes_signal_message_frame() {
 #[test]
 fn router_meta_connection_decodes_and_replies_meta_signal_frame() {
     let (mut client, server) = std::os::unix::net::UnixStream::pair().expect("socket pair");
-    let input = MetaInput::grant(MetaChannelGrant::new(
-        MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-        MetaChannelEndpoint::Internal(MetaComponentName::Router),
-        vec![MetaChannelMessageKind::MessageSubmission],
-        MetaChannelDuration::Permanent,
-    ));
+    let input = MetaInput::z2VQkd(MetaChannelGrant {
+        field_0: MetaChannelEndpoint::z2Va3A(MetaConnectionClass::z2VR7t),
+        field_1: MetaChannelEndpoint::z2VWQw(MetaComponentName::z2VZ4y),
+        field_2: vec![MetaChannelMessageKind::z2VQst],
+        field_3: MetaChannelDuration::z2VVUb,
+    });
+    let exchange = signal_frame_interface::ExchangeIdentifier::new(
+        signal_frame_interface::SessionEpoch::new(0),
+        signal_frame_interface::ExchangeLane::Connector,
+        signal_frame_interface::LaneSequence::first(),
+    );
     let codec = LengthPrefixedCodec::default();
     codec
         .write_body(
             &mut client,
             &RuntimeFrameBody::new(
                 input
-                    .encode_signal_frame()
+                    .clone()
+                    .encode_request_frame(exchange)
                     .expect("meta input signal frame encodes"),
             ),
         )
@@ -376,8 +380,8 @@ fn router_meta_connection_decodes_and_replies_meta_signal_frame() {
         .expect("router reads meta signal input");
     assert_eq!(decoded, input);
 
-    let output = MetaOutput::channel_granted(MetaGrantedChannel::new(MetaChannelIdentifier::new(
-        "channel-aab",
+    let output = MetaOutput::z2VRJ5(MetaGrantedChannel::new(signal_router::z2VUhk::new(
+        "channel-aab".to_owned(),
     )));
     connection
         .write_output(output.clone())
@@ -385,8 +389,21 @@ fn router_meta_connection_decodes_and_replies_meta_signal_frame() {
     let reply_body = codec
         .read_body(&mut client)
         .expect("client reads meta reply body");
-    let (_route, recovered) =
-        MetaOutput::decode_signal_frame(reply_body.bytes()).expect("meta output decodes");
+    let recovered = match meta_signal_router::ContractMarker::decode_frame(reply_body.bytes())
+        .expect("meta output decodes")
+        .into_body()
+    {
+        meta_signal_router::FrameBody::Reply { reply, .. } => match reply {
+            signal_frame_interface::Reply::Accepted { per_operation, .. } => {
+                match per_operation.into_head() {
+                    signal_frame_interface::SubReply::Ok(output) => output,
+                    other => panic!("expected successful meta sub-reply, got {other:?}"),
+                }
+            }
+            other => panic!("expected accepted meta reply, got {other:?}"),
+        },
+        other => panic!("expected meta reply frame, got {other:?}"),
+    };
     assert_eq!(recovered, output);
 }
 

@@ -1,6 +1,6 @@
 [package]
 name         = "router"
-version      = "0.10.0"
+version      = "0.11.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -15,7 +15,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "router"
 path = "src/bin/router.rs"
-required-features = ["nota-text"]
+required-features = ["dotos-text"]
 
 [[bin]]
 name = "router-daemon"
@@ -24,17 +24,17 @@ path = "src/main.rs"
 [[bin]]
 name = "meta-router"
 path = "src/bin/meta_router.rs"
-required-features = ["nota-text"]
+required-features = ["dotos-text"]
 
 [[bin]]
 name = "router-write-configuration"
 path = "src/bin/router_write_configuration.rs"
-required-features = ["nota-text"]
+required-features = ["dotos-text"]
 
 [[bin]]
 name = "router-write-bootstrap"
 path = "src/bin/router_write_bootstrap.rs"
-required-features = ["nota-text"]
+required-features = ["dotos-text"]
 
 [[bin]]
 name = "router-forward-witness"
@@ -53,47 +53,36 @@ rand_core             = { version = "0.6", features = ["getrandom"] }
 x25519-dalek          = "2"
 zeroize               = "1"
 kameo                 = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
-meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", branch = "main", default-features = false }
+meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-router.git", rev = "422ec113b987b1ff8072242df7283ee3852f49d1", default-features = false }
+dotos                  = { git = "https://github.com/LiGoldragon/dotos.git", rev = "80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3", optional = true }
 nota             = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
+signal-frame-interface = { package = "signal-frame", git = "https://github.com/LiGoldragon/signal-frame.git", rev = "01676293a623d97b65e320d4138c4b480c6d5dad" }
 signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
-signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main", default-features = false }
-signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", branch = "main", default-features = false }
+signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", rev = "f1fda7e130f583cd673cc4d6acfc05a753dfe449", default-features = false }
+signal-standard = { git = "https://github.com/LiGoldragon/signal-standard.git", rev = "d5a4a545e61dafec30667f2af38ca503ab6d6d3f", default-features = false }
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
-signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main", optional = true }
+signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", rev = "d57830076840f0e1ef89352823d7b0356a7c96df", optional = true }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
 triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 
 [features]
 default = []
-nota-text = ["meta-signal-router/nota-text", "signal-router/nota-text"]
+dotos-text = ["dep:dotos", "meta-signal-router/dotos-text", "signal-router/dotos-text"]
 # The two-VM criome-auth witness sender bin (router-forward-witness). Pulls in
-# signal-mirror so the bin can build the forwarded Append payload, and nota-text
-# so the typed router reply renders as NOTA on stdout.
-witness = ["dep:signal-mirror", "nota-text"]
-
-[build-dependencies]
-schema = { git = "https://github.com/LiGoldragon/schema.git", rev = "4a8aaf1de3aaf476577d5b4e93691ef47c135d1a" }
-schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", rev = "255823ab3d0d6c5cab26e26a8b1d60c63c52c7b4" }
+# signal-mirror so the bin can build the forwarded Append payload, and dotos-text
+# so the typed router reply renders as Dotos on stdout.
+witness = ["dep:signal-mirror", "dotos-text"]
 
 [dev-dependencies]
-criome = { git = "https://github.com/LiGoldragon/criome.git", branch = "main", default-features = false }
 signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", branch = "main", default-features = false }
-# The criome founding meta contract (InitiateRootFounding / AcceptRootFounding /
-# ObserveRootFounding), for the founding-over-router harness (Slice D).
-meta-signal-criome = { git = "https://github.com/LiGoldragon/meta-signal-criome.git", branch = "main" }
-signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", branch = "main" }
-# The real mirror engine, behind a co-resident ComponentSocket, so the durable
-# mirror-landing witness drives a genuine versioned sema-engine store (its head
-# is the witnessed claim, not the router's ForwardAccepted reply). Pinned to the
-# signal-frame 0.3.0 alignment branch so the ComponentSocket wire is shared.
-mirror = { git = "https://github.com/LiGoldragon/mirror.git", branch = "main" }
+signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", rev = "d57830076840f0e1ef89352823d7b0356a7c96df" }
 tempfile = "3"
 
 [lints.rust]

@@ -4,7 +4,7 @@
 //! dials a peer router over loopback/tailnet TCP. One `DeliverRemote`
 //! opens one `TcpStream::connect`, builds one `signal-router::ForwardMessage`
 //! frame (the message projected into `ForwardedMessagePayload`, the
-//! attestation built by the verifier's signing side, `ForwardMarker::Origin`,
+//! attestation built by the verifier's signing side, `ForwardMarker::z2VUf6`,
 //! a fresh nonce, an `issued_at` stamp), writes ONE length-prefixed frame,
 //! reads ONE `ForwardAccepted`/`ForwardRefused` reply, and maps the outcome
 //! to a delivery-attempt result. One connection = one forward.
@@ -18,10 +18,14 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 use kameo::reply::DelegatedReply;
+use signal_frame_interface::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply,
+};
 use signal_router::{
-    ForwardMarker, ForwardedMessagePayload, Input as SignalRouterInput,
-    Output as SignalRouterOutput, ReplayNonce, RoutedContractObject, RouterForwardRefusalReason,
-    RouterForwardRequest, TimestampNanos,
+    z2VLFW as ReplayNonce, z2VMPZ as ForwardMarker, z2VNid as ForwardedMessagePayload,
+    z2VQC7 as RouterForwardRefusalReason, z2VQGK as TimestampNanos, z2VRcj as RouterForwardRequest,
+    z2VVPx as TailnetAddress, z2VXoV as SignalRouterOutput, z2VZGC as SignalRouterInput,
+    z2Vcrd as RoutedContractObject,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -31,7 +35,7 @@ use triad_runtime::{FrameBody as LengthPrefixedFrameBody, LengthPrefixedCodec};
 use crate::forward_attestation::ForwardAttestationVerifier;
 use crate::identity_proof::PeerIdentityProver;
 use crate::peer_session::{PeerSession, PeerSessionEstablished};
-use crate::{Error, Message, RouterResult, TailnetAddress};
+use crate::{Error, Message, RouterResult};
 
 /// A per-peer session slot: the live encrypted session to one address, shared
 /// across forwards so the handshake is amortised (persistent session). The
@@ -189,17 +193,21 @@ impl RouterPeerDelivery {
         message: &Message,
         routed_objects: Vec<RoutedContractObject>,
     ) -> ForwardedMessagePayload {
-        ForwardedMessagePayload::new(
-            signal_router::ActorIdentifier::new(message.from.as_str()),
-            signal_router::ActorIdentifier::new(message.to.as_str()),
-            message.body.clone(),
-            message
+        ForwardedMessagePayload {
+            field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new(
+                message.from.as_str().to_owned(),
+            )),
+            field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new(
+                message.to.as_str().to_owned(),
+            )),
+            field_2: signal_router::z2VYUB::new(message.body.clone()),
+            field_3: message
                 .attachments
                 .iter()
                 .map(|attachment| attachment.path.clone())
                 .collect(),
-            routed_objects,
-        )
+            field_4: routed_objects,
+        }
     }
 
     fn forward_request(
@@ -212,11 +220,11 @@ impl RouterPeerDelivery {
         let issued_at = Self::issued_at();
         let attestation = self.verifier.attest(&payload, &nonce, issued_at.clone());
         RouterForwardRequest {
-            submission: payload.into(),
-            attestation: attestation.into(),
-            forwarded: ForwardMarker::Origin.into(),
-            nonce: nonce.into(),
-            issued_at: issued_at.into(),
+            field_0: signal_router::z2VX9R::new(payload),
+            field_1: signal_router::z2VL7S::new(attestation),
+            field_2: signal_router::z2VVui::new(ForwardMarker::z2VUf6),
+            field_3: signal_router::z2VcpN::new(nonce),
+            field_4: signal_router::z2Vd2q::new(issued_at),
         }
     }
 
@@ -234,13 +242,40 @@ impl RouterPeerDelivery {
                 })?;
         let codec = LengthPrefixedCodec::default();
         let mut stream = TcpStream::connect(socket_address).await?;
-        let frame = SignalRouterInput::forward_message(request).encode_signal_frame()?;
+        let exchange = ExchangeIdentifier::new(
+            SessionEpoch::new(0),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        );
+        let frame = SignalRouterInput::z2Vd1x(request).encode_request_frame(exchange)?;
         codec
             .write_body_async(&mut stream, &LengthPrefixedFrameBody::new(frame))
             .await?;
         stream.flush().await?;
         let reply = codec.read_body_async(&mut stream).await?;
-        let (_route, output) = SignalRouterOutput::decode_signal_frame(reply.bytes())?;
+        let frame = signal_router::ContractMarker::decode_frame(reply.bytes())?;
+        let output = match frame.into_body() {
+            signal_router::FrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok(output) => output,
+                    other => {
+                        return Err(Error::UnexpectedRouterSubReply {
+                            got: format!("{other:?}"),
+                        });
+                    }
+                },
+                Reply::Rejected { reason } => {
+                    return Err(Error::RouterReplyRejected {
+                        reason: reason.to_string(),
+                    });
+                }
+            },
+            other => {
+                return Err(Error::UnexpectedRouterReplyFrame {
+                    got: format!("{other:?}"),
+                });
+            }
+        };
         Ok(RemoteForwardOutcome::from_output(output))
     }
 }
@@ -259,8 +294,8 @@ pub enum RemoteForwardOutcome {
 impl RemoteForwardOutcome {
     fn from_output(output: SignalRouterOutput) -> Self {
         match output {
-            SignalRouterOutput::ForwardAccepted(_) => Self::Accepted,
-            SignalRouterOutput::ForwardRefused(refused) => {
+            SignalRouterOutput::z2VTwc(_) => Self::Accepted,
+            SignalRouterOutput::z2VPBN(refused) => {
                 Self::Refused(refused.into_payload().into_payload())
             }
             other => Self::UnexpectedReply(format!("{other:?}")),

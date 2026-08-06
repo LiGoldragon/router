@@ -12,28 +12,27 @@ use kameo::actor::{ActorRef, Spawn, WeakActorRef};
 use kameo::error::{ActorStopReason, Infallible};
 use kameo::message::Context;
 use meta_signal_router::{
-    AdjudicationDenial as MetaAdjudicationDenial, ChannelDuration as MetaChannelDuration,
-    ChannelEndpoint as MetaChannelEndpoint, ChannelExtension as MetaChannelExtension,
-    ChannelGrant as MetaChannelGrant, ChannelMessageKind as MetaChannelMessageKind,
-    ChannelOrderRejectionReason as MetaChannelOrderRejectionReason,
-    ChannelRevocation as MetaChannelRevocation, ComponentName as MetaComponentName,
-    ConnectionClass as MetaConnectionClass, DeniedAdjudication as MetaDeniedAdjudication,
-    ExtendedChannel as MetaExtendedChannel, GrantedChannel as MetaGrantedChannel,
-    Input as MetaInput, MirrorEnabled as MetaMirrorEnabled, OperationKind as MetaOperationKind,
-    Output as MetaOutput, RejectedChannelOrder as MetaRejectedChannelOrder,
-    RevokedChannel as MetaRevokedChannel,
+    z2VL5G as MetaChannelOrderRejectionReason, z2VLSg as MetaChannelExtension,
+    z2VMyn as MetaDeniedAdjudication, z2VMzP as MetaOperationKind, z2VPBk as MetaExtendedChannel,
+    z2VRn4 as MetaChannelRevocation, z2VShs as MetaRevokedChannel, z2VUEJ as MetaGrantedChannel,
+    z2VUWE as MetaChannelMessageKind, z2VVKk as MetaInput, z2VVrv as MetaConnectionClass,
+    z2VWSR as MetaAdjudicationDenial, z2VWgk as MetaChannelDuration, z2VXEz as MetaChannelGrant,
+    z2VZMR as MetaOutput, z2VZs4 as MetaMirrorEnabled, z2VbCv as MetaRejectedChannelOrder,
+    z2Vbxp as MetaChannelEndpoint,
 };
 use nota::{Block, Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
     SubReply,
 };
+use signal_frame_interface::ExchangeIdentifier as InterfaceExchangeIdentifier;
 use signal_message::{
     ComponentName as SignalComponentName, ConnectionClass as SignalConnectionClass,
-    Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry, InboxQuery as SignalInboxQuery,
-    Input as SignalMessageContractInput, MessageBody as SignalMessageBody, MessageKind,
-    MessageOperationKind, MessageOrigin as SignalMessageOrigin,
-    MessageRecipient as SignalMessageRecipient, MessageRequestUnimplemented, MessageSlot as SignalSlot,
+    Frame as SignalMessageFrame, FrameBody, InboxEntry as SignalInboxEntry,
+    InboxQuery as SignalInboxQuery, Input as SignalMessageContractInput,
+    MessageBody as SignalMessageBody, MessageKind, MessageOperationKind,
+    MessageOrigin as SignalMessageOrigin, MessageRecipient as SignalMessageRecipient,
+    MessageRequestUnimplemented, MessageSlot as SignalSlot,
     MessageSubmission as SignalMessageSubmission, MessageUnimplementedReason,
     Output as SignalMessageContractOutput, StampedMessageSubmission,
     SubmissionAcceptance as SignalSubmissionAcceptance,
@@ -50,18 +49,20 @@ use signal_persona::{
     ConnectionClass as OriginConnectionClass,
 };
 use signal_router::{
-    Actor as BootstrapActor, ActorIdentifier as SignalActorIdentifier, ActorRegistered,
-    ActorRegistrationDisposition, ActorRegistrationRefusalReason, ActorRegistrationRefused,
-    CriomeHostId, EndpointKind as BootstrapEndpointKind,
-    EndpointTransport as BootstrapEndpointTransport, ForwardMarker, ForwardedMessagePayload,
-    MessageSlot as RouterMessageSlot, RouterBootstrapDocument, RouterBootstrapOperation,
-    RouterDaemonConfiguration, RouterForwardRefusalReason, RouterForwardRequest, RouterSessionData,
-    SessionRefusalReason,
+    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, z2VXoV as SignalRouterOutput,
+    z2VZGC as SignalRouterInput,
 };
 use signal_router::{
-    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
-    Output as SignalRouterOutput,
+    z2VLce as BootstrapEndpointTransport, z2VMPZ as ForwardMarker, z2VNK3 as ActorRegistered,
+    z2VNMz as SignalActorIdentifier, z2VNh2 as RouterBootstrapOperation,
+    z2VNid as ForwardedMessagePayload, z2VNwn as CriomeHostId, z2VNxf as RouterSessionData,
+    z2VQC7 as RouterForwardRefusalReason, z2VRcj as RouterForwardRequest, z2VTFJ as BootstrapActor,
+    z2VTf7 as ActorRegistrationRefusalReason, z2VVNQ as SessionRefusalReason,
+    z2VWUQ as RouterBootstrapDocument, z2VXxh as RouterMessageSlot,
+    z2VZMx as ActorRegistrationDisposition, z2VZfL as RouterDaemonConfiguration,
+    z2VaJt as BootstrapEndpointKind, z2Vbzo as ActorRegistrationRefused,
 };
+use signal_standard::z2VWWD as MetaComponentName;
 
 use crate::adjudication::{
     ClearMindAdjudication, MindAdjudicationOutbox, MindAdjudicationOutboxSnapshot,
@@ -131,30 +132,26 @@ impl RouterDaemon {
     /// `RouterDaemonConfiguration` from the binary daemon command and
     /// hands the decoded record here.
     pub fn from_configuration(configuration: RouterDaemonConfiguration) -> RouterResult<Self> {
-        let tables =
-            RouterTables::open(PathBuf::from(configuration.store_path.payload().payload()))?;
+        let tables = RouterTables::open(PathBuf::from(configuration.field_6.payload().payload()))?;
         let bootstrap = configuration
-            .bootstrap_path()
+            .field_7
+            .as_ref()
             .map(|path| RouterBootstrap::from_path(path.payload()));
         let supervision = SupervisionListener::new(
             SupervisionProfile::router(),
-            PathBuf::from(configuration.supervision_socket_path.payload().payload()),
-            SupervisionSocketMode::from_octal(
-                *configuration.supervision_socket_mode.payload().payload() as u32,
-            ),
+            PathBuf::from(configuration.field_4.payload().payload()),
+            SupervisionSocketMode::from_octal(*configuration.field_5.payload().payload() as u32),
         );
         Ok(Self {
-            socket: PathBuf::from(configuration.router_socket_path.payload().payload()),
-            meta_socket: Some(PathBuf::from(
-                configuration.meta_router_socket_path.payload().payload(),
-            )),
+            socket: PathBuf::from(configuration.field_0.payload().payload()),
+            meta_socket: Some(PathBuf::from(configuration.field_2.payload().payload())),
             tables: Some(tables),
             ingress: RouterIngressContext::message(),
             socket_mode: Some(SocketMode::from_octal(
-                *configuration.router_socket_mode.payload().payload() as u32,
+                *configuration.field_1.payload().payload() as u32,
             )),
             meta_socket_mode: Some(SocketMode::from_octal(
-                *configuration.meta_router_socket_mode.payload().payload() as u32,
+                *configuration.field_3.payload().payload() as u32,
             )),
             bootstrap,
             supervision: Some(supervision),
@@ -386,10 +383,10 @@ impl TailnetForwardIngress {
     async fn handle_forward(&self, request: RouterForwardRequest) -> SignalRouterOutput {
         let verified_origin = match self
             .verifier
-            .verify(request.attestation.payload(), request.submission.payload())
+            .verify(request.field_1.payload(), request.field_0.payload())
         {
             Ok(identity) => identity,
-            Err(reason) => return SignalRouterOutput::forward_refused(reason.into()),
+            Err(reason) => return Self::forward_refused(reason),
         };
         match self
             .runtime
@@ -400,20 +397,26 @@ impl TailnetForwardIngress {
             .await
         {
             Ok(outcome) => match outcome.into_result() {
-                Ok(ForwardApplied::Accepted) => {
-                    SignalRouterOutput::forward_accepted(signal_router::MessageSlot::new(0))
-                }
-                Ok(ForwardApplied::Refused(reason)) => {
-                    SignalRouterOutput::forward_refused(reason.into())
-                }
-                Err(_) => SignalRouterOutput::forward_refused(
-                    RouterForwardRefusalReason::RecipientUnknown.into(),
-                ),
+                Ok(ForwardApplied::Accepted) => SignalRouterOutput::z2VTwc(signal_router::z2VQGg {
+                    field_0: signal_router::z2VXxh::new(0),
+                }),
+                Ok(ForwardApplied::Refused(reason)) => Self::forward_refused(reason),
+                Err(_) => Self::forward_refused(RouterForwardRefusalReason::z2VY2G),
             },
-            Err(_) => SignalRouterOutput::forward_refused(
-                RouterForwardRefusalReason::RecipientUnknown.into(),
-            ),
+            Err(_) => Self::forward_refused(RouterForwardRefusalReason::z2VY2G),
         }
+    }
+
+    fn forward_refused(reason: RouterForwardRefusalReason) -> SignalRouterOutput {
+        SignalRouterOutput::z2VPBN(signal_router::z2VT1o::new(signal_router::z2VNRo::new(
+            reason,
+        )))
+    }
+
+    fn session_refused(reason: SessionRefusalReason) -> SignalRouterOutput {
+        SignalRouterOutput::z2VNhW(signal_router::z2VPaP {
+            field_0: signal_router::z2VURC::new(reason),
+        })
     }
 
     /// The responder side of the encrypted authenticated session
@@ -428,31 +431,34 @@ impl TailnetForwardIngress {
         &self,
         stream: &mut TokioTcpStream,
         prover: &Arc<dyn PeerIdentityProver>,
-        client_hello: signal_router::RouterSessionClientHello,
+        client_exchange: InterfaceExchangeIdentifier,
+        client_hello: signal_router::z2VWLp,
     ) -> std::result::Result<(), RouterDaemonError> {
-        let mut responder = match SessionResponder::accept(stream, prover, client_hello).await {
-            Ok(responder) => responder,
-            Err(_refused) => return Ok(()),
-        };
+        let mut responder =
+            match SessionResponder::accept(stream, prover, client_exchange, client_hello).await {
+                Ok(responder) => responder,
+                Err(_refused) => return Ok(()),
+            };
         loop {
-            let input = match PeerSession::read_input(stream).await {
+            let (exchange, input) = match PeerSession::read_input(stream).await {
                 Ok(input) => input,
                 Err(_closed) => break,
             };
             let sealed = match input {
-                SignalRouterInput::SessionData(data) => data.sealed_octets().to_vec(),
+                SignalRouterInput::z2Vd2e(data) => data.field_0,
                 _ => break,
             };
             let forward_frame = match responder.open_forward(&sealed) {
                 Ok(bytes) => bytes,
                 Err(_) => break,
             };
-            let request = match SignalRouterInput::decode_signal_frame(&forward_frame) {
-                Ok((_route, SignalRouterInput::ForwardMessage(request))) => request,
-                _ => break,
-            };
+            let (forward_exchange, request) =
+                match signal_router::ContractMarker::decode_single_request(&forward_frame) {
+                    Ok((exchange, SignalRouterInput::z2Vd1x(request))) => (exchange, request),
+                    _ => break,
+                };
             let output = self.handle_forward(request).await;
-            let output_frame = match output.encode_signal_frame() {
+            let output_frame = match output.encode_reply_frame(forward_exchange) {
                 Ok(bytes) => bytes,
                 Err(_) => break,
             };
@@ -462,7 +468,10 @@ impl TailnetForwardIngress {
             };
             if PeerSession::write_output(
                 stream,
-                &SignalRouterOutput::SessionData(RouterSessionData::from_octets(reply_sealed)),
+                exchange,
+                &SignalRouterOutput::z2VPKn(RouterSessionData {
+                    field_0: reply_sealed,
+                }),
             )
             .await
             .is_err()
@@ -476,9 +485,12 @@ impl TailnetForwardIngress {
     async fn write_reply(
         &self,
         stream: &mut TokioTcpStream,
+        exchange: InterfaceExchangeIdentifier,
         output: SignalRouterOutput,
     ) -> std::result::Result<(), RouterDaemonError> {
-        let frame = output.encode_signal_frame().map_err(crate::Error::from)?;
+        let frame = output
+            .encode_reply_frame(exchange)
+            .map_err(crate::Error::from)?;
         self.codec
             .write_body_async(stream, &RuntimeFrameBody::new(frame))
             .await?;
@@ -498,33 +510,32 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
         mut connection: AcceptedConnection<TokioTcpStream>,
     ) -> std::result::Result<(), Self::Error> {
         let body = self.codec.read_body_async(connection.stream_mut()).await?;
-        let input = match SignalRouterInput::decode_signal_frame(body.bytes()) {
-            Ok((_route, input)) => input,
-            Err(_) => {
-                return self
-                    .write_reply(
-                        connection.stream_mut(),
-                        SignalRouterOutput::forward_refused(
-                            RouterForwardRefusalReason::AttestationInvalid.into(),
-                        ),
-                    )
-                    .await;
-            }
-        };
+        let (exchange, input) =
+            match signal_router::ContractMarker::decode_single_request(body.bytes()) {
+                Ok(received) => received,
+                Err(_) => {
+                    return self
+                        .write_reply(
+                            connection.stream_mut(),
+                            PeerSession::exchange(),
+                            Self::forward_refused(RouterForwardRefusalReason::z2VLzK),
+                        )
+                        .await;
+                }
+            };
         match input {
             // Encrypted authenticated session (primary-nbmq.6): the first frame
             // is a handshake. Serve the whole session on this connection.
-            SignalRouterInput::SessionClientHello(client_hello) => match &self.identity_prover {
+            SignalRouterInput::z2VMN6(client_hello) => match &self.identity_prover {
                 Some(prover) => {
-                    self.serve_session(connection.stream_mut(), prover, client_hello)
+                    self.serve_session(connection.stream_mut(), prover, exchange, client_hello)
                         .await
                 }
                 None => {
                     self.write_reply(
                         connection.stream_mut(),
-                        SignalRouterOutput::session_refused(
-                            SessionRefusalReason::HandshakeMalformed.into(),
-                        ),
+                        exchange,
+                        Self::session_refused(SessionRefusalReason::z2VY23),
                     )
                     .await
                 }
@@ -537,17 +548,17 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
             // session (`SessionClientHello`), never the cleartext path. A valid
             // per-forward attestation buys no plaintext access here — refused
             // fail-closed with `SessionRequired` before any verify/apply.
-            SignalRouterInput::ForwardMessage(request) => match &self.identity_prover {
+            SignalRouterInput::z2Vd1x(request) => match &self.identity_prover {
                 None => {
                     let output = self.handle_forward(request).await;
-                    self.write_reply(connection.stream_mut(), output).await
+                    self.write_reply(connection.stream_mut(), exchange, output)
+                        .await
                 }
                 Some(_) => {
                     self.write_reply(
                         connection.stream_mut(),
-                        SignalRouterOutput::forward_refused(
-                            RouterForwardRefusalReason::SessionRequired.into(),
-                        ),
+                        exchange,
+                        Self::forward_refused(RouterForwardRefusalReason::z2VepV),
                     )
                     .await
                 }
@@ -555,9 +566,8 @@ impl AsyncConnectionRuntime<TokioTcpStream> for TailnetForwardIngress {
             _ => {
                 self.write_reply(
                     connection.stream_mut(),
-                    SignalRouterOutput::forward_refused(
-                        RouterForwardRefusalReason::RecipientUnknown.into(),
-                    ),
+                    exchange,
+                    Self::forward_refused(RouterForwardRefusalReason::z2VY2G),
                 )
                 .await
             }
@@ -683,6 +693,7 @@ impl RouterConnection {
 pub struct RouterMetaConnection {
     stream: BufReader<UnixStream>,
     codec: LengthPrefixedCodec,
+    pending_exchange: Option<InterfaceExchangeIdentifier>,
 }
 
 impl RouterMetaConnection {
@@ -690,17 +701,26 @@ impl RouterMetaConnection {
         Self {
             stream: BufReader::new(stream),
             codec: LengthPrefixedCodec::default(),
+            pending_exchange: None,
         }
     }
 
     pub fn read_input(&mut self) -> RouterResult<MetaInput> {
         let body = self.codec.read_body(&mut self.stream)?;
-        let (_route, input) = MetaInput::decode_signal_frame(body.bytes())?;
+        let (exchange, input) =
+            meta_signal_router::ContractMarker::decode_single_request(body.bytes())?;
+        self.pending_exchange = Some(exchange);
         Ok(input)
     }
 
     pub fn write_output(&mut self, output: MetaOutput) -> RouterResult<()> {
-        let frame = output.encode_signal_frame()?;
+        let exchange =
+            self.pending_exchange
+                .take()
+                .ok_or_else(|| Error::UnexpectedSignalFrame {
+                    got: "cannot write meta reply before reading a request".to_owned(),
+                })?;
+        let frame = output.encode_reply_frame(exchange)?;
         self.codec
             .write_body(self.stream.get_mut(), &RuntimeFrameBody::new(frame))?;
         Ok(())
@@ -715,8 +735,12 @@ pub enum RouterDaemonInput {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PendingRouterDaemonReply {
-    SignalMessage { exchange: ExchangeIdentifier },
-    RouterObservation { exchange: ExchangeIdentifier },
+    SignalMessage {
+        exchange: ExchangeIdentifier,
+    },
+    RouterObservation {
+        exchange: InterfaceExchangeIdentifier,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -954,13 +978,10 @@ impl RouterObservationFrameCodec {
     pub fn write_reply(
         &self,
         stream: &mut UnixStream,
-        exchange: ExchangeIdentifier,
+        exchange: InterfaceExchangeIdentifier,
         reply: SignalRouterOutput,
     ) -> RouterResult<()> {
-        let frame = SignalRouterFrame::new(SignalRouterFrameBody::Reply {
-            exchange,
-            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
-        });
+        let frame = reply.into_reply_frame(exchange);
         self.write_frame(stream, &frame)
     }
 }
@@ -1049,7 +1070,7 @@ struct ReceivedSignalMessageInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReceivedRouterObservationInput {
-    exchange: ExchangeIdentifier,
+    exchange: InterfaceExchangeIdentifier,
     request: SignalRouterInput,
 }
 
@@ -1190,7 +1211,7 @@ impl RouterNetworkConfiguration {
 
     fn offline_verifier() -> Arc<dyn ForwardAttestationVerifier> {
         Arc::new(AcceptFixedTestIdentity::new(CriomeHostId::new(
-            Self::OFFLINE_TEST_IDENTITY,
+            Self::OFFLINE_TEST_IDENTITY.to_owned(),
         )))
     }
 
@@ -1201,7 +1222,7 @@ impl RouterNetworkConfiguration {
     pub fn offline() -> Self {
         Self::new(
             None,
-            CriomeHostId::new("router-local"),
+            CriomeHostId::new("router-local".to_owned()),
             Self::offline_verifier(),
             None,
         )
@@ -1523,7 +1544,7 @@ impl RouterRuntime {
     async fn install_remote_peer(
         &self,
         identity: CriomeHostId,
-        address: crate::TailnetAddress,
+        address: signal_router::z2VVPx,
     ) -> RouterResult<()> {
         if let Some(remote_routers) = &self.remote_routers {
             // `RegisterRemotePeer`'s reply carries the durable-persist
@@ -1689,7 +1710,7 @@ pub struct InstallRemoteRoute {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRemotePeer {
     pub identity: CriomeHostId,
-    pub address: crate::TailnetAddress,
+    pub address: signal_router::z2VVPx,
 }
 
 #[derive(Debug, kameo::Reply)]
@@ -2409,17 +2430,11 @@ impl RouterRoot {
 
     async fn apply_meta(&mut self, input: MetaInput) -> RouterResult<MetaOutput> {
         match input {
-            MetaInput::Grant(grant) => self.apply_meta_grant(grant.into_payload()).await,
-            MetaInput::Extend(extension) => {
-                self.apply_meta_extension(extension.into_payload()).await
-            }
-            MetaInput::Revoke(revocation) => {
-                self.apply_meta_revocation(revocation.into_payload()).await
-            }
-            MetaInput::Deny(denial) => self.apply_meta_denial(denial.into_payload()).await,
-            MetaInput::SetMirrorEnabled(set) => {
-                self.apply_meta_set_mirror_enabled(set.into_payload())
-            }
+            MetaInput::z2VQkd(grant) => self.apply_meta_grant(grant).await,
+            MetaInput::z2VLcZ(extension) => self.apply_meta_extension(extension).await,
+            MetaInput::z2VTdF(revocation) => self.apply_meta_revocation(revocation).await,
+            MetaInput::z2VKx6(denial) => self.apply_meta_denial(denial).await,
+            MetaInput::z2VYZY(set) => self.apply_meta_set_mirror_enabled(set),
         }
     }
 
@@ -2439,16 +2454,14 @@ impl RouterRoot {
             tables.set_mirror_enabled(enabled)?;
         }
         self.mirror_enabled = enabled;
-        Ok(MetaOutput::mirror_enabled_set(MetaMirrorEnabled::new(
-            enabled,
-        )))
+        Ok(MetaOutput::z2VWPR(MetaMirrorEnabled::new(enabled)))
     }
 
     async fn apply_meta_grant(&mut self, grant: MetaChannelGrant) -> RouterResult<MetaOutput> {
         let channel = match Self::channel_grant_from_meta(grant) {
             Ok(channel) => channel,
             Err(reason) => {
-                return Ok(Self::meta_order_rejected(MetaOperationKind::Grant, reason));
+                return Ok(Self::meta_order_rejected(MetaOperationKind::z2VY6p, reason));
             }
         };
         let identifier = self
@@ -2457,8 +2470,8 @@ impl RouterRoot {
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
-        Ok(MetaOutput::channel_granted(MetaGrantedChannel::new(
-            meta_signal_router::ChannelIdentifier::new(identifier.payload().to_string()),
+        Ok(MetaOutput::z2VRJ5(MetaGrantedChannel::new(
+            signal_router::z2VUhk::new(identifier.payload().to_string()),
         )))
     }
 
@@ -2466,24 +2479,22 @@ impl RouterRoot {
         &mut self,
         extension: MetaChannelExtension,
     ) -> RouterResult<MetaOutput> {
-        let channel = extension.channel_identifier;
+        let channel = extension.field_0;
         let extended = self
             .channels
             .ask(ExtendChannel::new(
                 OriginChannelIdentifier::new(channel.payload().clone()),
-                Self::meta_channel_lifetime(extension.channel_duration),
+                Self::meta_channel_lifetime(extension.field_1),
             ))
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
         if extended {
-            Ok(MetaOutput::channel_extended(MetaExtendedChannel::new(
-                channel,
-            )))
+            Ok(MetaOutput::z2VZzt(MetaExtendedChannel::new(channel)))
         } else {
             Ok(Self::meta_order_rejected(
-                MetaOperationKind::Extend,
-                MetaChannelOrderRejectionReason::ChannelMissing,
+                MetaOperationKind::z2VenP,
+                MetaChannelOrderRejectionReason::z2VYfn,
             ))
         }
     }
@@ -2492,7 +2503,7 @@ impl RouterRoot {
         &mut self,
         revocation: MetaChannelRevocation,
     ) -> RouterResult<MetaOutput> {
-        let channel = revocation.channel_identifier;
+        let channel = revocation.field_0;
         let revoked = self
             .channels
             .ask(RetractChannelByIdentifier::new(
@@ -2502,13 +2513,11 @@ impl RouterRoot {
             .map_err(|error| Error::ActorCall(error.to_string()))?
             .into_result()?;
         if revoked {
-            Ok(MetaOutput::channel_revoked(MetaRevokedChannel::new(
-                channel,
-            )))
+            Ok(MetaOutput::z2VXtU(MetaRevokedChannel::new(channel)))
         } else {
             Ok(Self::meta_order_rejected(
-                MetaOperationKind::Revoke,
-                MetaChannelOrderRejectionReason::ChannelMissing,
+                MetaOperationKind::z2VYCD,
+                MetaChannelOrderRejectionReason::z2VYfn,
             ))
         }
     }
@@ -2517,21 +2526,19 @@ impl RouterRoot {
         &mut self,
         denial: MetaAdjudicationDenial,
     ) -> RouterResult<MetaOutput> {
-        let request = denial.adjudication_request_identifier;
+        let request = denial.field_0;
         let rejected = self
             .deny_adjudication(&MindAdjudicationDeny {
                 request: AdjudicationRequestIdentifier::new(request.payload().clone()),
-                reason: MindTextBody::new(denial.text_body.into_payload()),
+                reason: MindTextBody::new(denial.field_1.into_payload()),
             })
             .await?;
         if rejected > 0 {
-            Ok(MetaOutput::adjudication_denied(
-                MetaDeniedAdjudication::new(request),
-            ))
+            Ok(MetaOutput::z2VSbY(MetaDeniedAdjudication::new(request)))
         } else {
             Ok(Self::meta_order_rejected(
-                MetaOperationKind::Deny,
-                MetaChannelOrderRejectionReason::AdjudicationRequestMissing,
+                MetaOperationKind::z2VVom,
+                MetaChannelOrderRejectionReason::z2VT9k,
             ))
         }
     }
@@ -2539,13 +2546,13 @@ impl RouterRoot {
     fn channel_grant_from_meta(
         grant: MetaChannelGrant,
     ) -> std::result::Result<GrantChannel, MetaChannelOrderRejectionReason> {
-        if !Self::meta_channel_kinds_fit_direct_message(grant.kinds()) {
-            return Err(MetaChannelOrderRejectionReason::PolicyRefused);
+        if !Self::meta_channel_kinds_fit_direct_message(&grant.field_2) {
+            return Err(MetaChannelOrderRejectionReason::z2VXST);
         }
         Ok(GrantChannel::direct_message(
-            Self::meta_endpoint_actor_identifier(&grant.source),
-            Self::meta_endpoint_actor_identifier(&grant.destination),
-            Self::meta_channel_lifetime(grant.channel_duration),
+            Self::meta_endpoint_actor_identifier(&grant.field_0),
+            Self::meta_endpoint_actor_identifier(&grant.field_1),
+            Self::meta_channel_lifetime(grant.field_3),
         ))
     }
 
@@ -2554,18 +2561,18 @@ impl RouterRoot {
             && kinds.iter().all(|kind| {
                 matches!(
                     kind,
-                    MetaChannelMessageKind::MessageIngressSubmission
-                        | MetaChannelMessageKind::MessageSubmission
-                        | MetaChannelMessageKind::MessageDelivery
+                    MetaChannelMessageKind::z2VKpa
+                        | MetaChannelMessageKind::z2VQst
+                        | MetaChannelMessageKind::z2VQ7g
                 )
             })
     }
 
     fn meta_channel_lifetime(duration: MetaChannelDuration) -> ChannelLifetime {
         match duration {
-            MetaChannelDuration::OneShot => ChannelLifetime::OneShot,
-            MetaChannelDuration::Permanent => ChannelLifetime::Persistent,
-            MetaChannelDuration::TimeBound(until) => ChannelLifetime::ExpiresAt(
+            MetaChannelDuration::z2VbFb => ChannelLifetime::OneShot,
+            MetaChannelDuration::z2VVUb => ChannelLifetime::Persistent,
+            MetaChannelDuration::z2VXGt(until) => ChannelLifetime::ExpiresAt(
                 ChannelEpochSeconds::new(*until.payload() / 1_000_000_000),
             ),
         }
@@ -2573,10 +2580,10 @@ impl RouterRoot {
 
     fn meta_endpoint_actor_identifier(endpoint: &MetaChannelEndpoint) -> ActorIdentifier {
         match endpoint {
-            MetaChannelEndpoint::Internal(component) => {
+            MetaChannelEndpoint::z2VWQw(component) => {
                 Self::meta_component_actor_identifier(component)
             }
-            MetaChannelEndpoint::External(connection) => {
+            MetaChannelEndpoint::z2Va3A(connection) => {
                 Self::meta_connection_actor_identifier(connection)
             }
         }
@@ -2584,35 +2591,42 @@ impl RouterRoot {
 
     fn meta_component_actor_identifier(component: &MetaComponentName) -> ActorIdentifier {
         match component {
-            MetaComponentName::Mind => ActorIdentifier::new("mind"),
-            MetaComponentName::Message => ActorIdentifier::new("message"),
-            MetaComponentName::Router => ActorIdentifier::new("router"),
-            MetaComponentName::Terminal => ActorIdentifier::new("terminal"),
-            MetaComponentName::Harness => ActorIdentifier::new("harness"),
-            MetaComponentName::System => ActorIdentifier::new("system"),
-            MetaComponentName::Introspect => ActorIdentifier::new("introspect"),
-            MetaComponentName::Orchestrate => ActorIdentifier::new("orchestrate"),
-            MetaComponentName::Spirit => ActorIdentifier::new("spirit"),
+            MetaComponentName::z2VPLF => ActorIdentifier::new("mind"),
+            MetaComponentName::z2VUqs => ActorIdentifier::new("message"),
+            MetaComponentName::z2VZ4y => ActorIdentifier::new("router"),
+            MetaComponentName::z2VZ73 => ActorIdentifier::new("terminal"),
+            MetaComponentName::z2VWoi => ActorIdentifier::new("harness"),
+            MetaComponentName::z2VPk8 => ActorIdentifier::new("system"),
+            MetaComponentName::z2VbTm => ActorIdentifier::new("introspect"),
+            MetaComponentName::z2VN71 => ActorIdentifier::new("orchestrate"),
+            MetaComponentName::z2VPuL => ActorIdentifier::new("spirit"),
+            MetaComponentName::z2VSDw => ActorIdentifier::new("criome"),
+            MetaComponentName::z2Vc9t => ActorIdentifier::new("persona"),
+            MetaComponentName::z2VNYL => ActorIdentifier::new("agent"),
+            MetaComponentName::z2VVh8 => ActorIdentifier::new("mirror"),
+            MetaComponentName::z2VN8F => ActorIdentifier::new("lojix"),
         }
     }
 
     fn meta_connection_actor_identifier(connection: &MetaConnectionClass) -> ActorIdentifier {
         match connection {
-            MetaConnectionClass::Owner => ActorIdentifier::new("owner"),
-            MetaConnectionClass::NonOwnerUser(user) => {
+            MetaConnectionClass::z2VR7t => ActorIdentifier::new("owner"),
+            MetaConnectionClass::z2VSk9(user) => {
                 ActorIdentifier::new(format!("non-owner-user-{}", user.payload()))
             }
-            MetaConnectionClass::System(principal) => {
+            MetaConnectionClass::z2VZTe(principal) => {
                 ActorIdentifier::new(format!("system-{}", principal.payload()))
             }
-            MetaConnectionClass::OtherPersona(engine) => ActorIdentifier::new(format!(
+            MetaConnectionClass::z2VUGE(engine) => ActorIdentifier::new(format!(
                 "other-persona-{}-{}",
-                engine.engine_identifier.payload(),
-                engine.host_name.payload()
+                engine.field_0.payload(),
+                engine.field_1.payload()
             )),
-            MetaConnectionClass::Network(peer) => {
-                ActorIdentifier::new(format!("network-{}", peer.payload()))
-            }
+            MetaConnectionClass::z2VRvM(peer) => ActorIdentifier::new(format!(
+                "network-{}:{}",
+                peer.field_0.payload(),
+                peer.field_1.clone().into_u16(),
+            )),
         }
     }
 
@@ -2620,9 +2634,9 @@ impl RouterRoot {
         operation: MetaOperationKind,
         reason: MetaChannelOrderRejectionReason,
     ) -> MetaOutput {
-        MetaOutput::channel_order_rejected(MetaRejectedChannelOrder {
-            operation_kind: operation,
-            channel_order_rejection_reason: reason,
+        MetaOutput::z2VPNU(MetaRejectedChannelOrder {
+            field_0: operation,
+            field_1: reason,
         })
     }
 
@@ -2645,13 +2659,14 @@ impl RouterRoot {
         &mut self,
         actor: BootstrapActor,
     ) -> RouterResult<SignalRouterOutput> {
-        let actor_identifier: SignalActorIdentifier = actor.name.payload().clone();
+        let actor_identifier: SignalActorIdentifier = actor.field_0.payload().clone();
         let registry_actor = match Self::lower_registration_actor(actor) {
             Ok(registry_actor) => registry_actor,
             Err(reason) => {
-                return Ok(SignalRouterOutput::actor_registration_refused(
-                    ActorRegistrationRefused::new(actor_identifier, reason),
-                ));
+                return Ok(SignalRouterOutput::z2VV3E(ActorRegistrationRefused {
+                    field_0: signal_router::z2VSqw::new(actor_identifier),
+                    field_1: reason,
+                }));
             }
         };
         let outcome = self
@@ -2661,19 +2676,19 @@ impl RouterRoot {
             })
             .await
             .map_err(|error| Error::ActorCall(error.to_string()))?;
-        Ok(SignalRouterOutput::actor_registered(ActorRegistered::new(
-            actor_identifier,
-            Self::registration_disposition(outcome),
-        )))
+        Ok(SignalRouterOutput::z2VeUs(ActorRegistered {
+            field_0: signal_router::z2VSqw::new(actor_identifier),
+            field_1: Self::registration_disposition(outcome),
+        }))
     }
 
     fn registration_disposition(
         outcome: HarnessRegistrationOutcome,
     ) -> ActorRegistrationDisposition {
         if outcome.replaced_existing {
-            ActorRegistrationDisposition::EndpointUpdated
+            ActorRegistrationDisposition::z2VRvr
         } else {
-            ActorRegistrationDisposition::Registered
+            ActorRegistrationDisposition::z2VMfh
         }
     }
 
@@ -2685,15 +2700,14 @@ impl RouterRoot {
     fn lower_registration_actor(
         actor: BootstrapActor,
     ) -> std::result::Result<Actor, ActorRegistrationRefusalReason> {
-        let pid = u32::try_from(*actor.process.payload())
-            .map_err(|_| ActorRegistrationRefusalReason::ProcessIdentifierOutOfRange)?;
+        let pid = u32::try_from(*actor.field_1.payload())
+            .map_err(|_| ActorRegistrationRefusalReason::z2VTKg)?;
         let endpoint = actor
-            .endpoint()
-            .cloned()
+            .field_2
             .map(Self::lower_registration_endpoint)
             .transpose()?;
         Ok(Actor {
-            name: ActorIdentifier::new(actor.name.into_payload().into_payload()),
+            name: ActorIdentifier::new(actor.field_0.into_payload().into_payload()),
             pid,
             endpoint,
         })
@@ -2702,22 +2716,22 @@ impl RouterRoot {
     fn lower_registration_endpoint(
         endpoint: BootstrapEndpointTransport,
     ) -> std::result::Result<EndpointTransport, ActorRegistrationRefusalReason> {
-        let aux = endpoint.auxiliary().cloned();
-        let kind = match endpoint.kind.into_payload() {
-            BootstrapEndpointKind::Human => EndpointKind::Human,
-            BootstrapEndpointKind::HarnessSocket => EndpointKind::HarnessSocket,
-            BootstrapEndpointKind::PtySocket => EndpointKind::PtySocket,
-            BootstrapEndpointKind::ComponentSocket => EndpointKind::ComponentSocket,
+        let aux = endpoint.field_2;
+        let kind = match endpoint.field_0.into_payload() {
+            BootstrapEndpointKind::z2VXix => EndpointKind::Human,
+            BootstrapEndpointKind::z2VNJF => EndpointKind::HarnessSocket,
+            BootstrapEndpointKind::z2Vd77 => EndpointKind::PtySocket,
+            BootstrapEndpointKind::z2VUHw => EndpointKind::ComponentSocket,
             // A `RemoteRouter` endpoint is never a local delivery target;
             // remote reachability is carried through a bootstrap
             // `RegisterActor.home`, never a runtime registration endpoint.
-            BootstrapEndpointKind::RemoteRouter => {
-                return Err(ActorRegistrationRefusalReason::RemoteRouterEndpointNotLocal);
+            BootstrapEndpointKind::z2VYWP => {
+                return Err(ActorRegistrationRefusalReason::z2VTZK);
             }
         };
         Ok(EndpointTransport {
             kind,
-            target: endpoint.target.into_payload(),
+            target: endpoint.field_1.into_payload(),
             aux,
         })
     }
@@ -2732,20 +2746,19 @@ impl RouterRoot {
         // carries ordinary messages and so gates only on objects present.
         // While OFF this router originates nothing; ships dark until flipped.
         if !self.mirror_enabled {
-            return Ok(SignalRouterOutput::routed_objects_refused(
-                RouterForwardRefusalReason::MirrorDisabled.into(),
-            ));
+            return Ok(SignalRouterOutput::z2VLzz(signal_router::z2VSdJ::new(
+                signal_router::z2VNRo::new(RouterForwardRefusalReason::z2VTee),
+            )));
         }
-        let sender = ActorIdentifier::new(submission.source_actor.payload().payload().as_str());
-        let recipient =
-            ActorIdentifier::new(submission.destination_actor.payload().payload().as_str());
-        let routed_objects = submission.routed_objects().to_vec();
+        let sender = ActorIdentifier::new(submission.field_0.payload().payload().as_str());
+        let recipient = ActorIdentifier::new(submission.field_1.payload().payload().as_str());
+        let routed_objects = submission.field_4.clone();
         let origin = SignalMessageOrigin::Internal(SignalComponentName::Router);
         let slot = self.next_signal_message_slot();
         let message_submission = SignalMessageSubmission {
             message_recipient: SignalMessageRecipient::new(recipient.as_str().to_string()),
             message_kind: MessageKind::Send,
-            message_body: SignalMessageBody::new(submission.body.payload().clone()),
+            message_body: SignalMessageBody::new(submission.field_2.payload().clone()),
             thread_selection: SignalThreadSelection::None,
         };
         let message = self.signal_message(sender, message_submission, slot.clone());
@@ -2763,9 +2776,9 @@ impl RouterRoot {
         self.trace
             .record(message.id.clone(), RouterTraceStep::MessageCommitted);
         self.retry_pending().await?;
-        Ok(SignalRouterOutput::routed_objects_accepted(
-            RouterMessageSlot::new(slot.into_u64()),
-        ))
+        Ok(SignalRouterOutput::z2Vc2V(signal_router::z2VQWj {
+            field_0: RouterMessageSlot::new(slot.into_u64()),
+        }))
     }
 
     /// Packet 3.2b: the router's message plane is host-to-host only. A
@@ -2782,8 +2795,7 @@ impl RouterRoot {
                 MessageOperationKind::SubmitStamped,
             ));
         }
-        let recipient =
-            ActorIdentifier::new(stamped.message_submission.message_recipient.as_str());
+        let recipient = ActorIdentifier::new(stamped.message_submission.message_recipient.as_str());
         if self.resolve_remote_route(&recipient).await?.is_none() {
             return Ok(Self::unimplemented_message_request(
                 MessageOperationKind::SubmitStamped,
@@ -3209,14 +3221,11 @@ impl RouterRoot {
         // An ordinary human-message forward carries no routed objects and is
         // never gated by this switch — it is a distinct, pre-existing
         // capability.
-        if !self.mirror_enabled && !payload.routed_objects().is_empty() {
-            return Ok(ForwardApplied::Refused(
-                RouterForwardRefusalReason::MirrorDisabled,
-            ));
+        if !self.mirror_enabled && !payload.field_4.is_empty() {
+            return Ok(ForwardApplied::Refused(RouterForwardRefusalReason::z2VTee));
         }
-        let sender = ActorIdentifier::new(payload.source_actor.payload().payload().as_str());
-        let recipient =
-            ActorIdentifier::new(payload.destination_actor.payload().payload().as_str());
+        let sender = ActorIdentifier::new(payload.field_0.payload().payload().as_str());
+        let recipient = ActorIdentifier::new(payload.field_1.payload().payload().as_str());
         // The authoritative origin is the verified peer router identity,
         // carried as a network connection class — provenance, not auth
         // proof (the attestation was the proof, already verified).
@@ -3227,7 +3236,7 @@ impl RouterRoot {
         let submission = SignalMessageSubmission {
             message_recipient: SignalMessageRecipient::new(recipient.as_str().to_string()),
             message_kind: MessageKind::Send,
-            message_body: SignalMessageBody::new(payload.body.payload().clone()),
+            message_body: SignalMessageBody::new(payload.field_2.payload().clone()),
             thread_selection: SignalThreadSelection::None,
         };
         let message = self.signal_message(sender, submission, slot.clone());
@@ -3236,7 +3245,7 @@ impl RouterRoot {
             self.next_backlog_sequence(),
             message.clone(),
             origin,
-            payload.routed_objects().to_vec(),
+            payload.field_4.clone(),
         );
         self.persist_outbound_backlog(&pending)?;
         self.pending.push(pending);
@@ -3301,7 +3310,7 @@ struct PendingRouterMessage {
     backlog_sequence: BacklogSequence,
     message: Message,
     origin: SignalMessageOrigin,
-    routed_objects: Vec<signal_router::RoutedContractObject>,
+    routed_objects: Vec<signal_router::z2Vcrd>,
     /// The loop guard. `Origin` means this router minted the submission and
     /// may resolve it to a remote route; `Forwarded` means it arrived over
     /// the tailnet ingress and must be delivered-local-or-parked only —
@@ -3323,7 +3332,7 @@ impl PendingRouterMessage {
             message,
             origin,
             routed_objects: Vec::new(),
-            forward_marker: ForwardMarker::Origin,
+            forward_marker: ForwardMarker::z2VUf6,
         }
     }
 
@@ -3343,14 +3352,14 @@ impl PendingRouterMessage {
         backlog_sequence: BacklogSequence,
         message: Message,
         origin: SignalMessageOrigin,
-        routed_objects: Vec<signal_router::RoutedContractObject>,
+        routed_objects: Vec<signal_router::z2Vcrd>,
     ) -> Self {
         Self {
             backlog_sequence,
             message,
             origin,
             routed_objects,
-            forward_marker: ForwardMarker::Origin,
+            forward_marker: ForwardMarker::z2VUf6,
         }
     }
 
@@ -3361,19 +3370,19 @@ impl PendingRouterMessage {
         backlog_sequence: BacklogSequence,
         message: Message,
         origin: SignalMessageOrigin,
-        routed_objects: Vec<signal_router::RoutedContractObject>,
+        routed_objects: Vec<signal_router::z2Vcrd>,
     ) -> Self {
         Self {
             backlog_sequence,
             message,
             origin,
             routed_objects,
-            forward_marker: ForwardMarker::Forwarded,
+            forward_marker: ForwardMarker::z2VRbU,
         }
     }
 
     fn may_resolve_remote(&self) -> bool {
-        matches!(self.forward_marker, ForwardMarker::Origin)
+        matches!(self.forward_marker, ForwardMarker::z2VUf6)
     }
 
     /// Project this pending item into its durable backlog row
@@ -3386,7 +3395,7 @@ impl PendingRouterMessage {
             self.message.clone(),
             self.origin.clone(),
             self.routed_objects.clone(),
-            self.forward_marker,
+            self.forward_marker.clone(),
         )
     }
 
@@ -3444,7 +3453,7 @@ impl RouterBootstrap {
             .map_err(|_| Error::BootstrapArchiveDecode {
                 path: self.path.clone(),
             })?;
-        Ok(document.into_operations())
+        Ok(document.field_0)
     }
 
     pub fn apply(
@@ -4048,7 +4057,7 @@ impl kameo::message::Message<ApplyForwardedMessage> for RouterRoot {
         ForwardedMessageOutcome::new(
             self.apply_forwarded(
                 message.verified_origin,
-                message.request.submission.into_payload(),
+                message.request.field_0.into_payload(),
             )
             .await,
         )
@@ -4415,7 +4424,7 @@ pub enum RouterTraceStep {
     DeliveryAttempted,
     DeliveryMarked,
     /// The message was handed to a peer router over the tailnet transport
-    /// and the peer accepted it. Surfaces as `RouterDeliveryStatus::ForwardedRemote`.
+    /// and the peer accepted it. Surfaces as `RouterDeliveryStatus::z2Ve98`.
     ForwardedRemote,
 }
 
@@ -4565,13 +4574,13 @@ pub enum BootstrapApply {
 impl BootstrapApply {
     fn from_operation(operation: RouterBootstrapOperation) -> RouterResult<Self> {
         match operation {
-            RouterBootstrapOperation::RegisterActor(operation) => {
-                let home = operation.home().cloned();
+            RouterBootstrapOperation::z2VQBJ(operation) => {
+                let home = operation.field_1.clone();
                 let recipient = RouterInput::actor_identifier_from_bootstrap(
-                    operation.actor.name.clone().into_payload(),
+                    operation.field_0.field_0.payload().clone(),
                 );
                 let local = RouterInput::RegisterActor(RegisterActor {
-                    actor: RouterInput::actor_from_bootstrap(operation.actor)?,
+                    actor: RouterInput::actor_from_bootstrap(operation.field_0)?,
                 });
                 match home {
                     Some(home) => Ok(Self::RegisterRemoteActor {
@@ -4581,30 +4590,30 @@ impl BootstrapApply {
                     None => Ok(Self::Local(local)),
                 }
             }
-            RouterBootstrapOperation::GrantDirectMessage(operation) => {
+            RouterBootstrapOperation::z2VUXc(operation) => {
                 Ok(Self::Local(RouterInput::GrantChannel(GrantRouteChannel {
                     channel: GrantChannel::direct_message(
                         RouterInput::actor_identifier_from_bootstrap(
-                            operation.source_actor.into_payload(),
+                            operation.field_0.into_payload(),
                         ),
                         RouterInput::actor_identifier_from_bootstrap(
-                            operation.destination_actor.into_payload(),
+                            operation.field_1.into_payload(),
                         ),
                         ChannelLifetime::Persistent,
                     ),
                 })))
             }
-            RouterBootstrapOperation::InstallStructuralChannels(_) => Ok(Self::Local(
+            RouterBootstrapOperation::z2VRpm(_) => Ok(Self::Local(
                 RouterInput::InstallStructuralChannels(InstallRouteStructuralChannels {
                     channels: InstallStructuralChannels {
                         channels: EngineStructuralChannels::first_stack(),
                     },
                 }),
             )),
-            RouterBootstrapOperation::RegisterRemoteRouter(operation) => {
+            RouterBootstrapOperation::z2VdzM(operation) => {
                 Ok(Self::RegisterRemotePeer(InstallRemotePeer {
-                    identity: operation.identity.into_payload(),
-                    address: operation.address.into_payload(),
+                    identity: operation.field_0.into_payload(),
+                    address: operation.field_1.into_payload(),
                 }))
             }
         }
@@ -4649,10 +4658,10 @@ impl BootstrapApply {
 
 impl RouterInput {
     fn actor_from_bootstrap(actor: BootstrapActor) -> RouterResult<Actor> {
-        let endpoint = actor.endpoint().cloned();
+        let endpoint = actor.field_2;
         Ok(Actor {
-            name: Self::actor_identifier_from_bootstrap(actor.name.into_payload()),
-            pid: Self::process_identifier_from_bootstrap(actor.process.into_payload())?,
+            name: Self::actor_identifier_from_bootstrap(actor.field_0.into_payload()),
+            pid: Self::process_identifier_from_bootstrap(actor.field_1.into_payload())?,
             endpoint: endpoint.map(Self::endpoint_from_bootstrap).transpose()?,
         })
     }
@@ -4664,18 +4673,18 @@ impl RouterInput {
     fn endpoint_from_bootstrap(
         endpoint: BootstrapEndpointTransport,
     ) -> RouterResult<EndpointTransport> {
-        let auxiliary = endpoint.auxiliary().cloned();
+        let auxiliary = endpoint.field_2;
         Ok(EndpointTransport {
-            kind: match endpoint.kind.into_payload() {
-                BootstrapEndpointKind::Human => EndpointKind::Human,
-                BootstrapEndpointKind::HarnessSocket => EndpointKind::HarnessSocket,
-                BootstrapEndpointKind::PtySocket => EndpointKind::PtySocket,
-                BootstrapEndpointKind::ComponentSocket => EndpointKind::ComponentSocket,
+            kind: match endpoint.field_0.into_payload() {
+                BootstrapEndpointKind::z2VXix => EndpointKind::Human,
+                BootstrapEndpointKind::z2VNJF => EndpointKind::HarnessSocket,
+                BootstrapEndpointKind::z2Vd77 => EndpointKind::PtySocket,
+                BootstrapEndpointKind::z2VUHw => EndpointKind::ComponentSocket,
                 // A `RemoteRouter` endpoint is not a locally-deliverable
                 // endpoint kind. Decision (A) carries remote reachability
                 // through `RegisterActor.home`, not through a local actor's
                 // endpoint, so this combination is rejected at bootstrap.
-                BootstrapEndpointKind::RemoteRouter => {
+                BootstrapEndpointKind::z2VYWP => {
                     return Err(Error::DeliveryBlocked {
                         reason: "RemoteRouter endpoint is not a local delivery target; use \
                                  RegisterActor.home for remote reachability"
@@ -4683,12 +4692,12 @@ impl RouterInput {
                     });
                 }
             },
-            target: endpoint.target.into_payload(),
+            target: endpoint.field_1.into_payload(),
             aux: auxiliary,
         })
     }
 
-    fn actor_identifier_from_bootstrap(actor: signal_router::ActorIdentifier) -> ActorIdentifier {
+    fn actor_identifier_from_bootstrap(actor: signal_router::z2VNMz) -> ActorIdentifier {
         ActorIdentifier::new(actor.into_payload())
     }
 
@@ -4839,23 +4848,47 @@ mod receiver_validation_tests {
 
         let codec = LengthPrefixedCodec::default();
         let mut good = UnixStream::connect(&socket).expect("valid client connects after bad one");
-        let grant = MetaInput::grant(MetaChannelGrant::new(
-            MetaChannelEndpoint::External(MetaConnectionClass::Owner),
-            MetaChannelEndpoint::Internal(MetaComponentName::Router),
-            vec![MetaChannelMessageKind::MessageSubmission],
-            MetaChannelDuration::Permanent,
-        ));
+        let grant = MetaInput::z2VQkd(MetaChannelGrant {
+            field_0: MetaChannelEndpoint::z2Va3A(MetaConnectionClass::z2VR7t),
+            field_1: MetaChannelEndpoint::z2VWQw(MetaComponentName::z2VZ4y),
+            field_2: vec![MetaChannelMessageKind::z2VQst],
+            field_3: MetaChannelDuration::z2VVUb,
+        });
+        let exchange = InterfaceExchangeIdentifier::new(
+            signal_frame_interface::SessionEpoch::new(0),
+            signal_frame_interface::ExchangeLane::Connector,
+            signal_frame_interface::LaneSequence::first(),
+        );
         codec
             .write_body(
                 &mut good,
-                &RuntimeFrameBody::new(grant.encode_signal_frame().expect("meta frame encodes")),
+                &RuntimeFrameBody::new(
+                    grant
+                        .encode_request_frame(exchange)
+                        .expect("meta frame encodes"),
+                ),
             )
             .expect("valid meta frame writes");
         let reply = codec.read_body(&mut good).expect("valid meta reply reads");
-        let (_route, output) =
-            MetaOutput::decode_signal_frame(reply.bytes()).expect("meta reply decodes");
+        let output = match meta_signal_router::ContractMarker::decode_frame(reply.bytes())
+            .expect("meta reply decodes")
+            .into_body()
+        {
+            meta_signal_router::FrameBody::Reply { reply, .. } => match reply {
+                signal_frame_interface::Reply::Accepted { per_operation, .. } => {
+                    match per_operation.into_head() {
+                        signal_frame_interface::SubReply::Ok(output) => output,
+                        other => panic!("expected successful meta sub-reply, got {other:?}"),
+                    }
+                }
+                signal_frame_interface::Reply::Rejected { reason } => {
+                    panic!("expected accepted meta reply, got {reason}")
+                }
+            },
+            other => panic!("expected meta reply frame, got {other:?}"),
+        };
         assert!(
-            matches!(output, MetaOutput::ChannelGranted(_)),
+            matches!(output, MetaOutput::z2VRJ5(_)),
             "expected granted channel reply after bad connection, got {output:?}"
         );
         let _ = std::fs::remove_file(socket);

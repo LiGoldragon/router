@@ -42,24 +42,18 @@
 //! stand-in. The criome attestation binds the FULL routed-object octets, so
 //! swapping the body keeps the signature binding and only strengthens the gate.
 //!
-//! It prints the decoded reply as NOTA (`(ForwardAccepted ...)` /
+//! It prints the decoded reply as Dotos (`ForwardAccepted.(...)` /
 //! `(ForwardRefused (AttestationInvalid))`) and exits 0; the caller reads the
 //! typed outcome from stdout and the durable witness from the mirror's heads.
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use dotos::DotosEncode;
 use router::criome_attestation::CriomeForwardAttestation;
 use router::forward_attestation::ForwardAttestationVerifier;
-use signal_mirror::{
-    Bytes, CommitSequence, EntryDigest, EntryEnvelope, EntrySuffix, FixedBytes,
-    Input as MirrorInput, PayloadBytes, StoreName,
-};
-use signal_router::{
-    ActorIdentifier, ContractName, ContractOperation, ContractPayloadSize, CriomeHostId,
-    ForwardMarker, ForwardedMessagePayload, Input as RouterInput, NotaEncode,
-    Output as RouterOutput, ReplayNonce, RoutedContractObject, RouterForwardRequest,
-    TimestampNanos,
+use signal_frame_interface::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply,
 };
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
@@ -78,32 +72,37 @@ fn main() {
 struct ForwardWitness {
     criome_socket: PathBuf,
     peer_address: String,
-    node_identity: CriomeHostId,
-    recipient: ActorIdentifier,
-    store: StoreName,
-    head: EntryDigest,
-    nonce: ReplayNonce,
-    payload: PayloadBytes,
+    node_identity: signal_router::z2VNwn,
+    recipient: signal_router::z2VNMz,
+    store: signal_mirror::z2Ve8p,
+    head: signal_standard::z2VSyM,
+    nonce: signal_router::z2VLFW,
+    payload: signal_mirror::z2VUwg,
 }
 
 impl ForwardWitness {
     fn from_environment() -> Result<Self, ForwardWitnessError> {
         let head_hex = Self::required("HEAD_DIGEST_HEX")?;
+        Self::decode_digest(&head_hex)?;
         Ok(Self {
             criome_socket: PathBuf::from(Self::required("CRIOME_SOCKET")?),
             peer_address: Self::required("ROUTER_PEER_ADDRESS")?,
-            node_identity: CriomeHostId::new(Self::required("NODE_IDENTITY")?),
-            recipient: ActorIdentifier::new(
+            node_identity: signal_router::z2VNwn::new(Self::required("NODE_IDENTITY")?),
+            recipient: signal_router::z2VNMz::new(
                 std::env::var("RECIPIENT_ACTOR").unwrap_or_else(|_| "mirror".to_string()),
             ),
-            store: StoreName::new(
+            store: signal_mirror::z2Ve8p::new(
                 std::env::var("MIRROR_STORE").unwrap_or_else(|_| "spirit".to_string()),
             ),
-            head: EntryDigest::new(FixedBytes::new(Self::decode_digest(&head_hex)?)),
-            nonce: ReplayNonce::new(Self::required("FORWARD_NONCE")?),
-            payload: PayloadBytes::new(Bytes::new(
-                EntryBodySource::from_environment().into_octets(&head_hex)?,
-            )),
+            head: signal_standard::z2VSyM::new(head_hex.clone()),
+            nonce: signal_router::z2VLFW::new(Self::required("FORWARD_NONCE")?),
+            payload: signal_mirror::z2VUwg::new(
+                EntryBodySource::from_environment()
+                    .into_octets(&head_hex)?
+                    .into_iter()
+                    .map(u64::from)
+                    .collect(),
+            ),
         })
     }
 
@@ -128,60 +127,72 @@ impl ForwardWitness {
     /// entry. The mirror validates chain linkage (sequence 1, no previous
     /// digest), not a payload hash, so the entry digest IS the head this forward
     /// lands.
-    fn append_object(&self) -> Result<RoutedContractObject, ForwardWitnessError> {
-        let entry = EntryEnvelope::new(
-            CommitSequence::new(1),
-            None,
-            self.head.clone(),
-            self.payload.clone(),
-        );
-        let suffix = EntrySuffix::from_entries(self.store.clone(), None, vec![entry]);
-        let octets = MirrorInput::Append(suffix)
-            .encode_signal_frame()
+    fn append_object(&self) -> Result<signal_router::z2Vcrd, ForwardWitnessError> {
+        let entry = signal_mirror::z2VPuU {
+            field_0: signal_mirror::z2VSAK::new(1),
+            field_1: None,
+            field_2: self.head.clone(),
+            field_3: self.payload.clone(),
+        };
+        let suffix = signal_mirror::z2VTq5 {
+            field_0: self.store.clone(),
+            field_1: None,
+            field_2: vec![entry],
+        };
+        let octets = signal_mirror::z2VVny::z2VVjQ(suffix)
+            .encode_request_frame(Self::exchange_identifier())
             .map_err(|error| ForwardWitnessError::Encode(error.to_string()))?;
-        Ok(RoutedContractObject::new(
-            ContractName::new("signal-mirror"),
-            ContractOperation::new("Append"),
-            ContractPayloadSize::new(u64::try_from(octets.len()).unwrap_or(u64::MAX)),
-            octets.into_iter().map(u64::from).collect(),
-        ))
+        Ok(signal_router::z2Vcrd {
+            field_0: signal_router::z2VbKU::new("signal-mirror".to_owned()),
+            field_1: signal_router::z2VV5h::new("Append".to_owned()),
+            field_2: signal_router::z2VPAH::new(u64::try_from(octets.len()).unwrap_or(u64::MAX)),
+            field_3: octets.into_iter().map(u64::from).collect(),
+        })
     }
 
     /// Build the criome-attested forward request and report the BLS public key
     /// the sender's criome stamped into it. The receiver's criome must hold that
     /// key under `Host(<node_identity>)` for the forward to verify, so the caller
     /// reads this key to perform the cross-instance trust handshake.
-    fn attested_request(&self) -> Result<(RouterForwardRequest, String), ForwardWitnessError> {
-        let payload = ForwardedMessagePayload::new(
-            ActorIdentifier::new("operator"),
-            self.recipient.clone(),
-            "criome-auth witness forward".to_string(),
-            Vec::new(),
-            vec![self.append_object()?],
-        );
+    fn attested_request(&self) -> Result<(signal_router::z2VRcj, String), ForwardWitnessError> {
+        let payload = signal_router::z2VNid {
+            field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new("operator".to_owned())),
+            field_1: signal_router::z2VVYB::new(self.recipient.clone()),
+            field_2: signal_router::z2VYUB::new("criome-auth witness forward".to_owned()),
+            field_3: Vec::new(),
+            field_4: vec![self.append_object()?],
+        };
         // The REAL attestation: the production criome verifier signs through the
         // co-resident criome daemon, stamping this node's Host(<identity>) signer.
         let verifier =
             CriomeForwardAttestation::new(self.node_identity.clone(), self.criome_socket.clone());
         let issued_at = Self::timestamp_now();
         let attestation = verifier.attest(&payload, &self.nonce, issued_at.clone());
-        let public_key = attestation.public_key.payload().clone();
-        let request = RouterForwardRequest {
-            submission: payload.into(),
-            attestation: attestation.into(),
-            forwarded: ForwardMarker::Origin.into(),
-            nonce: self.nonce.clone().into(),
-            issued_at: issued_at.into(),
+        let public_key = attestation.field_2.payload().clone();
+        let request = signal_router::z2VRcj {
+            field_0: signal_router::z2VX9R::new(payload),
+            field_1: signal_router::z2VL7S::new(attestation),
+            field_2: signal_router::z2VVui::new(signal_router::z2VMPZ::z2VUf6),
+            field_3: signal_router::z2VcpN::new(self.nonce.clone()),
+            field_4: signal_router::z2Vd2q::new(issued_at),
         };
         Ok((request, public_key))
     }
 
-    fn timestamp_now() -> TimestampNanos {
+    fn timestamp_now() -> signal_router::z2VQGK {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        TimestampNanos::new(u64::try_from(nanos).unwrap_or(u64::MAX))
+        signal_router::z2VQGK::new(u64::try_from(nanos).unwrap_or(u64::MAX))
+    }
+
+    fn exchange_identifier() -> ExchangeIdentifier {
+        ExchangeIdentifier::new(
+            SessionEpoch::new(0),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        )
     }
 
     fn run(self) -> Result<(), ForwardWitnessError> {
@@ -194,9 +205,9 @@ impl ForwardWitness {
         runtime.block_on(self.exchange(request))
     }
 
-    async fn exchange(&self, request: RouterForwardRequest) -> Result<(), ForwardWitnessError> {
-        let frame = RouterInput::forward_message(request)
-            .encode_signal_frame()
+    async fn exchange(&self, request: signal_router::z2VRcj) -> Result<(), ForwardWitnessError> {
+        let frame = signal_router::z2VZGC::z2Vd1x(request)
+            .encode_request_frame(Self::exchange_identifier())
             .map_err(|error| ForwardWitnessError::Encode(error.to_string()))?;
         let codec = LengthPrefixedCodec::default();
         let mut stream = tokio::net::TcpStream::connect(&self.peer_address)
@@ -217,9 +228,32 @@ impl ForwardWitness {
             .read_body_async(&mut stream)
             .await
             .map_err(|error| ForwardWitnessError::Io(error.to_string()))?;
-        let (_route, output) = RouterOutput::decode_signal_frame(reply.bytes())
-            .map_err(|error| ForwardWitnessError::Decode(error.to_string()))?;
-        println!("{}", output.to_nota());
+        let output = match signal_router::ContractMarker::decode_frame(reply.bytes())
+            .map_err(|error| ForwardWitnessError::Decode(error.to_string()))?
+            .into_body()
+        {
+            signal_router::FrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok(output) => output,
+                    other => {
+                        return Err(ForwardWitnessError::Decode(format!(
+                            "unexpected router sub-reply: {other:?}"
+                        )));
+                    }
+                },
+                Reply::Rejected { reason } => {
+                    return Err(ForwardWitnessError::Decode(format!(
+                        "router rejected exchange: {reason}"
+                    )));
+                }
+            },
+            other => {
+                return Err(ForwardWitnessError::Decode(format!(
+                    "unexpected router frame: {other:?}"
+                )));
+            }
+        };
+        println!("{}", output.to_dotos());
         Ok(())
     }
 }

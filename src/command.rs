@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use signal_router::RouterDaemonConfiguration;
+use signal_router::z2VZfL as RouterDaemonConfiguration;
 use triad_runtime::{ComponentArgument, ComponentCommand, SignalFile};
 
 use crate::{RouterDaemon, RouterResult};

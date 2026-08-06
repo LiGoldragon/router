@@ -1,14 +1,10 @@
 use kameo::actor::ActorRef;
-use meta_signal_router::Input as MetaInput;
 use signal_frame::{NonEmpty, Reply, Request, SubReply};
 use signal_message::{
     Frame as SignalMessageFrame, FrameBody as SignalMessageFrameBody,
     Input as SignalMessageContractInput, Output as SignalMessageContractOutput,
 };
-use signal_router::{
-    Frame as SignalRouterFrame, FrameBody as SignalRouterFrameBody, Input as SignalRouterInput,
-    Output as SignalRouterOutput,
-};
+use signal_router::{z2VXoV as SignalRouterOutput, z2VZGC as SignalRouterInput};
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
@@ -21,7 +17,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use signal_router::CriomeHostId;
+use signal_router::z2VNwn as CriomeHostId;
 
 use crate::criome_attestation::CriomeForwardAttestation;
 use crate::forward_attestation::{AcceptFixedTestIdentity, ForwardAttestationVerifier};
@@ -31,7 +27,7 @@ use crate::{
     ApplyActorRegistration, ApplyMetaRouterPolicy, ApplyRoutedObjectSubmission,
     ApplyRouterObservation, ApplySignalMessage, Configuration, ConfigurationError,
     Error as RouterError, RouterBootstrap, RouterIngressContext, RouterResult, RouterRuntime,
-    RouterTables, SignalMessageInput, schema::daemon::ComponentDaemon,
+    RouterTables, SignalMessageInput, component_daemon::ComponentDaemon,
 };
 
 #[derive(Debug)]
@@ -65,6 +61,9 @@ pub enum RouterDaemonError {
 
     #[error("daemon meta signal frame error: {0}")]
     MetaSignalFrame(#[from] meta_signal_router::SignalFrameError),
+
+    #[error("daemon router Interface frame error: {0}")]
+    RouterInterfaceFrame(#[from] signal_router::SignalFrameError),
 
     #[error("daemon router error: {0}")]
     Router(#[from] RouterError),
@@ -136,7 +135,7 @@ impl RouterEngine {
                 self.tailnet_listen_address,
                 self.offline_identity.clone(),
                 Arc::new(AcceptFixedTestIdentity::new(CriomeHostId::new(
-                    RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY,
+                    RouterNetworkConfiguration::OFFLINE_TEST_IDENTITY.to_owned(),
                 ))),
                 None,
             ),
@@ -189,12 +188,12 @@ impl RouterEngine {
                 let ReceivedRouterObservationInput { exchange, request } = received;
                 let runtime = self.runtime().await?;
                 let output = match request {
-                    SignalRouterInput::SubmitRoutedObjects(submission) => runtime
+                    SignalRouterInput::z2Vdxj(submission) => runtime
                         .ask(ApplyRoutedObjectSubmission { submission })
                         .await
                         .map_err(|error| RouterError::ActorCall(error.to_string()))?
                         .into_result()?,
-                    SignalRouterInput::RegisterActor(actor) => runtime
+                    SignalRouterInput::z2VWdr(actor) => runtime
                         .ask(ApplyActorRegistration { actor })
                         .await
                         .map_err(|error| RouterError::ActorCall(error.to_string()))?
@@ -223,7 +222,8 @@ impl RouterEngine {
         let body = LengthPrefixedCodec::default()
             .read_body_async(connection.stream_mut())
             .await?;
-        let (_route, input) = MetaInput::decode_signal_frame(body.bytes())?;
+        let (exchange, input) =
+            meta_signal_router::ContractMarker::decode_single_request(body.bytes())?;
         let output = self
             .runtime()
             .await?
@@ -234,7 +234,7 @@ impl RouterEngine {
         LengthPrefixedCodec::default()
             .write_body_async(
                 connection.stream_mut(),
-                &LengthPrefixedFrameBody::new(output.encode_signal_frame()?),
+                &LengthPrefixedFrameBody::new(output.encode_reply_frame(exchange)?),
             )
             .await?;
         connection
@@ -287,7 +287,7 @@ struct ReceivedSignalMessageInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReceivedRouterObservationInput {
-    exchange: signal_frame::ExchangeIdentifier,
+    exchange: signal_frame_interface::ExchangeIdentifier,
     request: SignalRouterInput,
 }
 
@@ -345,25 +345,11 @@ impl WorkingSignalMessageInput {
 struct WorkingRouterObservationInput;
 
 impl WorkingRouterObservationInput {
-    fn decode(body: &[u8]) -> Result<ReceivedRouterObservationInput, signal_frame::FrameError> {
-        match SignalRouterFrame::decode(body)?.into_body() {
-            SignalRouterFrameBody::Request { exchange, request } => {
-                let request = Self::single_payload(request)?;
-                Ok(ReceivedRouterObservationInput { exchange, request })
-            }
-            _ => Err(signal_frame::FrameError::ArchiveDeserialize),
-        }
-    }
-
-    fn single_payload(
-        request: Request<SignalRouterInput>,
-    ) -> Result<SignalRouterInput, signal_frame::FrameError> {
-        let (request, tail) = request.payloads.into_head_and_tail();
-        if tail.is_empty() {
-            Ok(request)
-        } else {
-            Err(signal_frame::FrameError::ArchiveDeserialize)
-        }
+    fn decode(
+        body: &[u8],
+    ) -> Result<ReceivedRouterObservationInput, signal_router::SignalFrameError> {
+        let (exchange, request) = signal_router::ContractMarker::decode_single_request(body)?;
+        Ok(ReceivedRouterObservationInput { exchange, request })
     }
 }
 
@@ -396,22 +382,24 @@ impl WorkingSignalMessageContractOutput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WorkingRouterObservationReply {
-    exchange: signal_frame::ExchangeIdentifier,
+    exchange: signal_frame_interface::ExchangeIdentifier,
     output: SignalRouterOutput,
 }
 
 impl WorkingRouterObservationReply {
-    fn new(exchange: signal_frame::ExchangeIdentifier, output: SignalRouterOutput) -> Self {
+    fn new(
+        exchange: signal_frame_interface::ExchangeIdentifier,
+        output: SignalRouterOutput,
+    ) -> Self {
         Self { exchange, output }
     }
 
     async fn write(self, stream: &mut tokio::net::UnixStream) -> Result<(), RouterDaemonError> {
-        let frame = SignalRouterFrame::new(SignalRouterFrameBody::Reply {
-            exchange: self.exchange,
-            reply: Reply::committed(NonEmpty::single(SubReply::Ok(self.output))),
-        });
         LengthPrefixedCodec::default()
-            .write_body_async(stream, &LengthPrefixedFrameBody::new(frame.encode()?))
+            .write_body_async(
+                stream,
+                &LengthPrefixedFrameBody::new(self.output.encode_reply_frame(self.exchange)?),
+            )
             .await?;
         stream.flush().await.map_err(FrameError::from)?;
         Ok(())

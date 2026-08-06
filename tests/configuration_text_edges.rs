@@ -1,4 +1,4 @@
-#![cfg(feature = "nota-text")]
+#![cfg(feature = "dotos-text")]
 //! Deploy-time text-edge witnesses for the networked router daemon.
 //!
 //! The NixOS persona-router module authors NOTA and runs two text edges at
@@ -14,11 +14,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use router::{Configuration, RouterBootstrap};
-use signal_router::{
-    Actor, ActorIdentifier, Address, CriomeHostId, EndpointKind, EndpointTransport,
-    GrantDirectMessage, Identity, RegisterActor, RegisterRemoteRouter, RouterBootstrapOperation,
-    TailnetAddress,
-};
 
 fn state_directory(name: &str) -> PathBuf {
     let directory = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
@@ -63,7 +58,7 @@ fn router_configuration_carries_listen_identity_and_criome_socket() {
     );
     assert_eq!(
         configuration.router_identity(),
-        &CriomeHostId::new("router-a"),
+        &signal_router::z2VNwn::new("router-a".to_owned()),
     );
     assert_eq!(
         configuration.criome_socket_path(),
@@ -98,33 +93,47 @@ fn router_bootstrap_carries_hardwired_peers_and_actor_homes() {
         .expect("daemon reads back the bootstrap document");
 
     let expected = vec![
-        RouterBootstrapOperation::RegisterRemoteRouter(RegisterRemoteRouter {
-            identity: Identity::new(CriomeHostId::new("router-b")),
-            address: Address::new(TailnetAddress::new("192.168.1.20:7440")),
+        signal_router::z2VNh2::z2VdzM(signal_router::z2VWkj {
+            field_0: signal_router::z2Vdz8::new(signal_router::z2VNwn::new("router-b".to_owned())),
+            field_1: signal_router::z2VbwY::new(signal_router::z2VVPx::new(
+                "192.168.1.20:7440".to_owned(),
+            )),
         }),
-        RouterBootstrapOperation::RegisterActor(RegisterActor::new(
-            Actor::new(ActorIdentifier::new("mirror"), 0, None),
-            Some(CriomeHostId::new("router-b")),
-        )),
-        RouterBootstrapOperation::RegisterActor(RegisterActor::new(
-            Actor::new(
-                ActorIdentifier::new("mirror"),
-                0,
-                Some(EndpointTransport::new(
-                    EndpointKind::ComponentSocket,
-                    "/run/mirror/working.sock".to_string(),
-                    None,
+        signal_router::z2VNh2::z2VQBJ(signal_router::z2VPdn {
+            field_0: signal_router::z2VTFJ {
+                field_0: signal_router::z2VQ8d::new(signal_router::z2VNMz::new(
+                    "mirror".to_owned(),
                 )),
-            ),
-            None,
-        )),
-        RouterBootstrapOperation::RegisterActor(RegisterActor::new(
-            Actor::new(ActorIdentifier::new("owner"), 0, None),
-            None,
-        )),
-        RouterBootstrapOperation::GrantDirectMessage(GrantDirectMessage {
-            source_actor: ActorIdentifier::new("owner").into(),
-            destination_actor: ActorIdentifier::new("mirror").into(),
+                field_1: signal_router::z2VVdV::new(0),
+                field_2: None,
+            },
+            field_1: Some(signal_router::z2VNwn::new("router-b".to_owned())),
+        }),
+        signal_router::z2VNh2::z2VQBJ(signal_router::z2VPdn {
+            field_0: signal_router::z2VTFJ {
+                field_0: signal_router::z2VQ8d::new(signal_router::z2VNMz::new(
+                    "mirror".to_owned(),
+                )),
+                field_1: signal_router::z2VVdV::new(0),
+                field_2: Some(signal_router::z2VLce {
+                    field_0: signal_router::z2VZNB::new(signal_router::z2VaJt::z2VUHw),
+                    field_1: signal_router::z2VXQX::new("/run/mirror/working.sock".to_owned()),
+                    field_2: None,
+                }),
+            },
+            field_1: None,
+        }),
+        signal_router::z2VNh2::z2VQBJ(signal_router::z2VPdn {
+            field_0: signal_router::z2VTFJ {
+                field_0: signal_router::z2VQ8d::new(signal_router::z2VNMz::new("owner".to_owned())),
+                field_1: signal_router::z2VVdV::new(0),
+                field_2: None,
+            },
+            field_1: None,
+        }),
+        signal_router::z2VNh2::z2VUXc(signal_router::z2VPkk {
+            field_0: signal_router::z2VVbN::new(signal_router::z2VNMz::new("owner".to_owned())),
+            field_1: signal_router::z2VVYB::new(signal_router::z2VNMz::new("mirror".to_owned())),
         }),
     ];
     assert_eq!(operations, expected);
