@@ -12,7 +12,7 @@ delivered harness prompt.
 - Keep repositories public unless the human gives a specific reason otherwise.
 - Use Nix for build and test entry points.
 - `signal-message` is the only daemon message ingress. Do not add a
-  NOTA line socket protocol.
+  DOTOS line socket protocol.
 - Keep `router` and `meta-router` as thin one-argument clients. `router`
   speaks `signal-router` observation requests on the working socket;
   `meta-router` speaks `meta-signal-router` policy orders on the meta
@@ -26,3 +26,9 @@ delivered harness prompt.
 - No polling. Blocked deliveries subscribe to pushed system or harness events.
 - Durable router state lives in `router.sema` through the router-owned
   `sema-engine` table layer.
+
+## Protos estate status
+
+Stack: correct-new destination
+Status: active component, current checkout legacy-wired
+This checkout is not proof of correct-new adoption.
