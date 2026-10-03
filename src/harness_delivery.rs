@@ -6,12 +6,10 @@ use kameo::actor::ActorRef;
 use kameo::error::Infallible;
 use kameo::message::Context;
 use kameo::reply::DelegatedReply;
-use signal_frame::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, Request, SessionEpoch, SubReply,
-};
+use signal::{FrameCapacity, FrameReading, FrameWriting};
 use signal_harness::{
-    HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest, MessageBody,
-    MessageDelivery, MessageSender, MessageSlot,
+    MessageDelivery, Query as HarnessRequest, Response as HarnessEvent, Restorable, Signal,
+    Signalizable,
 };
 use signal_router::z2Vcrd as RoutedContractObject;
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
@@ -68,33 +66,38 @@ impl HarnessDelivery {
         Ok(acceptance[0] == b'A')
     }
 
+    /// One `signal-harness` exchange: a plain Signal frame of the
+    /// `MessageDelivery` query, answered by one frame of the harness
+    /// `Response`. Delivered only when the harness reports this actor's
+    /// delivery completed.
     fn deliver_to_harness_socket(
         actor: &Actor,
         message: &Message,
         message_slot: u64,
         path: &str,
     ) -> RouterResult<bool> {
-        let mut stream = UnixStream::connect(Path::new(path))?;
+        let message_slot =
+            i64::try_from(message_slot).map_err(|_| Error::UnexpectedSignalFrame {
+                got: format!("message slot {message_slot} exceeds the harness slot range"),
+            })?;
         let request = HarnessRequest::MessageDelivery(MessageDelivery {
-            harness: HarnessName::new(actor.name.as_str()),
-            sender: MessageSender::new(message.from.as_str()),
-            body: MessageBody::new(message.body.as_str()),
-            message_slot: MessageSlot::new(message_slot),
+            harness_name: actor.name.as_str().to_owned(),
+            message_sender: message.from.as_str().to_owned(),
+            message_body: message.body.clone(),
+            message_slot,
         });
-        let exchange = ExchangeIdentifier::new(
-            SessionEpoch::new(0),
-            ExchangeLane::Connector,
-            LaneSequence::first(),
-        );
-        let frame = HarnessFrame::new(HarnessFrameBody::Request {
-            exchange,
-            request: Request::from_payload(request),
-        });
-        stream.write_all(frame.encode_length_prefixed()?.as_slice())?;
-        stream.flush()?;
+        let signal = request
+            .signalize()
+            .map_err(|error| Error::UnexpectedSignalFrame {
+                got: format!("harness request did not archive: {error}"),
+            })?;
+        let mut stream = UnixStream::connect(Path::new(path))?;
+        stream
+            .write_frame(&signal, FrameCapacity::default())
+            .map_err(Self::frame_failure)?;
         match Self::read_harness_event(&mut stream)? {
             HarnessEvent::DeliveryCompleted(event) => {
-                Ok(event.harness.as_str() == actor.name.as_str())
+                Ok(event.harness_name == actor.name.as_str() && event.message_slot == message_slot)
             }
             HarnessEvent::DeliveryFailed(_) => Ok(false),
             _ => Ok(false),
@@ -102,28 +105,19 @@ impl HarnessDelivery {
     }
 
     fn read_harness_event(stream: &mut impl Read) -> RouterResult<HarnessEvent> {
-        let mut prefix = [0_u8; 4];
-        stream.read_exact(&mut prefix)?;
-        let length = u32::from_be_bytes(prefix) as usize;
-        let mut bytes = Vec::with_capacity(4 + length);
-        bytes.extend_from_slice(&prefix);
-        bytes.resize(4 + length, 0);
-        stream.read_exact(&mut bytes[4..])?;
-        match HarnessFrame::decode_length_prefixed(bytes.as_slice())?.into_body() {
-            HarnessFrameBody::Reply { reply, .. } => match reply {
-                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                    SubReply::Ok(payload) => Ok(payload),
-                    other => Err(Error::UnexpectedSignalFrame {
-                        got: format!("unexpected harness sub-reply: {other:?}"),
-                    }),
-                },
-                Reply::Rejected { reason } => Err(Error::UnexpectedSignalFrame {
-                    got: format!("harness delivery rejected: {reason:?}"),
-                }),
-            },
-            other => Err(Error::UnexpectedSignalFrame {
-                got: format!("unexpected harness frame: {other:?}"),
-            }),
+        let body = stream
+            .read_frame(FrameCapacity::default())
+            .map_err(Self::frame_failure)?;
+        Signal::<HarnessEvent>::from(Vec::from(body))
+            .restore()
+            .map_err(|error| Error::UnexpectedSignalFrame {
+                got: format!("harness reply did not restore: {error}"),
+            })
+    }
+
+    fn frame_failure(error: signal::FrameError) -> Error {
+        Error::UnexpectedSignalFrame {
+            got: format!("harness signal frame: {error}"),
         }
     }
 

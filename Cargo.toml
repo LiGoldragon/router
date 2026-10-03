@@ -1,6 +1,6 @@
 [package]
 name         = "router"
-version      = "0.11.0"
+version      = "0.12.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -61,7 +61,8 @@ sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git"
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-frame-interface = { package = "signal-frame", git = "https://github.com/LiGoldragon/signal-frame.git", rev = "01676293a623d97b65e320d4138c4b480c6d5dad" }
-signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", branch = "main" }
+signal-harness = { git = "https://github.com/LiGoldragon/signal-harness.git", rev = "25a2d18b81f26ee00caaaa875dce102beed5b6a5", default-features = false }
+signal = { git = "https://github.com/LiGoldragon/signal", rev = "7bcb0949cdaa4501651ed519625eba48e283fac0", default-features = false }
 signal-mind   = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 signal-message = { git = "https://github.com/LiGoldragon/signal-message.git", branch = "main" }
 signal-router = { git = "https://github.com/LiGoldragon/signal-router.git", rev = "f1fda7e130f583cd673cc4d6acfc05a753dfe449", default-features = false }

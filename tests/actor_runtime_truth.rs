@@ -19,9 +19,10 @@ use router::{
     RouterIngressContext, RouterInput, RouterOutput, RouterRoot, RouterRuntime, RouterTables,
     RouterTrace, RouterTraceStep, SignalMessageInput, Status, ThreadIdentifier, UseChannel,
 };
-use signal_frame::{NonEmpty, Reply, SubReply};
+use signal::{FrameCapacity, FrameReading, FrameWriting};
 use signal_harness::{
-    DeliveryCompleted, HarnessEvent, HarnessFrame, HarnessFrameBody, HarnessName, HarnessRequest,
+    DeliveryCompleted, Query as HarnessRequest, Response as HarnessEvent, Restorable, Signal,
+    Signalizable,
 };
 use signal_message::{
     ConnectionClass as SignalConnectionClass, Input as SignalInput, MessageBody, MessageKind,
@@ -290,40 +291,27 @@ impl HarnessAcceptanceSocket {
         let (sender, received) = channel();
         thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("harness socket accepts input");
-            let frame = read_harness_frame(&mut stream);
-            let HarnessFrameBody::Request { exchange, request } = frame.into_body() else {
-                panic!("expected harness request frame");
-            };
-            let HarnessRequest::MessageDelivery(delivery) = request.payloads().head().clone()
+            let HarnessRequest::MessageDelivery(delivery) = read_harness_request(&mut stream)
             else {
                 panic!("expected message delivery request");
             };
             sender
                 .send(HarnessAcceptedDelivery {
-                    harness: delivery.harness.as_str().to_string(),
-                    sender: delivery.sender.as_str().to_string(),
-                    body: delivery.body.as_str().to_string(),
-                    slot: delivery.message_slot.into_u64(),
+                    harness: delivery.harness_name.clone(),
+                    sender: delivery.message_sender.clone(),
+                    body: delivery.message_body.clone(),
+                    slot: delivery.message_slot as u64,
                 })
                 .expect("harness socket reports delivery");
-            let reply = HarnessFrame::new(HarnessFrameBody::Reply {
-                exchange,
-                reply: Reply::committed(NonEmpty::single(SubReply::Ok(
-                    HarnessEvent::DeliveryCompleted(DeliveryCompleted {
-                        harness: HarnessName::new(delivery.harness.as_str()),
-                        message_slot: delivery.message_slot,
-                    }),
-                ))),
-            });
+            let reply = HarnessEvent::DeliveryCompleted(DeliveryCompleted {
+                harness_name: delivery.harness_name.clone(),
+                message_slot: delivery.message_slot,
+            })
+            .signalize()
+            .expect("harness reply encodes");
             stream
-                .write_all(
-                    reply
-                        .encode_length_prefixed()
-                        .expect("harness reply encodes")
-                        .as_slice(),
-                )
+                .write_frame(&reply, FrameCapacity::default())
                 .expect("harness socket writes reply");
-            stream.flush().expect("harness socket flushes reply");
         });
         Self { path, received }
     }
@@ -345,19 +333,13 @@ impl Drop for HarnessAcceptanceSocket {
     }
 }
 
-fn read_harness_frame(stream: &mut impl Read) -> HarnessFrame {
-    let mut prefix = [0_u8; 4];
-    stream
-        .read_exact(&mut prefix)
-        .expect("harness socket reads frame prefix");
-    let length = u32::from_be_bytes(prefix) as usize;
-    let mut bytes = Vec::with_capacity(4 + length);
-    bytes.extend_from_slice(&prefix);
-    bytes.resize(4 + length, 0);
-    stream
-        .read_exact(&mut bytes[4..])
-        .expect("harness socket reads frame body");
-    HarnessFrame::decode_length_prefixed(bytes.as_slice()).expect("harness frame decodes")
+fn read_harness_request(stream: &mut impl Read) -> HarnessRequest {
+    let body = stream
+        .read_frame(FrameCapacity::default())
+        .expect("harness socket reads one signal frame");
+    Signal::<HarnessRequest>::from(Vec::from(body))
+        .restore()
+        .expect("harness request restores")
 }
 
 #[test]

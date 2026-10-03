@@ -191,9 +191,12 @@ the daemon does not open the storage kernel directly. Terminal byte movement
 and verification are delegated through `harness` and then through `terminal`,
 which owns the
 terminal transport adapter around `terminal-cell`.
-The router-to-harness delivery leg speaks the `signal-harness`
-contract on the new `signal-frame` request/reply kernel; it does not
-construct universal verb-classification wrappers for harness delivery.
+The router-to-harness delivery leg speaks `signal-harness` 8.0.0: one plain
+`signal` frame holding the `MessageDelivery` query, answered by one frame of
+the harness `Response`; the delivery counts only when the harness reports
+`DeliveryCompleted` for the same actor and slot. This leg alone is on the
+Signal 5.0.0 family; the router's other contracts are still on
+`signal-frame`, so the router carries both until its own migration.
 
 Stored router records are typed contract records from the relation-specific
 Signal contracts. Message provenance stored with accepted messages now comes
