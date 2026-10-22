@@ -31,7 +31,7 @@ fn router_configuration_carries_listen_identity_and_criome_socket() {
          /run/persona-router/router.sock \
          /run/persona-router/meta.sock \
          /run/persona-router/supervision.sock \
-         /var/lib/persona-router/router.sema \
+         /var/lib/persona-router/router.memory \
          (Some {bootstrap}) \
          1000 \
          (Some 0.0.0.0:7440) \

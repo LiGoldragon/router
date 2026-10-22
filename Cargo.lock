@@ -554,7 +554,21 @@ dependencies = [
  "downcast-rs",
  "dyn-clone",
  "futures",
- "kameo_macros",
+ "kameo_macros 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?branch=main)",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kameo"
+version = "0.20.0"
+source = "git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01#f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01"
+dependencies = [
+ "downcast-rs",
+ "dyn-clone",
+ "futures",
+ "kameo_macros 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01)",
  "serde",
  "tokio",
  "tracing",
@@ -564,6 +578,17 @@ dependencies = [
 name = "kameo_macros"
 version = "0.20.0"
 source = "git+https://github.com/LiGoldragon/kameo.git?branch=main#f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "kameo_macros"
+version = "0.20.0"
+source = "git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01#f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -588,6 +613,28 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "memory"
+version = "0.1.1"
+source = "git+https://github.com/LiGoldragon/memory.git?rev=69d91c486b335575ee5e4b0eb79da27094e700b6#69d91c486b335575ee5e4b0eb79da27094e700b6"
+dependencies = [
+ "redb",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "memory-engine"
+version = "0.18.0"
+source = "git+https://github.com/LiGoldragon/memory-engine.git?rev=abf9d85166e22440440baba03358913458905b8d#abf9d85166e22440440baba03358913458905b8d"
+dependencies = [
+ "blake3",
+ "memory",
+ "rkyv",
+ "signal-sema",
+ "thiserror",
+]
 
 [[package]]
 name = "meta-signal-router"
@@ -886,12 +933,12 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "dotos",
- "kameo",
+ "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?branch=main)",
+ "memory-engine",
  "meta-signal-router",
  "nota",
  "rand_core",
  "rkyv",
- "sema-engine",
  "signal",
  "signal-criome",
  "signal-frame 0.3.0 (git+https://github.com/LiGoldragon/signal-frame.git?branch=main)",
@@ -906,7 +953,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
- "triad-runtime",
+ "triad-runtime 0.10.1",
  "x25519-dalek",
  "zeroize",
 ]
@@ -996,7 +1043,7 @@ dependencies = [
  "schema-language",
  "syn 2.0.118",
  "thiserror",
- "triad-runtime",
+ "triad-runtime 0.6.1",
 ]
 
 [[package]]
@@ -1008,29 +1055,6 @@ dependencies = [
  "core-nomos",
  "rust-logos",
  "sema-translator",
- "thiserror",
-]
-
-[[package]]
-name = "sema"
-version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/sema.git?branch=main#51d7927c872f0df12791bad8d39a4db6433b01a1"
-dependencies = [
- "redb",
- "rkyv",
- "thiserror",
-]
-
-[[package]]
-name = "sema-engine"
-version = "0.7.0"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#22a08859a819a33e14cca66d8117023ce7f17dd2"
-dependencies = [
- "blake3",
- "rkyv",
- "sema",
- "signal-frame 0.3.0 (git+https://github.com/LiGoldragon/signal-frame.git?branch=main)",
- "signal-sema",
  "thiserror",
 ]
 
@@ -1283,7 +1307,7 @@ dependencies = [
 [[package]]
 name = "signal-sema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#8d4a0223efe59b36ac79d154d15961084eef286b"
+source = "git+https://github.com/LiGoldragon/signal-sema.git?rev=4f3a24e6677ab9d200672851016c4c760c1e36e8#4f3a24e6677ab9d200672851016c4c760c1e36e8"
 dependencies = [
  "rkyv",
  "thiserror",
@@ -1501,10 +1525,22 @@ name = "triad-runtime"
 version = "0.6.1"
 source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#895d2e6b9023b2d901fe1ab20e6f8f431c6113b7"
 dependencies = [
- "kameo",
+ "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?branch=main)",
  "rkyv",
  "rustix",
  "signal-frame 0.3.0 (git+https://github.com/LiGoldragon/signal-frame.git?branch=main)",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "triad-runtime"
+version = "0.10.1"
+source = "git+https://github.com/LiGoldragon/triad-runtime.git?rev=4cc0a100841d2400f354c008c9faa73b2cedf50e#4cc0a100841d2400f354c008c9faa73b2cedf50e"
+dependencies = [
+ "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01)",
+ "rkyv",
+ "rustix",
  "thiserror",
  "tokio",
 ]

@@ -45,7 +45,7 @@ impl DaemonFixture {
         ));
         let socket_path = directory.join("router.sock");
         let meta_socket_path = directory.join("router-meta.sock");
-        let database_path = directory.join("router.sema");
+        let database_path = directory.join("router.memory");
         let configuration_path = directory.join("router-config.rkyv");
         Self {
             directory,

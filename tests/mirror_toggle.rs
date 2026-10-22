@@ -3,7 +3,7 @@
 //!
 //! The switch is flipped over the router's owner-only meta socket
 //! (`meta-signal-router::SetMirrorEnabled`, delivered as
-//! `ApplyMetaRouterPolicy`). Its value lives in the router's own SEMA store,
+//! `ApplyMetaRouterPolicy`). Its value lives in the router's own MEMORY store,
 //! so it survives a restart. While OFF the router refuses to originate a
 //! routed-object forward (`ApplyRoutedObjectSubmission` →
 //! `RoutedObjectsRefused(MirrorDisabled)`) and refuses to accept one
@@ -11,7 +11,7 @@
 //! `ForwardApplied::Refused(MirrorDisabled)`). Ordinary message forwarding —
 //! a forward with no routed objects — is never gated by this switch.
 //!
-//! Fully in-process: `RouterRuntime::start_with_tables` over a temp SEMA
+//! Fully in-process: `RouterRuntime::start_with_tables` over a temp MEMORY
 //! store, no TCP tier. The restart witness reopens `RouterTables` at the same
 //! path — the second handle can only observe what the first committed to disk.
 
@@ -37,7 +37,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "router-mirror-toggle-{name}-{}-{now}.sema",
+            "router-mirror-toggle-{name}-{}-{now}.memory",
             std::process::id()
         ));
         Self { path }
@@ -219,7 +219,7 @@ async fn mirror_switch_defaults_off_inert_and_toggles_over_the_meta_socket() {
 
 /// The persistence witness: a flip over the meta socket survives a full
 /// router restart. The second `RouterTables::open` at the same path cannot
-/// share memory with the first — the only channel between them is the SEMA
+/// share memory with the first — the only channel between them is the MEMORY
 /// file — so a reopened ON (or OFF) proves the switch is durable, and a fresh
 /// runtime over the reopened tables honours the reloaded value in its live
 /// gate. Proven both directions: ON survives, then OFF survives.
@@ -237,14 +237,14 @@ async fn mirror_switch_survives_router_restart_both_directions() {
         runtime.wait_for_shutdown().await;
     }
 
-    // Second "daemon": reopen the same SEMA file. The switch the prior daemon
+    // Second "daemon": reopen the same MEMORY file. The switch the prior daemon
     // flipped is still ON — read straight from persistence, and honoured by
     // the reloaded runtime's live gate (origination accepted).
     {
         let tables = RouterTables::open(store.path()).expect("router tables reopen");
         assert!(
             tables.mirror_enabled(),
-            "the ON switch survives the SEMA file reopen"
+            "the ON switch survives the MEMORY file reopen"
         );
         let runtime = RouterRuntime::start_with_tables(tables).await;
         assert!(
@@ -263,7 +263,7 @@ async fn mirror_switch_survives_router_restart_both_directions() {
         let tables = RouterTables::open(store.path()).expect("router tables reopen twice");
         assert!(
             !tables.mirror_enabled(),
-            "the OFF switch survives the SEMA file reopen"
+            "the OFF switch survives the MEMORY file reopen"
         );
         let runtime = RouterRuntime::start_with_tables(tables).await;
         assert_refused_mirror_disabled(&originate(&runtime).await);

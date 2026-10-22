@@ -11,7 +11,7 @@
 //! authorization this same route parked for mind adjudication and never
 //! reached the delivery actor.
 //!
-//! Fully in-process: `RouterRuntime::start` with no SEMA store and no TCP tier.
+//! Fully in-process: `RouterRuntime::start` with no MEMORY store and no TCP tier.
 //! The mirror switch — which gates the routed-object origination path — is
 //! flipped ON in memory over the meta socket for this witness.
 

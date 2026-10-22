@@ -57,7 +57,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "router-observation-{name}-{}-{now}.sema",
+            "router-observation-{name}-{}-{now}.memory",
             std::process::id()
         ));
         Self { path }
@@ -795,16 +795,16 @@ async fn router_observation_path_cannot_bypass_router_root_facts() {
 /// `RouterTables` at the same path, wire the reopened handle into a
 /// runtime, and observe the channel state through the typed observation
 /// plane. The second `RouterTables::open` cannot share memory with the
-/// first; the only path between them is the SEMA file.
+/// first; the only path between them is the MEMORY file.
 ///
-/// `RouterTables` is a synchronous handle on `Arc<Sema>`; dropping it
+/// `RouterTables` is a synchronous handle on `Arc<Memory>`; dropping it
 /// is the canonical flock release for the in-process witness. The
 /// stronger cross-process witness (writer derivation outputs
-/// `router.sema`; reader derivation opens it from a separate process)
+/// `router.memory`; reader derivation opens it from a separate process)
 /// is the destination shape — see `~/primary/skills/architectural-
 /// truth-tests.md` §"Nix-chained tests — the strongest witness". This
 /// in-process witness is sufficient for the per-table-handle boundary
-/// because the actor runtime never touches the SEMA file directly; only
+/// because the actor runtime never touches the MEMORY file directly; only
 /// `RouterTables` does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn router_daemon_restart_surfaces_persisted_adjudication_through_observation_plane() {
@@ -836,7 +836,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
         // Scope ends: `tables_first` drops; the store flock releases.
     }
 
-    // Second "daemon": open fresh `RouterTables` against the same SEMA file
+    // Second "daemon": open fresh `RouterTables` against the same MEMORY file
     // file the prior handle wrote. The second handle cannot share
     // in-process state with the first — it can only observe what was
     // committed to disk by the prior daemon.
@@ -848,7 +848,7 @@ async fn router_daemon_restart_surfaces_persisted_adjudication_through_observati
         restored_channels
             .iter()
             .any(|record| record.id == *channel_identifier.payload()),
-        "prior-daemon channel survives the SEMA file reopen"
+        "prior-daemon channel survives the MEMORY file reopen"
     );
 
     // Wire the reopened tables into an observation-plane runtime and

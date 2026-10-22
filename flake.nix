@@ -247,7 +247,7 @@
               cargoTestExtraArgs = "--test actor_runtime_truth expired_channel_cannot_authorize_message -- --exact";
             }
           );
-          router-sema-tables-persist-channel-and-adjudication-records = context.craneLib.cargoTest (
+          router-memory-tables-persist-channel-and-adjudication-records = context.craneLib.cargoTest (
             context.commonArgs
             // {
               inherit (context) cargoArtifacts;

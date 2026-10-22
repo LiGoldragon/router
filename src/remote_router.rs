@@ -88,7 +88,7 @@ impl RemoteRouterRegistry {
         Ok(())
     }
 
-    /// Rehydrate the durable peer routes from their sema rows before this
+    /// Rehydrate the durable peer routes from their memory rows before this
     /// registry admits any new registration (Slice A2, primary-79z1.20),
     /// mirroring `RouterRoot::rehydrate_outbound_backlog`. A read failure
     /// fails safe to an empty map — the same ships-dark posture the mirror

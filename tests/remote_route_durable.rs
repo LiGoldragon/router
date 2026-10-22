@@ -5,14 +5,14 @@
 //! `router-outbound-backlog` persist+rehydrate pattern
 //! (`tests/outbound_backlog_durable.rs`).
 //!
-//! The story this proves, over a real SEMA file on disk:
+//! The story this proves, over a real MEMORY file on disk:
 //!
 //!   1. A fresh registry, backed by a durable store, registers a peer's route
 //!      (`RegisterRemotePeer`) and a recipient's home (`RegisterRemoteActorHome`)
 //!      — both keyed on the Criome host ID — and resolves the recipient to
 //!      that route.
 //!   2. The registry is torn down (the daemon "restarts"). The only channel
-//!      between the two lives is the SEMA file.
+//!      between the two lives is the MEMORY file.
 //!   3. A brand-new registry reopens the same store. `on_start` rehydrates
 //!      the durable route table into its live peer map before it admits any
 //!      new registration — no `RegisterRemotePeer` call happens this pass.
@@ -33,7 +33,7 @@ use signal_router::{z2VNwn as CriomeHostId, z2VVPx as TailnetAddress};
 
 const RECIPIENT_ACTOR: &str = "spirit-peer";
 
-/// A temp SEMA store whose path outlives the registry that opened it, so the
+/// A temp MEMORY store whose path outlives the registry that opened it, so the
 /// same file can be reopened after a simulated restart.
 struct TemporaryRouterStore {
     path: PathBuf,
@@ -46,7 +46,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "router-remote-route-{name}-{}-{now}.sema",
+            "router-remote-route-{name}-{}-{now}.memory",
             std::process::id()
         ));
         Self { path }
@@ -114,7 +114,7 @@ async fn seeded_route_survives_restart_and_resolves_without_bootstrap() {
         registry.wait_for_shutdown().await;
     }
 
-    // (2)+(3) Restart survival: a fresh registry over the reopened SEMA file,
+    // (2)+(3) Restart survival: a fresh registry over the reopened MEMORY file,
     // with NO `RegisterRemotePeer` call this pass — the only way it can
     // answer correctly below is by rehydrating the durable row on start.
     let reopened = RouterTables::open(store.path()).expect("router tables reopen");

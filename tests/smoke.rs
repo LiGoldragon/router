@@ -190,7 +190,11 @@ fn router_daemon_configuration_accepts_binary_file_argument() {
         )),
         field_5: signal_router::z2VXG3::new(signal_router::z2Vf1e::new(0o600)),
         field_6: signal_router::z2VcTK::new(signal_router::z2VPn3::new(
-            fixture.directory.join("router.sema").display().to_string(),
+            fixture
+                .directory
+                .join("router.memory")
+                .display()
+                .to_string(),
         )),
         field_7: None,
         field_8: signal_router::z2VLx1::z2VM4G(signal_router::z2Vf91::new(1000)),

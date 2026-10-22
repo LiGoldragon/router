@@ -24,7 +24,7 @@ Rules for work here:
   runtime component crates for their wire vocabulary.
 - Depend on `harness` for harness capabilities.
 - Commit durable router transitions through the router actor's own
-  `sema-engine` layer. Do not invent a shared store actor.
+  `memory-engine` layer. Do not invent a shared store actor.
 - Keep `RouterRuntime` as an actor, not as a non-actor owner around actor refs.
   Public callers talk to `ActorRef<RouterRuntime>`.
 - Keep harness endpoint/focus/prompt facts in `HarnessRegistry`, not in
@@ -48,7 +48,7 @@ Rules for work here:
 When the router daemon launches with a binary `RouterDaemonConfiguration`,
 `ChannelAuthority` attaches `RouterTables` and persists
 `adjudication_pending` records (and channel records, delivery attempts,
-delivery results) into `router.sema` through `sema-engine`.
+delivery results) into `router.memory` through `memory-engine`.
 The `MindAdjudicationOutbox` in-memory projection is a derived view, not
 the durable record.
 
@@ -58,7 +58,7 @@ same store path, query the observation plane, prove the pending state
 comes back as a typed `signal_router::Output` rather than as
 in-memory coincidence.
 Per `~/primary/skills/architectural-truth-tests.md` §"Nix-chained tests"
-— the writer derivation produces the `router.sema` file; the reader derivation
+— the writer derivation produces the `router.memory` file; the reader derivation
 opens a fresh process against the same path; nothing in-process can fake
 the chain.
 
@@ -67,7 +67,7 @@ the chain.
 The `RouterObservationPlane` answers schema-derived
 `signal_router::Input` queries by reading `RouterRoot` facts through the
 mailbox and reading channel records from `RouterTables`. It never mutates
-router state; never opens `router.sema` directly outside the engine-backed
+router state; never opens `router.memory` directly outside the engine-backed
 tables abstraction; never fabricates an answer when data is missing. The
 closed-enum reply set is `signal_router::Output::{Summary, MessageTrace,
 MessageTraceMissing, ChannelState, Unimplemented}` — no `Unknown` variant.

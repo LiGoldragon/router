@@ -10,10 +10,10 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use memory_engine::{Engine, EngineOpen, SchemaVersion};
 use router::RouterTables;
-use sema_engine::{Engine, EngineOpen, SchemaVersion};
 
-/// A temp SEMA store whose path outlives each open, so the same file can be
+/// A temp MEMORY store whose path outlives each open, so the same file can be
 /// stamped by one "build" and reopened by another — mirroring
 /// `tests/remote_route_durable.rs`.
 struct TemporaryRouterStore {
@@ -27,7 +27,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "router-outdated-store-{name}-{}-{now}.sema",
+            "router-outdated-store-{name}-{}-{now}.memory",
             std::process::id()
         ));
         Self { path }

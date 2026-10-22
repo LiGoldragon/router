@@ -33,10 +33,10 @@ pub enum Error {
     TriadRuntimeFrame(#[from] triad_runtime::FrameError),
 
     #[error("router storage kernel: {0}")]
-    StorageKernel(#[from] sema_engine::StorageKernelError),
+    StorageKernel(#[from] memory_engine::StorageKernelError),
 
-    #[error("router sema engine: {0}")]
-    SemaEngine(#[from] sema_engine::Error),
+    #[error("router memory engine: {0}")]
+    MemoryEngine(#[from] memory_engine::Error),
 
     #[error("actor call: {0}")]
     ActorCall(String),

@@ -1,6 +1,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use memory_engine::{
+    Assertion, CommitSequence, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan,
+    RecordKey, Retraction, SchemaHash, SchemaVersion, StorageKernelError, TableDescriptor,
+    TableName, TableReference, VersionedStoreName, VersioningPolicy,
+};
 use rkyv::api::high::HighDeserializer;
 use rkyv::bytecheck::CheckBytes;
 use rkyv::rancor::{self, Strategy};
@@ -8,11 +13,6 @@ use rkyv::validation::Validator;
 use rkyv::validation::archive::ArchiveValidator;
 use rkyv::validation::shared::SharedValidator;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use sema_engine::{
-    Assertion, CommitSequence, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan,
-    RecordKey, Retraction, SchemaHash, SchemaVersion, StorageKernelError, TableDescriptor,
-    TableName, TableReference, VersionedStoreName, VersioningPolicy,
-};
 use signal_message::{MessageOrigin, MessageSlot};
 use signal_persona::ChannelIdentifier;
 use signal_router::{
@@ -139,14 +139,14 @@ impl RouterTables {
     /// than migrated (psyche decision). A store NEWER than this build still
     /// fails open — wiping it would silently destroy a later deployment's
     /// data on downgrade.
-    fn store_is_outdated(error: &sema_engine::Error) -> bool {
+    fn store_is_outdated(error: &memory_engine::Error) -> bool {
         match error {
-            sema_engine::Error::Sema(StorageKernelError::SchemaVersionMismatch {
+            memory_engine::Error::Memory(StorageKernelError::SchemaVersionMismatch {
                 expected,
                 found,
             }) => found.value() < expected.value(),
-            sema_engine::Error::Sema(StorageKernelError::LegacyFileLacksSchema { .. }) => true,
-            sema_engine::Error::StorageLayoutMismatch { stored, expected } => stored < expected,
+            memory_engine::Error::Memory(StorageKernelError::LegacyFileLacksSchema { .. }) => true,
+            memory_engine::Error::StorageLayoutMismatch { stored, expected } => stored < expected,
             _ => false,
         }
     }
@@ -234,7 +234,7 @@ impl RouterTables {
             RecordKey::new(message.as_str()),
         )) {
             Ok(_receipt) => Ok(true),
-            Err(sema_engine::Error::RecordNotFound { .. }) => Ok(false),
+            Err(memory_engine::Error::RecordNotFound { .. }) => Ok(false),
             Err(error) => Err(error.into()),
         }
     }
@@ -363,7 +363,7 @@ impl RouterTables {
             RecordKey::new(message.as_str()),
         )) {
             Ok(_receipt) => Ok(true),
-            Err(sema_engine::Error::RecordNotFound { .. }) => Ok(false),
+            Err(memory_engine::Error::RecordNotFound { .. }) => Ok(false),
             Err(error) => Err(error.into()),
         }
     }
@@ -398,7 +398,7 @@ impl RouterTables {
             RecordKey::new(criome_host_id.payload().as_str()),
         )) {
             Ok(_receipt) => Ok(true),
-            Err(sema_engine::Error::RecordNotFound { .. }) => Ok(false),
+            Err(memory_engine::Error::RecordNotFound { .. }) => Ok(false),
             Err(error) => Err(error.into()),
         }
     }
@@ -456,7 +456,7 @@ impl RouterTables {
     }
 }
 
-trait RouterEngineRecord: sema_engine::EngineStoredRecord + Send + Sync + 'static
+trait RouterEngineRecord: memory_engine::EngineStoredRecord + Send + Sync + 'static
 where
     Self::Archived: RkyvDeserialize<Self, HighDeserializer<rancor::Error>>
         + for<'validation> CheckBytes<
@@ -467,7 +467,7 @@ where
 
 impl<RecordValue> RouterEngineRecord for RecordValue
 where
-    RecordValue: sema_engine::EngineStoredRecord + Send + Sync + 'static,
+    RecordValue: memory_engine::EngineStoredRecord + Send + Sync + 'static,
     RecordValue::Archived: RkyvDeserialize<RecordValue, HighDeserializer<rancor::Error>>
         + for<'validation> CheckBytes<
             Strategy<Validator<ArchiveValidator<'validation>, SharedValidator>, rancor::Error>,

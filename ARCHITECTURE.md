@@ -11,7 +11,7 @@ solely as the outbound relay entry — the recipient must already resolve to
 an installed remote route — and the inbound peer leg (`ForwardMessage` under
 criome attestation) still delivers to local harness endpoints until the
 messenger handoff replaces that final hop. Router state persists in its own
-`router.sema` database through `sema-engine`.
+`router.memory` database through `memory-engine`.
 
 ## 0 · TL;DR
 
@@ -28,14 +28,14 @@ flowchart LR
     "RouterRuntime" -->|"apply meta policy"| "RouterRoot"
     "RouterRuntime" -->|"apply observation"| "RouterObservationPlane"
     "RouterObservationPlane" -->|"read facts"| "RouterRoot"
-    "RouterObservationPlane" -->|"read channel records"| "sema-engine"
+    "RouterObservationPlane" -->|"read channel records"| "memory-engine"
     "RouterRoot" -->|"registered delivery targets"| "HarnessRegistry"
     "RouterRoot" -->|"channel check / adjudication"| "ChannelAuthority"
     "RouterRoot" -->|"typed adjudication request"| "MindAdjudicationOutbox"
     "RouterRoot" -->|"delivery attempt"| "HarnessDelivery"
     "RouterRoot" -->|"pending state"| "DeliveryQueue"
     "HarnessDelivery" -->|"typed terminal delivery request"| "harness"
-    "RouterRoot" -->|"router-owned records"| "sema-engine"
+    "RouterRoot" -->|"router-owned records"| "memory-engine"
 ```
 
 ## 1 · Component Surface
@@ -147,7 +147,7 @@ flowchart LR
 message-ingress component: its CLI talks to the `message` daemon, and
 that daemon forwards typed `signal-message` requests into this daemon.
 The router owns the transitional in-memory message records until those records
-move behind router-owned Sema tables.
+move behind router-owned Memory tables.
 
 ## 1.5 · Supervision-relation reception
 
@@ -165,8 +165,8 @@ The router's structural-channels install names a channel from
 `DirectMessage` kind. This distinguishes user-message ingress from internal
 component traffic at the channel level.
 
-`RouterTables::open()` opens `router.sema` through
-`sema-engine::Engine`, which applies the schema-version guard per
+`RouterTables::open()` opens `router.memory` through
+`memory-engine::Engine`, which applies the schema-version guard per
 `~/primary/skills/rust/storage-and-wire.md` §"Schema discipline".
 Schema bumps land as coordinated upgrades without migrations: a store stamped
 OLDER than the current `ROUTER_SCHEMA_VERSION` (or predating the version
@@ -185,8 +185,8 @@ registered harness delivery targets. `ChannelAuthority` owns the live
 authorized-channel table, channel use accounting, and deduplicated
 adjudication requests. `HarnessDelivery` owns terminal delivery attempts and
 the blocking terminal/probe calls they require.
-Durable router state lives in the router actor's own SEMA database through
-`sema-engine::Engine`; no shared database actor owns router transitions and
+Durable router state lives in the router actor's own MEMORY database through
+`memory-engine::Engine`; no shared database actor owns router transitions and
 the daemon does not open the storage kernel directly. Terminal byte movement
 and verification are delegated through `harness` and then through `terminal`,
 which owns the
@@ -204,12 +204,12 @@ from the published `signal-message::MessageOrigin`; the older
 `signal-persona-origin` vocabulary remains only at downstream edges that have
 not migrated yet, such as `signal-mind` adjudication requests and channel
 identifiers. The router actor decodes Signal frames, commits through
-`RouterTables` into sema-engine-registered record families, and emits follow-up
+`RouterTables` into memory-engine-registered record families, and emits follow-up
 frames only after the database commit succeeds.
 
 Current MVP code still keeps the live pending queue in memory. Accepted
 messages, channel grants, adjudication requests, delivery attempts, and
-delivery results have a router-owned `sema-engine` table layer.
+delivery results have a router-owned `memory-engine` table layer.
 `ChannelAuthority` can
 be constructed with that table layer so grants and adjudication requests are
 persisted through the actor path, and `RouterRoot` writes accepted message rows
@@ -226,7 +226,7 @@ table reads: `MessageCommitted` must appear for a message before any
 `DeliveryAttempted` event for that same message; a message to a locally-resolved
 recipient reaches `HarnessDelivery` under local default-authorization (§2.5.1)
 without a channel grant; a named table test writes channel and adjudication
-records through `RouterTables` and reads them back from router-owned SEMA.
+records through `RouterTables` and reads them back from router-owned MEMORY.
 
 The current router can consume a typed `signal-mind::ChannelGrant` and
 project it into the temporary `ActorIdentifier` channel table. The grant is installed
@@ -246,7 +246,7 @@ Current router-owned durable family names are `router-message`,
 the engine catalog with per-family schema hashes. Message acceptance,
 channel grants, adjudication requests, delivery attempts, and delivery
 results are written through the current runtime actor path and through
-`sema-engine`'s logged write surface. Pending delivery and
+`memory-engine`'s logged write surface. Pending delivery and
 delivered/failed/deferred status records still need to be wired into
 `RouterRoot`. Successful delivery is another router state transition: after
 `harness` reports the terminal effect, the router commits the delivery
@@ -433,12 +433,12 @@ delivered) for a closed set of reasons. Today's set:
   delivery target (no harness registered for the named
   destination, no terminal cell available). Replied as
   `SubmissionRejected { reason: RecipientNotFound }`.
-- **Store rejected** — router-owned Sema persistence layer
+- **Store rejected** — router-owned Memory persistence layer
   refused the message commit (schema mismatch, IO failure on
   durable storage). Replied as
   `SubmissionRejected { reason: StoreRejected }`. Per the
   invariant "Accepted Signal messages persist to router-owned
-  Sema before delivery retry," a store failure aborts acceptance
+  Memory before delivery retry," a store failure aborts acceptance
   rather than committing a message the durable layer didn't keep.
 - **Authority revoked** — the channel was retracted or expired
   between the message's submission and its delivery attempt. The
@@ -562,7 +562,7 @@ Load-bearing decisions:
 - **Inbound twin of `ApplySignalMessage`.** `ApplyForwardedMessage` stamps
   the verifier-recovered peer identity as the authoritative `MessageOrigin`
   (never the wire-claimed field), sets the loop-guard marker, then runs the
-  same `apply_stamped_message_submission` path — persist to sema, enqueue,
+  same `apply_stamped_message_submission` path — persist to memory, enqueue,
   retry — so a forward targeting a local harness delivers locally and the
   channel-auth check runs identically.
 - **Verifier seam for criome (milestone 3).**
@@ -579,7 +579,7 @@ Load-bearing decisions:
   `ClockSkew` outside the live freshness window, and `ReplayDetected` for
   repeated `(verified router identity, nonce)` pairs. The current window is
   actor-owned process-local memory; durable
-  `router-forward-replay` SEMA state still lands with the real criome client.
+  `router-forward-replay` MEMORY state still lands with the real criome client.
 - **Config projection.** `Configuration` projects `tailnet_listen_address →
   Option<SocketAddr>` (the one std parse at config load), `router_identity`,
   and `criome_socket_path → Option<PathBuf>` through dedicated accessors —
@@ -712,7 +712,7 @@ connect-per-forward with a persistent, per-peer session:
 ### Durable outbound backlog and push redial
 
 `RouterRoot.pending` (the live, in-memory forward queue) is backed by a
-durable `outbound_backlog` SEMA table (family `router-outbound-backlog`, keyed
+durable `outbound_backlog` MEMORY table (family `router-outbound-backlog`, keyed
 by message identifier; its addition raised `ROUTER_SCHEMA_VERSION` to 2
 alongside `mirror_switch`, below; the `BacklogSequence` enqueue stamp on each
 row raised it to 4):
@@ -771,7 +771,7 @@ property of routing, never of any payload:
 
 ### Off-by-default mirror toggle (`SetMirrorEnabled`)
 
-A durable, single-row `mirror_switch` SEMA table (family
+A durable, single-row `mirror_switch` MEMORY table (family
 `router-mirror-switch`) holds one owner-controlled boolean, read once into
 `RouterRoot.mirror_enabled` at construction and flipped only through
 `meta-signal-router`'s `SetMirrorEnabled` operation on the owner-only (0600)
@@ -838,7 +838,7 @@ This repo owns:
 - transitional router message records that are not owned by `message`;
 - live authorized-channel records and adjudication-pending records;
 - typed mind-adjudication outbox records for parked messages;
-- router-owned Sema table layout for channels, channel indexes,
+- router-owned Memory table layout for channels, channel indexes,
   adjudication-pending records, delivery attempts, delivery results, and meta;
 - routing decisions based on typed message origin and channel state;
 - subscriptions to producer event streams.
@@ -852,7 +852,7 @@ This repo does not own:
 - direct dependencies on terminal crates;
 - terminal adapter execution (`harness`);
 - harness lifecycle internals (`harness`);
-- the Sema database of any other Persona component;
+- the Memory database of any other Persona component;
 - state owned by other actors.
 
 ## 4 · Invariants
@@ -861,7 +861,7 @@ This repo does not own:
 - Router daemon requests enter through the Kameo `RouterRuntime` mailbox.
 - Router working requests enter the daemon as length-prefixed Signal frames,
   never as a NOTA line socket protocol.
-- Router daemon startup can attach a router-owned Sema database to
+- Router daemon startup can attach a router-owned Memory database to
   `ChannelAuthority`.
 - Router daemon startup applies the managed socket modes from the
   signal-encoded configuration to `router.sock` and the meta socket.
@@ -896,22 +896,22 @@ This repo does not own:
 - Router observation queries (`signal-router::Input`)
   are answered by `RouterObservationPlane`, which reads `RouterRoot`
   observation facts through its mailbox and reads channel records from
-  router-owned Sema tables when present.
+  router-owned Memory tables when present.
 - Router observation replies are typed `signal-router::Output` records; no caller
-  reads `router.sema` directly to assemble an observation answer.
+  reads `router.memory` directly to assemble an observation answer.
 - A message whose recipient resolves in the local harness registry reaches
   `HarnessDelivery` without a channel grant (local default-authorization,
   §2.5.1).
 - Local delivery emits no `signal-mind` adjudication request and populates no
   mind outbox entry; the channel-adjudication apparatus is retained for
   `meta-signal-router` orders and a future re-tightening of local policy.
-- Accepted Signal messages persist to router-owned Sema before delivery retry.
+- Accepted Signal messages persist to router-owned Memory before delivery retry.
 - One-shot and retracted channels cannot keep authorizing messages.
 - Expired time-bound channels cannot authorize messages.
 - Channel grants and adjudication requests can be persisted through
-  router-owned Sema tables.
+  router-owned Memory tables.
 - Delivery attempts and delivery results can be persisted through
-  router-owned Sema tables.
+  router-owned Memory tables.
 - `RouterRuntime` itself is an actor; it is not a wrapper around actor refs.
 - Harness registration state enters through `HarnessRegistry`.
 - Terminal delivery attempts stay in `HarnessDelivery`; terminal transport
@@ -932,7 +932,7 @@ This repo does not own:
   stream end. Per-subscription `StreamingReplyHandler` actors own each
   open subscription; a slow subscriber cannot block siblings.
 - `ChannelAuthority` persists `adjudication_pending` records to
-  `router.sema` through `RouterTables` when the daemon launches with a
+  `router.memory` through `RouterTables` when the daemon launches with a
   `--store` argument. The `MindAdjudicationOutbox` in-memory projection
   is a derived view, not the durable record.
 - Router daemon restart with the same `--store` path observes the same
@@ -994,7 +994,7 @@ src/config.rs           binary rkyv daemon configuration wrapper
 src/daemon.rs           Router component hooks for the daemon shell
 src/delivery.rs         pending-delivery records
 src/message.rs          transitional router message records
-src/tables.rs           router-owned Sema schema and message/channel/adjudication/delivery tables
+src/tables.rs           router-owned Memory schema and message/channel/adjudication/delivery tables
 src/bin/router.rs       one-line ordinary working-signal client entry point
 src/bin/meta_router.rs  one-line meta policy client entry point
 src/main.rs             one-line daemon entry point
@@ -1025,10 +1025,10 @@ tests/                  router smoke and actor-density truth tests
 | A one-shot channel cannot authorize a second message after use. | `nix build .#checks.x86_64-linux.router-one-shot-channel-cannot-authorize-second-message` |
 | A retracted channel cannot authorize messages. | `nix build .#checks.x86_64-linux.router-retracted-channel-cannot-authorize-message` |
 | An expired time-bound channel cannot authorize messages. | `nix build .#checks.x86_64-linux.router-expired-channel-cannot-authorize-message` |
-| Router-owned Sema tables persist channel and adjudication records. | `nix build .#checks.x86_64-linux.router-sema-tables-persist-channel-and-adjudication-records` |
-| Router runtime can wire channel authority to router-owned Sema tables. | `nix build .#checks.x86_64-linux.router-runtime-wires-channel-authority-to-router-tables` |
+| Router-owned Memory tables persist channel and adjudication records. | `nix build .#checks.x86_64-linux.router-memory-tables-persist-channel-and-adjudication-records` |
+| Router runtime can wire channel authority to router-owned Memory tables. | `nix build .#checks.x86_64-linux.router-runtime-wires-channel-authority-to-router-tables` |
 | RouterRoot persists accepted Signal messages before delivery retry. | `nix build .#checks.x86_64-linux.router-root-persists-accepted-signal-message-before-delivery-attempt` |
-| RouterRoot persists delivery attempt and result records through router-owned Sema tables. | `nix build .#checks.x86_64-linux.router-root-persists-delivery-attempt-and-result-records` |
+| RouterRoot persists delivery attempt and result records through router-owned Memory tables. | `nix build .#checks.x86_64-linux.router-root-persists-delivery-attempt-and-result-records` |
 | Router engine setup can install first-stack structural channels through the actor tree. | `nix build .#checks.x86_64-linux.router-installs-structural-channels-for-engine-setup` |
 | Router bootstrap startup vocabulary is owned by `signal-router`, not by private local parser records. | `cargo test --test smoke router_bootstrap_decodes_registered_harness_socket_endpoint` and `signal-router`'s `bootstrap_document_owns_line_vocabulary_for_manager_and_router` witness. |
 | The mind channel-grant machinery still installs a channel row through the actor tree though local delivery needs no grant. | `nix build .#checks.x86_64-linux.router-mind-grant-machinery-intact-under-local-default-authorization` |
@@ -1038,7 +1038,7 @@ tests/                  router smoke and actor-density truth tests
 | Router daemon connection path accepts length-prefixed published `signal-router::Frame` requests and writes typed replies without bypassing `RouterObservationPlane`. | `nix build .#checks.x86_64-linux.router-daemon-accepts-router-observation-frames` |
 | Router summary counts derive from RouterRoot's accepted/pending/failed facts. | `nix build .#checks.x86_64-linux.router-summary-query-counts-accepted-pending-and-failed-messages` |
 | Router message trace replies report `Routed` for a delivery-attempted message and `MessageTraceMissing` for unknown slots — no `Unknown` sentinel. | `nix build .#checks.x86_64-linux.router-message-trace-query-reports-routed-status-for-attempted-message` |
-| Router channel state replies read installed-vs-missing-vs-disabled from router-owned Sema tables. | `nix build .#checks.x86_64-linux.router-channel-state-query-reads-router-tables` |
+| Router channel state replies read installed-vs-missing-vs-disabled from router-owned Memory tables. | `nix build .#checks.x86_64-linux.router-channel-state-query-reads-router-tables` |
 | Router channel state without tables surfaces `RouterStoreUnavailable` instead of fabricating an answer. | `nix build .#checks.x86_64-linux.router-channel-state-query-without-tables-reports-router-store-unavailable` |
 | Router observation plane query counts increment in lockstep with mailbox calls — proves observation does not bypass `RouterRoot`. | `nix build .#checks.x86_64-linux.router-observation-path-cannot-bypass-router-root-facts` |
 | `HarnessDelivery::DeliverHarness` handler keeps `DelegatedReply` + `context.spawn` + `tokio::task::spawn_blocking` around the sync deliver body. Future async-without-detach refactors fail this regression witness. | `nix build .#checks.x86_64-linux.harness-delivery-handler-cannot-drop-spawn-blocking-detach` |
@@ -1058,4 +1058,4 @@ tests/                  router smoke and actor-density truth tests
 - `../signal-message/ARCHITECTURE.md`
 - `../signal-router/ARCHITECTURE.md`
 - `../harness/ARCHITECTURE.md`
-- `../sema/ARCHITECTURE.md`
+- `../memory/ARCHITECTURE.md`

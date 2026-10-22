@@ -2,7 +2,7 @@
 //! outbound backlog survives a restart and drains itself on the peer-up event,
 //! with no poll loop.
 //!
-//! The story this proves, end to end over real loopback TCP and a real SEMA
+//! The story this proves, end to end over real loopback TCP and a real MEMORY
 //! file on disk:
 //!
 //!   1. Router A originates TWO mirror (routed-object) forwards for a peer
@@ -10,7 +10,7 @@
 //!      are written to a durable `outbound_backlog` table, not just an
 //!      in-memory `Vec`.
 //!   2. Router A is torn down (the daemon "restarts"). The only channel between
-//!      the two lives is the SEMA file, so the reopened backlog rows prove the
+//!      the two lives is the MEMORY file, so the reopened backlog rows prove the
 //!      waiting letters survived the process going away.
 //!   3. Router A comes back over the reopened store. `on_start` rehydrates the
 //!      backlog into its live pending queue — sorted by enqueue stamp — before
@@ -54,7 +54,7 @@ const SESSION_IDENTITY: &str = "mirror-outbox-session";
 const SOURCE_ACTOR: &str = "spirit";
 const RECIPIENT_ACTOR: &str = "spirit-peer";
 
-/// A temp SEMA store whose path outlives the runtime that opened it, so the
+/// A temp MEMORY store whose path outlives the runtime that opened it, so the
 /// same file can be reopened after a simulated restart.
 struct TemporaryRouterStore {
     path: PathBuf,
@@ -67,7 +67,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "router-outbound-backlog-{name}-{}-{now}.sema",
+            "router-outbound-backlog-{name}-{}-{now}.memory",
             std::process::id()
         ));
         Self { path }
@@ -308,7 +308,7 @@ async fn outbound_backlog_survives_restart_and_drains_on_peer_session_up() {
         router_a.wait_for_shutdown().await;
     }
 
-    // (2) Restart survival: a fresh handle on the same SEMA file — the only
+    // (2) Restart survival: a fresh handle on the same MEMORY file — the only
     // channel across the "restart" — still sees the waiting forwards.
     let reopened = RouterTables::open(store.path()).expect("router tables reopen");
     assert_eq!(

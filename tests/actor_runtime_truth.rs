@@ -200,7 +200,7 @@ impl TemporaryRouterStore {
             .expect("system clock is after Unix epoch")
             .as_nanos();
         let path =
-            std::env::temp_dir().join(format!("router-{name}-{}-{now}.sema", std::process::id()));
+            std::env::temp_dir().join(format!("router-{name}-{}-{now}.memory", std::process::id()));
         Self { path }
     }
 
@@ -812,7 +812,7 @@ fn router_tables_register_engine_families_and_advance_commit_sequence() {
         tables
             .current_commit_sequence()
             .expect("commit sequence reads"),
-        sema_engine::CommitSequence::genesis()
+        memory_engine::CommitSequence::genesis()
     );
 
     let request = router::AdjudicationRequest {
@@ -823,13 +823,13 @@ fn router_tables_register_engine_families_and_advance_commit_sequence() {
     };
     tables
         .insert_adjudication(&request)
-        .expect("adjudication record persists through sema-engine");
+        .expect("adjudication record persists through memory-engine");
 
     assert_eq!(
         tables
             .current_commit_sequence()
             .expect("commit sequence reads after write"),
-        sema_engine::CommitSequence::new(1)
+        memory_engine::CommitSequence::new(1)
     );
 }
 

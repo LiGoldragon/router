@@ -57,7 +57,7 @@ meta-signal-router    = { git = "https://github.com/LiGoldragon/meta-signal-rout
 dotos                  = { git = "https://github.com/LiGoldragon/dotos.git", rev = "80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3", optional = true }
 nota             = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
 rkyv                  = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
-sema-engine           = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
+memory-engine           = { git = "https://github.com/LiGoldragon/memory-engine.git", rev = "abf9d85166e22440440baba03358913458905b8d" }
 signal-persona        = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-frame          = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-frame-interface = { package = "signal-frame", git = "https://github.com/LiGoldragon/signal-frame.git", rev = "01676293a623d97b65e320d4138c4b480c6d5dad" }
@@ -71,7 +71,7 @@ signal-criome = { git = "https://github.com/LiGoldragon/signal-criome.git", bran
 signal-mirror = { git = "https://github.com/LiGoldragon/signal-mirror.git", rev = "d57830076840f0e1ef89352823d7b0356a7c96df", optional = true }
 thiserror             = "2"
 tokio                 = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
-triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+triad-runtime         = { git = "https://github.com/LiGoldragon/triad-runtime.git", rev = "4cc0a100841d2400f354c008c9faa73b2cedf50e" }
 
 [features]
 default = []
