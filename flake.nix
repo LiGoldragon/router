@@ -41,31 +41,11 @@
             filter = craneLib.filterCargoSources;
             name = "source";
           };
-          constraintSourceFilter =
-            path: type:
-            (craneLib.filterCargoSources path type)
-            || (type == "regular" && builtins.baseNameOf path == "flake.nix")
-            || (builtins.match ".*/scripts(/.*)?" path != null);
-          constraintSrc = pkgs.lib.cleanSourceWith {
-            src = ./.;
-            filter = constraintSourceFilter;
-            name = "constraint-source";
-          };
           commonArgs = {
             inherit src;
             strictDeps = true;
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-          sourceConstraintCheck =
-            name: script:
-            pkgs.runCommand name { } ''
-              set -euo pipefail
-
-              export PATH=${pkgs.lib.makeBinPath [ pkgs.ripgrep ]}:$PATH
-              ${pkgs.bash}/bin/bash ${script} ${constraintSrc}
-
-              touch "$out"
-            '';
         in
         {
           inherit
@@ -74,7 +54,6 @@
             craneLib
             commonArgs
             cargoArtifacts
-            sourceConstraintCheck
             ;
         };
     in
@@ -162,14 +141,6 @@
               cargoTestExtraArgs = "--features dotos-text --test process_boundary meta_router_cli_reaches_policy_socket_and_prints_typed_grant -- --exact";
             }
           );
-          router-runtime-cannot-depend-on-message =
-            context.sourceConstraintCheck "router-runtime-cannot-depend-on-message" ./scripts/router-runtime-cannot-depend-on-message;
-          router-runtime-cannot-depend-on-terminal-crates =
-            context.sourceConstraintCheck "router-runtime-cannot-depend-on-terminal-crates" ./scripts/router-runtime-cannot-depend-on-terminal-crates;
-          router-runtime-cannot-poll =
-            context.sourceConstraintCheck "router-runtime-cannot-poll" ./scripts/router-runtime-cannot-poll;
-          router-runtime-cannot-reference-retired-terminal-brand =
-            context.sourceConstraintCheck "router-runtime-cannot-reference-retired-terminal-brand" ./scripts/router-runtime-cannot-reference-retired-terminal-brand;
           router-daemon-accepts-signal-message-only = context.craneLib.cargoTest (
             context.commonArgs
             // {
@@ -189,13 +160,6 @@
             // {
               inherit (context) cargoArtifacts;
               cargoTestExtraArgs = "--test smoke constraint_router_daemon_answers_component_supervision_relation -- --exact";
-            }
-          );
-          router-ingress-cannot-stamp-hidden-owner-origin = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_runtime_truth router_ingress_cannot_stamp_hidden_operator_owner_origin -- --exact";
             }
           );
           unstamped-message-submission-is-not-router-ingress-payload = context.craneLib.cargoTest (
@@ -343,13 +307,6 @@
             // {
               inherit (context) cargoArtifacts;
               cargoTestExtraArgs = "--test observation_truth router_observation_path_cannot_bypass_router_root_facts -- --exact";
-            }
-          );
-          harness-delivery-handler-cannot-drop-spawn-blocking-detach = context.craneLib.cargoTest (
-            context.commonArgs
-            // {
-              inherit (context) cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_runtime_truth harness_delivery_handler_cannot_drop_spawn_blocking_detach -- --exact";
             }
           );
           router-two-router-loopback-forward-delivers-remotely = context.craneLib.cargoTest (

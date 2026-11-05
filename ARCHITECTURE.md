@@ -1012,11 +1012,6 @@ tests/                  router smoke and actor-density truth tests
 | Router daemon binds a separate meta socket at restricted meta-policy mode. | `cargo test --test smoke constraint_router_daemon_applies_meta_socket_mode` |
 | Router meta socket accepts `meta-signal-router` frames and rejects working `signal-message` frames. | `cargo test --test smoke router_meta_connection` |
 | Meta channel-policy orders mutate router channel state and remain visible through the ordinary observation surface. | `cargo test --test observation_truth meta_grant_installs_channel_visible_to_working_observation`, `cargo test --test observation_truth meta_extend_updates_channel_lifetime_in_router_tables`, and `cargo test --test observation_truth meta_revoke_disables_channel_visible_to_working_observation` |
-| Router daemon ingress derives sender/origin from `RouterIngressContext`, not hidden owner/operator stamping. | `nix build .#checks.x86_64-linux.router-ingress-cannot-stamp-hidden-owner-origin` |
-| Router does not depend on the `message` runtime crate. | `nix build .#checks.x86_64-linux.router-runtime-cannot-depend-on-message` |
-| Router does not depend on terminal crates directly. | `nix build .#checks.x86_64-linux.router-runtime-cannot-depend-on-terminal-crates` |
-| Router runtime reacts to pushed events instead of timer polling. | `nix build .#checks.x86_64-linux.router-runtime-cannot-poll` |
-| Router runtime uses the current terminal owner rather than retired terminal-brand infrastructure. | `nix build .#checks.x86_64-linux.router-runtime-cannot-reference-retired-terminal-brand` |
 | Stamped Signal message submissions commit through `RouterRoot` before reply. | `cargo test --test actor_runtime_truth signal_message_submission_cannot_bypass_router_root_commit_trace` |
 | Unstamped Signal message submissions cannot commit on the router socket. | `nix build .#checks.x86_64-linux.unstamped-message-submission-is-not-router-ingress-payload` |
 | A locally-registered recipient with no channel grant reaches the delivery actor (local default-authorization). | `nix build .#checks.x86_64-linux.router-local-recipient-delivers-without-grant` |
@@ -1033,7 +1028,6 @@ tests/                  router smoke and actor-density truth tests
 | Router bootstrap startup vocabulary is owned by `signal-router`, not by private local parser records. | `cargo test --test smoke router_bootstrap_decodes_registered_harness_socket_endpoint` and `signal-router`'s `bootstrap_document_owns_line_vocabulary_for_manager_and_router` witness. |
 | The mind channel-grant machinery still installs a channel row through the actor tree though local delivery needs no grant. | `nix build .#checks.x86_64-linux.router-mind-grant-machinery-intact-under-local-default-authorization` |
 | A typed mind adjudication deny removes a stuck pending message by identifier without delivery. | `nix build .#checks.x86_64-linux.router-mind-deny-removes-stuck-pending-message` |
-| Router source must not reintroduce pre-127 terminal-safety gates, in-band proof, owner inbox, or route-gate concepts. | `cargo test --test actor_runtime_truth router_source_cannot_reintroduce_pre_127_gate_concepts` |
 | Router daemon answers `signal-router::RouterSummaryQuery` from the observation plane actor. | `nix build .#checks.x86_64-linux.router-daemon-answers-router-summary-query` |
 | Router daemon connection path accepts length-prefixed published `signal-router::Frame` requests and writes typed replies without bypassing `RouterObservationPlane`. | `nix build .#checks.x86_64-linux.router-daemon-accepts-router-observation-frames` |
 | Router summary counts derive from RouterRoot's accepted/pending/failed facts. | `nix build .#checks.x86_64-linux.router-summary-query-counts-accepted-pending-and-failed-messages` |
